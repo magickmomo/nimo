@@ -1,23 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, logEvent } from "../../../../lib/world-db";
-import type { WorldState } from "../../../../lib/world";
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.WORLD_OWNER_TOKEN;
-  if (!secret || req.headers.get("x-world-owner-token") !== secret) {
-    return NextResponse.json({ error: "Owner token required" }, { status: 401 });
-  }
+  const owner = process.env.WORLD_OWNER_TOKEN;
+  const url = process.env.WORLD_WORKER_URL;
+  const secret = process.env.WORLD_INTERNAL_SECRET;
+  if (!owner || !url || !secret || req.headers.get("x-world-owner-token") !== owner)
+    return NextResponse.json({ error: "Owner access token required" }, { status: 401 });
   try {
-    const body = await req.json() as { message?: unknown };
-    if (typeof body.message !== "string" || !body.message.trim() || body.message.length > 1000) {
+    const payload = await req.json();
+    if (typeof payload?.message !== "string" || !payload.message.trim() || payload.message.length > 1000)
       return NextResponse.json({ error: "Message must be 1–1000 characters" }, { status: 400 });
-    }
-    // Event is the durable input; the next tick will read it.
-    await logEvent("visitor", body.message.trim(), "INTERACT");
-    // Apply original firmware interaction effect (bounded) without replacing other state.
-    // Emotional response is evaluated by the following tick to avoid clobbering concurrent updates.
-    return NextResponse.json({ ok: true });
+    const res = await fetch(`${url.replace(/\/$/, "")}/message`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: payload.message.trim() }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return NextResponse.json(await res.json(), { status: res.status });
   } catch {
-    return NextResponse.json({ error: "Could not save message" }, { status: 500 });
+    return NextResponse.json({ error: "Unable to save message" }, { status: 502 });
   }
 }
