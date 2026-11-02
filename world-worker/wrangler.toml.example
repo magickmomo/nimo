@@ -1,0 +1,15 @@
+name = "nimo-world"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+# Every minute, even when nobody is visiting the website.
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nimo-world"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+OPENAI_MODEL = "gpt-4.1-mini"
+MAX_DAILY_AI_CALLS = "1440"
