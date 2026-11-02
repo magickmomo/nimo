@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
-import { configured, snapshot } from "../../../lib/world-db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!configured()) {
-    return NextResponse.json({ error: "World storage not configured yet." }, { status: 503 });
-  }
+  const url = process.env.WORLD_WORKER_URL;
+  const secret = process.env.WORLD_INTERNAL_SECRET;
+  if (!url || !secret)
+    return NextResponse.json({ error: "World Worker is not configured yet." }, { status: 503 });
   try {
-    const data = await snapshot();
-    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "World unavailable" }, { status: 500 });
+    const res = await fetch(`${url.replace(/\/$/, "")}/snapshot`, {
+      headers: { Authorization: `Bearer ${secret}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status, headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ error: "Unable to reach World Worker" }, { status: 502 });
   }
 }
