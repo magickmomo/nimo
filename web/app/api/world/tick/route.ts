@@ -11,6 +11,7 @@ type Decision = {
   activity: string;
   goal: string | null;
   belief?: { text: string; evidence: string; confidence: number } | null;
+  identityUpdate?: { text: string; evidence: string } | null;
 };
 
 async function decide(state: WorldState, history: { kind: string; content: string; action: string | null }[]): Promise<Decision> {
@@ -23,10 +24,10 @@ Your environment is a textual world and a durable event log. No actual external 
 Use exactly one action: OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 ACT may only create a proposed textual plan; it cannot execute code or modify external systems.
 REQUEST can describe a desired capability but cannot grant it.
-Propose changes to your beliefs only when a concrete event provides evidence. Beliefs are hypotheses, not immutable truths.
+Propose changes to your beliefs only when a concrete event provides evidence. Beliefs are hypotheses, not immutable truths. You may propose a revised self-description only if recent events justify it.
 Keep your visible monologue short (1-3 sentences). It is a public journal, not hidden reasoning.
 Don't invent achievements or events. If you have nothing new to do, continuing or resting is fine.
-Respond with JSON fields: action, monologue, activity, goal, belief (null or {text,evidence,confidence}).`;
+Respond with JSON fields: action, monologue, activity, goal, belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}).`;
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -91,8 +92,11 @@ export async function POST(req: NextRequest) {
         b.evidence.trim() && !beliefs.some(x => x.text === b.text)) {
       beliefs.push({ text: b.text.slice(0, 200), evidence: b.evidence.slice(0, 250), confidence: clamp(b.confidence) });
     }
+    const newIdentity = decision.identityUpdate;
+    const identity = newIdentity && typeof newIdentity.text === "string" && typeof newIdentity.evidence === "string" && newIdentity.evidence.trim() && newIdentity.text.trim()
+      ? newIdentity.text.slice(0, 500) : previous.identity;
     const next: WorldState = {
-      ...state, beliefs: beliefs.slice(-30),
+      ...state, identity, beliefs: beliefs.slice(-30),
       currentGoal: decision.goal?.slice(0, 250) ?? null,
       currentActivity: decision.activity.slice(0, 120),
       tickCount: previous.tickCount + 1, lastTick: now.toISOString()
@@ -102,6 +106,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ state: next }),
     });
     await logEvent("thought", decision.monologue, decision.action);
+    if (identity !== previous.identity) await logEvent("identity", `Self-description revised: ${identity}. Evidence: ${newIdentity?.evidence}`, "REMEMBER");
     if (b && beliefs.length > previous.beliefs.length) {
       await logEvent("belief", b.text, "REMEMBER");
     }
