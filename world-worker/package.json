@@ -1,0 +1,15 @@
+{
+  "name": "nimo-world-worker",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute nimo-world --remote --file=schema.sql",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "@cloudflare/workers-types": "*",
+    "typescript": "^5.9.0"
+  }
+}
