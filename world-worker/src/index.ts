@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
@@ -8,7 +9,7 @@ type Env = {
   WORLD_INTERNAL_SECRET: string;
   MAX_DAILY_AI_CALLS?: string;
 };
-type EventRow = { id: number; created_at: string; kind: string; content: string; action: string | null };
+type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 type Decision = {
@@ -123,6 +124,15 @@ async function pendingVisitorMessage(db: D1Database): Promise<PendingVisitorMess
     ORDER BY v.id ASC LIMIT 1`).first<PendingVisitorMessage>();
 }
 
+async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
+  // Rare high-signal experiences remain available even after leaving the
+  // rolling recent-history window. Avoid movement/inspection spam.
+  const result = await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+    WHERE kind IN ('visitor','reply','belief','identity')
+       OR action IN ('WRITE_OK','REQUEST')
+    ORDER BY id DESC LIMIT 12`).all<EventRow>();
+  return result.results;
+}
 async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick: string }> {
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
@@ -132,7 +142,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, pendingMessage: PendingVisitorMessage | null): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, pendingMessage: PendingVisitorMessage | null): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -143,6 +153,7 @@ All coordinates you receive (including current position, visible objects, memori
 You have exactly three executable tools: write_document(path, content), move(direction), and inspect(direction).
 To inspect an object one tile north/south/east/west, choose ACT with toolCall: {name:"inspect",direction:"north"|"south"|"east"|"west"}. Only inspect if perception.directions shows canInspect=true. Do not inspect objects two steps away: move adjacent first.
 The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
+Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
 To move one tile choose ACT with toolCall: {name:"move",direction:"north"|"south"|"east"|"west"}.
 Moving into obstacles or outside the map fails. Exploration is possible but not compulsory.
 The write_document tool creates or fully replaces a plain text document in your virtual workspace.
@@ -164,6 +175,16 @@ Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or {name:"write_document",path,content} or {name:"move",direction} or {name:"inspect",direction}). Keep monologue short.`;
+  const experience = buildExperienceContext(history);
+  const knownRecentIds = new Set([
+    ...experience.recentEvents.map(e => e.id),
+    ...experience.meaningfulEvents.map(e => e.id),
+  ]);
+  const olderLandmarks = landmarks.filter(e => !knownRecentIds.has(e.id))
+    .slice(0, 5).map(e => ({
+      id: e.id, when: e.created_at, kind: e.kind, action: e.action,
+      content: e.content.slice(0, 400),
+    }));
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Your immediate action is to REPLY IN WORDS to the message below, not move, inspect or write a file. Use action THINK with toolCall null and make your monologue the actual answer, not a promise to answer later. You may continue your prior activity on a later decision. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
@@ -181,7 +202,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
-        }, recentEvents: history.slice(0, 20), workspace }) },
+        }, experience, olderLandmarks, workspace }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
     }),
@@ -240,7 +261,8 @@ async function tick(env: Env) {
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
-  const history = await events(env.DB, 20);
+  const history = await events(env.DB, 120);
+  const landmarks = await longTermLandmarks(env.DB);
   const workspace = await documents(env.DB);
   const perception = modelPerception(await getPosition(env.DB));
   const memory = await environmentMemory(env.DB);
@@ -253,7 +275,7 @@ async function tick(env: Env) {
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
-  try { d = await decide(env, state, history, workspace, perception, memory, pendingMessage); }
+  try { d = await decide(env, state, history, landmarks, workspace, perception, memory, pendingMessage); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
