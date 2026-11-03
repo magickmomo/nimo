@@ -38,3 +38,8 @@
  .world-journal{position:static;max-height:none;overflow:visible}
  .world-journal-head{position:static}
 }
+
+
+/* Escape the site-wide 980px main container, but only for the World dashboard. */
+main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-inline:clamp(16px,2.5vw,40px)}
+.world-dashboard{width:100%;max-width:none;margin:0}
