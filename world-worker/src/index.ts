@@ -21,6 +21,15 @@ const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
+// Control lives outside the AI-editable personality state.
+async function autonomousEnabled(db: D1Database): Promise<boolean> {
+  const row = await db.prepare("SELECT autonomous_enabled FROM world_control WHERE id=1")
+    .first<{ autonomous_enabled: number }>();
+  if (!row) throw new Error("World control missing. Run the sleep-toggle migration.");
+  return row.autonomous_enabled === 1;
+}
+
+
 async function events(db: D1Database, count = 60) {
   const r = await db.prepare("SELECT id,created_at,kind,content,action FROM events ORDER BY id DESC LIMIT ?")
     .bind(count).all<EventRow>();
@@ -80,6 +89,8 @@ belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evide
 }
 async function tick(env: Env) {
   const now = new Date();
+  // Sleep stops decisions *before* any model call or usage quota reservation.
+  if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
   const world = await getWorld(env.DB);
   if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
 
@@ -98,6 +109,7 @@ async function tick(env: Env) {
     "UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?"
   ).bind(new Date(now.getTime() + 60000).toISOString(), world.next_tick).run();
   if (claimed.meta.changes !== 1) return { status: "already_claimed" };
+  if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
@@ -115,6 +127,9 @@ async function tick(env: Env) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
   }
+  // A pause made while the model was thinking discards the result. An in-flight
+  // request might still be billed; subsequent requests will not start.
+  if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
   const beliefs = [...state.beliefs];
   const b = d.belief;
   if (b && typeof b.text === "string" && typeof b.evidence === "string" &&
@@ -153,7 +168,20 @@ export default {
       const path = new URL(request.url).pathname;
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
-        return json({ world, events: await events(env.DB) });
+        return json({ world, events: await events(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+      }
+      if (path === "/control" && request.method === "POST") {
+        const body = await request.json() as { enabled?: unknown };
+        if (typeof body.enabled !== "boolean")
+          return json({ error: "enabled must be a boolean" }, 400);
+        // Separate, durable operator control; never available to the agent as a tool.
+        await env.DB.prepare(
+          "UPDATE world_control SET autonomous_enabled=?, updated_at=? WHERE id=1"
+        ).bind(body.enabled ? 1 : 0, new Date().toISOString()).run();
+        await log(env.DB, "system",
+          body.enabled ? "Autonomous loop enabled by owner." : "Autonomous loop paused by owner.",
+          body.enabled ? "WAKE" : "SLEEP");
+        return json({ ok: true, autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/message" && request.method === "POST") {
         const data = await request.json() as { message?: unknown };
