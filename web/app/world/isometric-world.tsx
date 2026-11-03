@@ -49,9 +49,10 @@ function Character() {
   );
 }
 
-export default function IsometricWorld({ position }: { position: Point | null }) {
+export default function IsometricWorld({ position, visited = [], inspected = [] }: { position: Point | null; visited?: Point[]; inspected?: (Point & { kind: string })[] }) {
   // Read-only: the Worker controls the authoritative position.
   const current = position ?? { x: 4, y: 4 };
+  const seen = new Set(visited.map(p => `${p.x}:${p.y}`));
   const sprites = [...objects.map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
@@ -72,13 +73,14 @@ export default function IsometricWorld({ position }: { position: Point | null })
         <ellipse cx="310" cy="190" rx="272" ry="132" fill="#071a18" opacity=".35"/>
         {tiles.map(tile => {
           const p = project(tile);
+          const hasVisited = seen.has(`${tile.x}:${tile.y}`);
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
-              <polygon points={points} fill={(tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)"}
+              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)")}
                 stroke="#648b5a" strokeWidth="1" />
               <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
-              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}`}</title>
+              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : " · unvisited"}`}</title>
             </g>
           );
         })}
@@ -91,8 +93,18 @@ export default function IsometricWorld({ position }: { position: Point | null })
       </svg>
       <div className="nimo-map-footer">
         <span><strong>Nimo</strong> · tile ({current.x + 1}, {current.y + 1})</span>
-        <span className="nimo-map-preview">Position stored in D1 · movement is autonomous</span>
+        <span className="nimo-map-preview">{visited.length} / 81 visited · {inspected.length} objects inspected · position stored in D1</span>
       </div>
+      {inspected.length > 0 && (
+        <details className="nimo-map-discoveries">
+          <summary>Inspected objects ({inspected.length})</summary>
+          <ul>
+            {inspected.map(item => (
+              <li key={`${item.x}:${item.y}`}>{item.kind} at ({item.x + 1}, {item.y + 1})</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

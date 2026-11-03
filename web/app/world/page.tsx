@@ -12,6 +12,10 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   position?: { x: number; y: number };
+  environmentMemory?: {
+    visited: { x: number; y: number; visit_count: number }[];
+    inspected: { x: number; y: number; kind: string; description: string; inspection_count: number }[];
+  };
 };
 
 export default function World() {
@@ -110,7 +114,7 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld position={data?.position ?? null} />
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} inspected={data?.environmentMemory?.inspected} />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>
@@ -161,7 +165,7 @@ export default function World() {
         <div className="world-journal-head"><h2>Journal</h2><button type="button" onClick={()=>void refresh()}>Refresh</button></div>
         {data?.events.length ? data.events.map(event => (
           <article key={event.id} className="world-event">
-            <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.action || event.kind}</span></div>
+            <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.action?.startsWith("REPLY_TO:") ? "REPLY" : (event.action || event.kind)}</span></div>
             <p>{event.content}</p>
           </article>
         )) : <p className="meta">Nothing has happened yet.</p>}
