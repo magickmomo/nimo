@@ -78,3 +78,9 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map-controls button:hover{background:#346451}
 .nimo-map-controls button:focus-visible{outline:2px solid #f2d88b;outline-offset:2px}
 @media(max-width:600px){.nimo-map-heading,.nimo-map-footer{padding:11px 12px}.nimo-map-footer{flex-direction:column;align-items:flex-start}.nimo-map-preview{text-align:left}.nimo-map-controls{padding:3px 10px 14px}}
+
+.nimo-map-discoveries{padding:0 18px 14px;font-size:12px;color:#bfd0c3}
+.nimo-map-discoveries summary{cursor:pointer}
+.nimo-map-discoveries ul{margin:8px 0 0;padding-left:20px;columns:2}
+.nimo-map-discoveries li{margin-bottom:4px}
+@media(max-width:520px){.nimo-map-discoveries ul{columns:1}}
