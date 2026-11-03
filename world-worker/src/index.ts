@@ -19,6 +19,8 @@ type Decision = {
   toolCall?: { name: "write_document"; path: string; content: string } | null;
 };
 const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
+// Capabilities belong to the Worker, independently of persisted AI state.
+const AVAILABLE_TOOLS = ["write_document"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
@@ -159,7 +161,7 @@ async function tick(env: Env) {
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
   const interacted = history.some(e => e.kind === "visitor" && (!Number.isFinite(last) || Date.parse(e.created_at) > last));
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
-  const state: WorldState = { ...world.state, emotions, tools: ["write_document"] };
+  const state: WorldState = { ...world.state, emotions, tools: [...AVAILABLE_TOOLS] };
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
@@ -223,7 +225,9 @@ export default {
       const path = new URL(request.url).pathname;
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), availableTools: ["write_document"], autonomousEnabled: await autonomousEnabled(env.DB) });
+        // Report current capabilities even before a decision or while asleep.
+        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
