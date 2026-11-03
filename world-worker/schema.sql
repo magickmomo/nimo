@@ -26,3 +26,11 @@ INSERT OR IGNORE INTO world(id,state,next_tick) VALUES(
 INSERT INTO events(kind,content,action)
 SELECT 'system','World 001 created. No body or tools.','INIT'
 WHERE NOT EXISTS(SELECT 1 FROM events);
+
+-- Owner-only pause state (separate from AI identity and memories).
+CREATE TABLE IF NOT EXISTS world_control (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ autonomous_enabled INTEGER NOT NULL DEFAULT 1 CHECK(autonomous_enabled IN (0,1)),
+ updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+INSERT OR IGNORE INTO world_control(id, autonomous_enabled) VALUES(1, 1);
