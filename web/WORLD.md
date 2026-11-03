@@ -43,3 +43,27 @@ The Cloudflare Worker uses a cron trigger each minute. It uses the current world
 
 ## Verification
 Run `cd web && npm run typecheck && npm run build` plus `cd world-worker && npx tsc --noEmit`. This PR has not been deployed or runtime-tested.
+
+## Sleep / Wake control
+A separate settings page is available at `/world/settings`.
+The owner must enter the existing `WORLD_OWNER_TOKEN` to pause or resume.
+The Worker persists `autonomous_enabled` in `world_control` (D1).
+When paused, the scheduled trigger still fires, but returns before requesting an AI decision. No state or journal data is deleted.
+If a decision has already started when sleep is selected, that request may still incur model usage; the Worker checks the pause state again before saving its result.
+
+**Existing database: migrate before deploying the new Worker**, from the `world-worker` directory:
+
+```sh
+npx wrangler d1 execute nimo-world --remote --file=migrations/002_world_sleep.sql
+npm run deploy
+```
+
+Then deploy the web app from the corresponding Git branch or merge to main and redeploy Vercel. The same `WORLD_OWNER_TOKEN`, `WORLD_WORKER_URL`, and `WORLD_INTERNAL_SECRET` are used, so no additional secrets are needed.
+
+Confirm pause with:
+
+```sh
+npx wrangler d1 execute nimo-world --remote --command "SELECT autonomous_enabled, updated_at FROM world_control WHERE id=1;"
+```
+
+Value `0` means sleeping, `1` means awake.
