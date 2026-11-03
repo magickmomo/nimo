@@ -64,7 +64,7 @@ export default function World() {
     { label: "Boredom", value: state.emotions.boredom, tone: "boredom" },
   ] : [];
   return (
-    <div className="world-page">
+    <div className="world-page world-dashboard">
       <div className="world-topbar">
         <a className="world-settings-link" href="/world/settings">World settings — Sleep / Wake</a>
       </div>
