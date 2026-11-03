@@ -223,7 +223,7 @@ export default {
       const path = new URL(request.url).pathname;
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), availableTools: ["write_document"], autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
