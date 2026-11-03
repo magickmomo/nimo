@@ -69,6 +69,8 @@ export default function World() {
         <a className="world-settings-link" href="/world/settings">World settings — Sleep / Wake</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
+      <div className="world-layout">
+        <div className="world-main">
       {state && (
         <>
           <section className="world-status-strip" aria-label="Nimo's internal state">
@@ -134,6 +136,7 @@ export default function World() {
           <p className="meta">Messages enter the event log and can influence the next AI decision; replies aren't instantaneous.</p>
         </section>
       </div>
+        </div>
       <section className="world-card world-journal">
         <div className="world-journal-head"><h2>Journal</h2><button type="button" onClick={()=>void refresh()}>Refresh</button></div>
         {data?.events.length ? data.events.map(event => (
@@ -143,6 +146,7 @@ export default function World() {
           </article>
         )) : <p className="meta">Nothing has happened yet.</p>}
       </section>
+      </div>
     </div>
   );
 }
