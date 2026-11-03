@@ -74,8 +74,7 @@ export default function IsometricWorld({ position }: { position: Point | null })
           const p = project(tile);
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
-            <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}
->
+            <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
               <polygon points={points} fill={(tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)"}
                 stroke="#648b5a" strokeWidth="1" />
               <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
