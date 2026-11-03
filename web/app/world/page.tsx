@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
+import IsometricWorld from "./isometric-world";
 
 type Snapshot = {
   world: { state: WorldState; next_tick: string };
@@ -108,18 +109,7 @@ export default function World() {
           </div>
         </>
       )}
-      <div className="world-frame">
-        <div className="world-frame-top"><span>WORLD 001</span><span>{state ? "IDENTITY ACTIVE" : "WAITING FOR INITIALISATION"}</span></div>
-        <div className="world-presence">
-          <span className="world-symbol" aria-hidden="true">_</span>
-          <p>{state ? state.identity : "No state available."}</p>
-          <small>No physical form · No avatar</small>
-        </div>
-        <div className="world-frame-bottom">
-          <span>{state ? `Decision #${state.tickCount}` : "—"}</span>
-          <span>Next eligible tick: {seconds}s</span>
-        </div>
-      </div>
+      <IsometricWorld />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>
