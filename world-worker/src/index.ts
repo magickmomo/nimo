@@ -1,5 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
-import { destination, isWalkable, objectAt, perceive, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
+import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
   DB: D1Database;
@@ -120,16 +120,16 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof perceive>, memory: Awaited<ReturnType<typeof environmentMemory>>): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
 You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
 Your world perception contains your actual position, objects within two cardinal steps,
 and whether each adjacent direction is walkable. You cannot see beyond that radius.
-These coordinates are zero-based. Your position changes only if the environment confirms a move.
+All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 9, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
 You have exactly three executable tools: write_document(path, content), move(direction), and inspect(direction).
-To inspect an object one tile north/south/east/west, choose ACT with toolCall: {name:"inspect",direction:"north"|"south"|"east"|"west"}. It cannot inspect empty tiles or distant objects.
+To inspect an object one tile north/south/east/west, choose ACT with toolCall: {name:"inspect",direction:"north"|"south"|"east"|"west"}. Only inspect if perception.directions shows canInspect=true. Do not inspect objects two steps away: move adjacent first.
 The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 To move one tile choose ACT with toolCall: {name:"move",direction:"north"|"south"|"east"|"west"}.
 Moving into obstacles or outside the map fails. Exploration is possible but not compulsory.
@@ -141,7 +141,7 @@ To use your tool, choose action ACT and supply toolCall: {name:"write_document",
 These are your ONLY actual external actions. ACT without toolCall does not create anything.
 You cannot execute code, send email, spend money, browse the internet, or add tools.
 REQUEST asks your owner for a new capability; it does not grant it.
-Do not claim a write or movement succeeded before a later journal event confirms it.
+Do not claim a write, inspection or movement has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If the recent events contain an unanswered creator message, address it clearly in your public monologue.
 Your internal-state values are simulated, not proof of literal feelings.
@@ -163,9 +163,9 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
       messages: [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify({ state, perception, environmentMemory: {
-          visited: memory.visited.map(({x,y,visit_count}) => ({x,y,visits:visit_count})),
+          visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
-            ({x,y,kind,description,inspections:inspection_count})),
+            ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, recentEvents: history.slice(0, 20), workspace }) },
       ],
     }),
@@ -176,11 +176,14 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
   const raw = data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision");
   const d = JSON.parse(raw) as Decision;
-  if (!ACTIONS.includes(d.action) || typeof d.monologue !== "string" ||
-      d.monologue.length > 1800 || typeof d.activity !== "string" ||
-      (d.goal !== null && typeof d.goal !== "string")) {
-    throw new Error("Invalid AI decision");
-  }
+  if (!d || typeof d !== "object") throw new Error("Invalid AI decision: expected object");
+  // The model sometimes omits optional goal; preserve an otherwise valid action.
+  if (d.goal === undefined) d.goal = null;
+  if (!ACTIONS.includes(d.action)) throw new Error("Invalid AI decision: unsupported action");
+  if (typeof d.monologue !== "string" || d.monologue.length > 1800)
+    throw new Error("Invalid AI decision: monologue must be 0-1800 characters");
+  if (typeof d.activity !== "string") throw new Error("Invalid AI decision: activity must be a string");
+  if (d.goal !== null && typeof d.goal !== "string") throw new Error("Invalid AI decision: goal must be string or null");
   if (d.toolCall != null) {
     if (d.action !== "ACT") throw new Error("Invalid tool call: requires ACT");
     if (d.toolCall.name === "write_document") {
@@ -188,7 +191,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
         throw new Error("Invalid write_document parameters");
     } else if (d.toolCall.name === "move" || d.toolCall.name === "inspect") {
       if (!["north","south","east","west"].includes(d.toolCall.direction))
-        throw new Error("Invalid move direction");
+        throw new Error("Invalid direction for movement or inspection");
     } else throw new Error("Unknown tool name");
   }
   return d;
@@ -221,7 +224,7 @@ async function tick(env: Env) {
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
   const history = await events(env.DB, 20);
   const workspace = await documents(env.DB);
-  const perception = perceive(await getPosition(env.DB));
+  const perception = modelPerception(await getPosition(env.DB));
   const memory = await environmentMemory(env.DB);
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
   const interacted = history.some(e => e.kind === "visitor" && (!Number.isFinite(last) || Date.parse(e.created_at) > last));
@@ -250,11 +253,11 @@ async function tick(env: Env) {
         await log(env.DB, "tool", toolOutcome, "WRITE_OK");
       } else if (call.name === "move") {
         const to = await move(env.DB, call.direction);
-        toolOutcome = `MOVE OK: ${call.direction} to (${to.x + 1}, ${to.y + 1})`;
+        toolOutcome = `MOVE OK: ${call.direction} to (${displayPoint(to).x}, ${displayPoint(to).y})`;
         await log(env.DB, "tool", toolOutcome, "MOVE_OK");
       } else if (call.name === "inspect") {
         const found = await inspectObject(env.DB, call.direction);
-        toolOutcome = `INSPECT OK: ${found.object.kind} at (${found.object.x + 1}, ${found.object.y + 1}). ${found.description}`;
+        toolOutcome = `INSPECT OK: ${found.object.kind} at (${displayPoint(found.object).x}, ${displayPoint(found.object).y}). ${found.description}`;
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
       }
     } catch (err) {
