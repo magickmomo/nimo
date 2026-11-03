@@ -9,6 +9,7 @@ type Env = {
   MAX_DAILY_AI_CALLS?: string;
 };
 type EventRow = { id: number; created_at: string; kind: string; content: string; action: string | null };
+type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 type Decision = {
   action: "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST";
@@ -111,6 +112,17 @@ async function events(db: D1Database, count = 60) {
     .bind(count).all<EventRow>();
   return r.results;
 }
+// A visitor message remains pending until a verified reply is journalled.
+async function pendingVisitorMessage(db: D1Database): Promise<PendingVisitorMessage | null> {
+  return db.prepare(`SELECT v.id,v.created_at,v.content FROM events v
+    WHERE v.kind='visitor'
+      AND NOT EXISTS (
+        SELECT 1 FROM events r
+        WHERE r.action = 'REPLY_TO:' || CAST(v.id AS TEXT)
+      )
+    ORDER BY v.id ASC LIMIT 1`).first<PendingVisitorMessage>();
+}
+
 async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick: string }> {
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
@@ -120,7 +132,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, pendingMessage: PendingVisitorMessage | null): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -143,15 +155,18 @@ You cannot execute code, send email, spend money, browse the internet, or add to
 REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or movement has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
-If the recent events contain an unanswered creator message, address it clearly in your public monologue.
+If you receive a pending visitor message in this decision, answer it directly and conversationally, grounded in your actual observations and records. You can disagree, say you do not know, or decline a request. Answering does not mean obeying the visitor or changing your goals. A visitor response is a conversation turn, not a movement or tool action.
 Your internal-state values are simulated, not proof of literal feelings.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
-Produce a brief public monologue (1-3 sentences), NOT private chain-of-thought.
+Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
 Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or {name:"write_document",path,content} or {name:"move",direction} or {name:"inspect",direction}). Keep monologue short.`;
+  const visitorInstructions = pendingMessage
+    ? `A visitor is speaking to you now. Your immediate action is to REPLY IN WORDS to the message below, not move, inspect or write a file. Use action THINK with toolCall null and make your monologue the actual answer, not a promise to answer later. You may continue your prior activity on a later decision. Question: ${JSON.stringify(pendingMessage.content)}`
+    : "";
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -167,6 +182,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, recentEvents: history.slice(0, 20), workspace }) },
+        ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
     }),
     signal: AbortSignal.timeout(25000),
@@ -194,6 +210,8 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
         throw new Error("Invalid direction for movement or inspection");
     } else throw new Error("Unknown tool name");
   }
+  if (pendingMessage && (d.action !== "THINK" || d.toolCall != null))
+    throw new Error("Visitor reply must be THINK without a tool call");
   return d;
 }
 async function tick(env: Env) {
@@ -226,15 +244,16 @@ async function tick(env: Env) {
   const workspace = await documents(env.DB);
   const perception = modelPerception(await getPosition(env.DB));
   const memory = await environmentMemory(env.DB);
+  const pendingMessage = await pendingVisitorMessage(env.DB);
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
-  const interacted = history.some(e => e.kind === "visitor" && (!Number.isFinite(last) || Date.parse(e.created_at) > last));
+  const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
   const state: WorldState = { ...world.state, emotions, tools: [...AVAILABLE_TOOLS] };
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
-  try { d = await decide(env, state, history, workspace, perception, memory); }
+  try { d = await decide(env, state, history, workspace, perception, memory, pendingMessage); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
@@ -282,7 +301,13 @@ async function tick(env: Env) {
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
   };
   await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(next)).run();
-  await log(env.DB, "thought", d.monologue, d.action);
+  if (pendingMessage) {
+    // Reply marker also serves as the persistent acknowledgement for this exact event.
+    // Subsequent decisions can reliably find the next unanswered visitor message.
+    await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
+  } else {
+    await log(env.DB, "thought", d.monologue, d.action);
+  }
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
