@@ -60,8 +60,8 @@ export default function World() {
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Energy", value: state.emotions.energy, tone: "energy" },
-    { label: "Wonder", value: 1 - state.emotions.boredom, tone: "wonder" },
-    { label: "Joy", value: state.emotions.happiness, tone: "joy" },
+    { label: "Happiness", value: state.emotions.happiness, tone: "happiness" },
+    { label: "Boredom", value: state.emotions.boredom, tone: "boredom" },
   ] : [];
   return (
     <div className="world-page">
