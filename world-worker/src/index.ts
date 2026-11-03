@@ -162,7 +162,11 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state, perception, environmentMemory: memory, recentEvents: history.slice(0, 20), workspace }) },
+        { role: "user", content: JSON.stringify({ state, perception, environmentMemory: {
+          visited: memory.visited.map(({x,y,visit_count}) => ({x,y,visits:visit_count})),
+          inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
+            ({x,y,kind,description,inspections:inspection_count})),
+        }, recentEvents: history.slice(0, 20), workspace }) },
       ],
     }),
     signal: AbortSignal.timeout(25000),
