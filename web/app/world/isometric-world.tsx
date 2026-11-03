@@ -95,6 +95,16 @@ export default function IsometricWorld({ position, visited = [], inspected = [] 
         <span><strong>Nimo</strong> · tile ({current.x + 1}, {current.y + 1})</span>
         <span className="nimo-map-preview">{visited.length} / 81 visited · {inspected.length} objects inspected · position stored in D1</span>
       </div>
+      {inspected.length > 0 && (
+        <details className="nimo-map-discoveries">
+          <summary>Inspected objects ({inspected.length})</summary>
+          <ul>
+            {inspected.map(item => (
+              <li key={`${item.x}:${item.y}`}>{item.kind} at ({item.x + 1}, {item.y + 1})</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
