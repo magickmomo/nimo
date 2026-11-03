@@ -23,3 +23,18 @@
 .world-frame{margin-top:0}
 @media(max-width:780px){.world-status-meta{grid-template-columns:repeat(2,minmax(0,1fr))}.world-status-item{padding:10px}.world-status-head{font-size:14px;gap:7px}.world-status-dot{width:22px;height:22px}}
 @media(max-width:520px){.world-status-strip{border-radius:24px;grid-template-columns:1fr;padding:10px 16px}.world-status-item{border-right:0;border-bottom:2px dashed rgba(53,43,86,.28);padding:12px 4px}.world-status-item:last-child{border-bottom:0}.world-status-meta{grid-template-columns:1fr}.world-status-head{font-size:15px}.world-status-dot{width:26px;height:26px}}
+
+
+/* Desktop: two-thirds World, one-third independently scrollable journal. */
+.world-page{max-width:1440px}
+.world-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);align-items:start;gap:20px}
+.world-main{min-width:0}
+.world-main .world-grid{grid-template-columns:minmax(0,1fr)}
+.world-journal{min-width:0;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;overscroll-behavior:contain}
+.world-journal-head{position:sticky;top:-22px;background:#fff;padding:4px 0 12px;z-index:1}
+.world-journal .world-event p{overflow-wrap:anywhere}
+@media(max-width:850px){
+ .world-layout{grid-template-columns:minmax(0,1fr)}
+ .world-journal{position:static;max-height:none;overflow:visible}
+ .world-journal-head{position:static}
+}
