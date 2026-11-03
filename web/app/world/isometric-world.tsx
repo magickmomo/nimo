@@ -1,23 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
 
-const SIZE = 9;
 const HW = 29;
 const HH = 16;
 const ORIGIN_X = 310;
 const ORIGIN_Y = 40;
-type Point = { x: number; y: number };
-type ObjectKind = "tree" | "rock" | "shrub";
-const objects: { x: number; y: number; kind: ObjectKind }[] = [
-  {x:1,y:1,kind:"tree"},{x:6,y:1,kind:"tree"},{x:7,y:6,kind:"tree"},
-  {x:1,y:7,kind:"tree"},{x:3,y:2,kind:"rock"},{x:6,y:5,kind:"rock"},
-  {x:2,y:5,kind:"shrub"},{x:5,y:7,kind:"shrub"},
-];
 const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
-const occupied = (p: Point) => objects.some(o => o.x === p.x && o.y === p.y);
-const inBounds = (p: Point) => p.x >= 0 && p.x < SIZE && p.y >= 0 && p.y < SIZE;
 
 function Scenery({ kind }: { kind: ObjectKind }) {
   if (kind === "tree") return (
@@ -59,27 +49,21 @@ function Character() {
   );
 }
 
-export default function IsometricWorld() {
-  // Deliberately a local preview. No browser movement is sent to the Worker or attributed to Nimo's AI.
-  const [position, setPosition] = useState<Point>({ x: 4, y: 4 });
-  const [selected, setSelected] = useState<Point | null>(null);
-  const move = (point: Point) => {
-    if (!inBounds(point) || occupied(point)) return;
-    setPosition(point);
-    setSelected(point);
-  };
+export default function IsometricWorld({ position }: { position: Point | null }) {
+  // Read-only: the Worker controls the authoritative position.
+  const current = position ?? { x: 4, y: 4 };
   const sprites = [...objects.map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
-    { x: position.x, y: position.y, kind: "nimo" as const, id: "nimo" }]
+    { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
   return (
     <div className="nimo-map">
       <div className="nimo-map-heading">
-        <span>WORLD 002 · ISOMETRIC PROTOTYPE</span>
+        <span>WORLD 002 · NIMO'S WORLD</span>
         <span>9 × 9</span>
       </div>
       <svg className="nimo-map-canvas" viewBox="0 0 620 365" role="img"
-        aria-label={`Isometric nine by nine map showing Nimo at column ${position.x + 1}, row ${position.y + 1}, with trees and rocks.`}>
+        aria-label={`Isometric nine by nine map showing Nimo at column ${current.x + 1}, row ${current.y + 1}, with trees and rocks.`}>
         <defs>
           <linearGradient id="nimo-ground" x1="0" y1="0" x2="0.8" y2="1">
             <stop offset="0" stopColor="#9bc17d"/><stop offset="1" stopColor="#719b63"/>
@@ -88,16 +72,14 @@ export default function IsometricWorld() {
         <ellipse cx="310" cy="190" rx="272" ry="132" fill="#071a18" opacity=".35"/>
         {tiles.map(tile => {
           const p = project(tile);
-          const blocked = occupied(tile);
-          const isSelected = selected?.x === tile.x && selected?.y === tile.y;
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}
-              onClick={() => move(tile)} style={{ cursor: blocked ? "not-allowed" : "pointer" }}>
-              <polygon points={points} fill={isSelected ? "#ddc88a" : (tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)"}
+>
+              <polygon points={points} fill={(tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)"}
                 stroke="#648b5a" strokeWidth="1" />
               <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
-              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${blocked ? " (occupied)" : ""}`}</title>
+              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}`}</title>
             </g>
           );
         })}
@@ -109,16 +91,8 @@ export default function IsometricWorld() {
         })}
       </svg>
       <div className="nimo-map-footer">
-        <span><strong>Nimo</strong> · tile ({position.x + 1}, {position.y + 1})</span>
-        <span className="nimo-map-preview">Visual prototype · movement is manual, not autonomous yet</span>
-      </div>
-      <div className="nimo-map-controls">
-        <span>Test movement</span>
-        <button type="button" aria-label="Move north" onClick={() => move({x: position.x, y:position.y-1})}>N</button>
-        <button type="button" aria-label="Move west" onClick={() => move({x: position.x-1,y:position.y})}>W</button>
-        <button type="button" aria-label="Move south" onClick={() => move({x: position.x,y:position.y+1})}>S</button>
-        <button type="button" aria-label="Move east" onClick={() => move({x: position.x+1,y:position.y})}>E</button>
-        <span>or select a free tile</span>
+        <span><strong>Nimo</strong> · tile ({current.x + 1}, {current.y + 1})</span>
+        <span className="nimo-map-preview">Position stored in D1 · movement is autonomous</span>
       </div>
     </div>
   );
