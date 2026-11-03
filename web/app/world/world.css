@@ -12,8 +12,8 @@
 .world-status-dot{position:relative;display:inline-block;width:28px;height:28px;border:3px solid #352b56;border-radius:50%;flex:none}
 .world-status-dot:before{content:"";position:absolute;top:4px;left:5px;width:7px;height:5px;border-radius:50%;background:rgba(255,255,255,.65)}
 .world-status-dot.energy,.world-status-fill.energy{background:#f6b53b}
-.world-status-dot.wonder,.world-status-fill.wonder{background:#ad59ed}
-.world-status-dot.joy,.world-status-fill.joy{background:#ffd52a}
+.world-status-dot.happiness,.world-status-fill.happiness{background:#ffd52a}
+.world-status-dot.boredom,.world-status-fill.boredom{background:#ad59ed}
 .world-status-bar{height:20px;border:3px solid #352b56;border-radius:999px;background:#f9ecde;overflow:hidden}
 .world-status-fill{height:100%;border-radius:999px;transition:width .25s ease}
 .world-status-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
