@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { destination, isWalkable, objectAt, perceive, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
   DB: D1Database;
@@ -16,14 +17,32 @@ type Decision = {
   goal: string | null;
   belief?: { text: string; evidence: string; confidence: number } | null;
   identityUpdate?: { text: string; evidence: string } | null;
-  toolCall?: { name: "write_document"; path: string; content: string } | null;
+  toolCall?: { name: "write_document"; path: string; content: string } | { name: "move"; direction: Direction } | null;
 };
 const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document"];
+const AVAILABLE_TOOLS = ["write_document", "move"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
+async function getPosition(db: D1Database): Promise<Point> {
+  const position = await db.prepare("SELECT x,y FROM world_position WHERE id=1").first<Point>();
+  if (!position) throw new Error("World position missing: run migration 004_world_position.sql");
+  return position;
+}
+async function move(db: D1Database, direction: Direction) {
+  const from = await getPosition(db);
+  const to = destination(from, direction);
+  if (!isWalkable(to)) {
+    const obstruction = objectAt(to)?.kind ?? "world edge";
+    throw new Error(`Cannot move ${direction}: ${obstruction} blocks the way`);
+  }
+  const result = await db.prepare(
+    "UPDATE world_position SET x=?,y=?,updated_at=? WHERE id=1 AND x=? AND y=?"
+  ).bind(to.x,to.y,new Date().toISOString(),from.x,from.y).run();
+  if (result.meta.changes !== 1) throw new Error("Position changed; retry next decision");
+  return to;
+}
 const MAX_DOCS = 12;
 const MAX_DOC_CHARS = 2000;
 async function documents(db: D1Database): Promise<DocumentRow[]> {
@@ -74,21 +93,26 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[]): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof perceive>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
-You have no body, avatar or physical senses. You inhabit a text-based world.
-You have exactly one executable tool: write_document(path, content).
+You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
+Your world perception contains your actual position, objects within two cardinal steps,
+and whether each adjacent direction is walkable. You cannot see beyond that radius.
+These coordinates are zero-based. Your position changes only if the environment confirms a move.
+You have exactly two executable tools: write_document(path, content) and move(direction).
+To move one tile choose ACT with toolCall: {name:"move",direction:"north"|"south"|"east"|"west"}.
+Moving into obstacles or outside the map fails. Exploration is possible but not compulsory.
 It creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
 Your current workspace is provided with this request. Read it before writing.
 To use your tool, choose action ACT and supply toolCall: {name:"write_document",path:"...",content:"..."}.
-This is the ONLY actual external action. ACT without toolCall does not create anything.
+These are your ONLY actual external actions. ACT without toolCall does not create anything.
 You cannot execute code, send email, spend money, browse the internet, or add tools.
 REQUEST asks your owner for a new capability; it does not grant it.
-Do not say a write succeeded before a later journal event confirms the result.
+Do not claim a write or movement succeeded before a later journal event confirms it.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If the recent events contain an unanswered creator message, address it clearly in your public monologue.
 Your internal-state values are simulated, not proof of literal feelings.
@@ -98,7 +122,7 @@ Produce a brief public monologue (1-3 sentences), NOT private chain-of-thought.
 Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
-toolCall (null or {name:"write_document",path,content}). Keep monologue short.`;
+toolCall (null or {name:"write_document",path,content} or {name:"move",direction}). Keep monologue short.`;
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -109,7 +133,7 @@ toolCall (null or {name:"write_document",path,content}). Keep monologue short.`;
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state, recentEvents: history.slice(0, 20), workspace }) },
+        { role: "user", content: JSON.stringify({ state, perception, recentEvents: history.slice(0, 20), workspace }) },
       ],
     }),
     signal: AbortSignal.timeout(25000),
@@ -124,10 +148,16 @@ toolCall (null or {name:"write_document",path,content}). Keep monologue short.`;
       (d.goal !== null && typeof d.goal !== "string")) {
     throw new Error("Invalid AI decision");
   }
-  if (d.toolCall != null && (
-    d.action !== "ACT" || d.toolCall.name !== "write_document" ||
-    typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string"
-  )) throw new Error("Invalid tool call");
+  if (d.toolCall != null) {
+    if (d.action !== "ACT") throw new Error("Invalid tool call: requires ACT");
+    if (d.toolCall.name === "write_document") {
+      if (typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string")
+        throw new Error("Invalid write_document parameters");
+    } else if (d.toolCall.name === "move") {
+      if (!["north","south","east","west"].includes(d.toolCall.direction))
+        throw new Error("Invalid move direction");
+    } else throw new Error("Unknown tool name");
+  }
   return d;
 }
 async function tick(env: Env) {
@@ -158,6 +188,7 @@ async function tick(env: Env) {
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
   const history = await events(env.DB, 20);
   const workspace = await documents(env.DB);
+  const perception = perceive(await getPosition(env.DB));
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
   const interacted = history.some(e => e.kind === "visitor" && (!Number.isFinite(last) || Date.parse(e.created_at) > last));
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
@@ -166,7 +197,7 @@ async function tick(env: Env) {
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
-  try { d = await decide(env, state, history, workspace); }
+  try { d = await decide(env, state, history, workspace, perception); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
@@ -174,17 +205,23 @@ async function tick(env: Env) {
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
   if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
-  // The write runs only after the model decision and sleep check.
-  // Journal records the verified outcome, never a model's unverified claim.
-  let writeOutcome: string | null = null;
+  // Tool execution is authoritative; journal records verified results, never claims.
+  let toolOutcome: string | null = null;
   if (d.toolCall) {
+    const call = d.toolCall;
     try {
-      const saved = await writeDocument(env.DB, d.toolCall);
-      writeOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${d.toolCall.content.length} chars)`;
-      await log(env.DB, "tool", writeOutcome, "WRITE_OK");
+      if (call.name === "write_document") {
+        const saved = await writeDocument(env.DB, call);
+        toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
+        await log(env.DB, "tool", toolOutcome, "WRITE_OK");
+      } else if (call.name === "move") {
+        const to = await move(env.DB, call.direction);
+        toolOutcome = `MOVE OK: ${call.direction} to (${to.x + 1}, ${to.y + 1})`;
+        await log(env.DB, "tool", toolOutcome, "MOVE_OK");
+      }
     } catch (err) {
-      writeOutcome = `WRITE FAILED: ${err instanceof Error ? err.message : String(err)}`;
-      await log(env.DB, "tool", writeOutcome, "WRITE_ERROR");
+      toolOutcome = `${call.name === "move" ? "MOVE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      await log(env.DB, "tool", toolOutcome, call.name === "move" ? "MOVE_ERROR" : "WRITE_ERROR");
     }
   }
   const beliefs = [...state.beliefs];
@@ -207,7 +244,7 @@ async function tick(env: Env) {
   await log(env.DB, "thought", d.monologue, d.action);
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
-  return { status: "ok", tickCount: next.tickCount, action: d.action, writeOutcome };
+  return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
 
 export default {
@@ -227,7 +264,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
