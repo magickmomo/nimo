@@ -67,3 +67,24 @@ npx wrangler d1 execute nimo-world --remote --command "SELECT autonomous_enabled
 ```
 
 Value `0` means sleeping, `1` means awake.
+
+## v0.2 — one real tool: write_document
+
+Nimo can create or replace plain text files in a **virtual workspace** stored in Cloudflare D1 (not a Worker filesystem or GitHub repository). Each document has a path, content, revision, and timestamps. There is no shell, filesystem, network, or code execution access.
+
+Before deploying the new Worker, apply the additive migration from `world-worker/`:
+
+```sh
+npx wrangler d1 execute nimo-world --remote --file=migrations/003_documents.sql
+npm run deploy
+```
+
+Then merge/deploy the matching Next.js website to see the **Workspace** section on `/world`. No new secrets or Vercel environment variables are needed.
+
+**Limits:** 12 documents total; 2,000 characters each; filenames like `notes.txt` or `story_01.txt`. Updating a filename replaces its whole content and increases its revision (there is no revision-history storage yet). Document content is provided back to the AI on future decisions. Thus the request size remains bounded, but can grow by up to 24,000 characters from the workspace. Consider pruning/summarising before expanding limits.
+
+**Execution:** The model returns an optional structured `toolCall`, the Worker validates the call, writes it to D1, verifies the saved row and logs a `WRITE_OK` or `WRITE_ERROR` event. The model should not claim the operation succeeded before it sees the event on a subsequent decision.
+
+**Privacy:** Like the public journal, workspace contents are returned by the existing public `/api/world` route. Do not store private data in the workspace. Sleep/Wake controls are unchanged: if Nimo is sleeping, no model call or write is initiated.
+
+**Testing:** With Nimo asleep, run the migration and deploy. Wake him from World Settings, then check for `WRITE_OK` entries in the journal and open a document under Workspace. The write tool is only invoked if Nimo decides to use it. This change hasn't been run against a live D1 database in development.

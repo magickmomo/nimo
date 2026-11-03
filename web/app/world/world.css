@@ -43,3 +43,13 @@
 /* Escape the site-wide 980px main container, but only for the World dashboard. */
 main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-inline:clamp(16px,2.5vw,40px)}
 .world-dashboard{width:100%;max-width:none;margin:0}
+
+/* v0.2 text workspace */
+.world-workspace .world-journal-head h2{margin-bottom:0}
+.world-file-list{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.world-file-list button{background:#edf3f0;color:#183b43;border:1px solid #cbdad3;font-size:13px;padding:9px 12px}
+.world-file-list button[aria-pressed=true]{background:#183b43;color:#fff}
+.world-file-list small{opacity:.7;margin-left:5px}
+.world-file-view{border:1px solid #dfe5e4;border-radius:10px;overflow:hidden}
+.world-file-caption{background:#f1f5f2;padding:10px 14px;font-size:12px;color:#526b68}
+.world-file-view pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;max-height:420px;overflow:auto}

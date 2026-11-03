@@ -34,3 +34,12 @@ CREATE TABLE IF NOT EXISTS world_control (
  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 INSERT OR IGNORE INTO world_control(id, autonomous_enabled) VALUES(1, 1);
+
+-- Virtual text workspace for World 001 (v0.2).
+CREATE TABLE IF NOT EXISTS documents (
+ path TEXT PRIMARY KEY,
+ content TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+ updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);

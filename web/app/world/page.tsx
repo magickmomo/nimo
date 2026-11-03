@@ -7,6 +7,7 @@ import "./world.css";
 type Snapshot = {
   world: { state: WorldState; next_tick: string };
   events: WorldEvent[];
+  documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
 };
 
@@ -17,6 +18,7 @@ export default function World() {
   const [token, setToken] = useState("");
   const [sending, setSending] = useState(false);
   const [clock, setClock] = useState(Date.now());
+  const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -117,6 +119,32 @@ export default function World() {
           <span>Next eligible tick: {seconds}s</span>
         </div>
       </div>
+      <section className="world-card world-workspace">
+        <div className="world-journal-head">
+          <h2>Workspace</h2>
+          <span className="meta">{data?.documents?.length ?? 0} / 12 documents</span>
+        </div>
+        <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
+        {data?.documents?.length ? (
+          <>
+            <div className="world-file-list">
+              {data.documents.map(file => (
+                <button key={file.path} type="button"
+                  aria-pressed={selectedDocument === file.path}
+                  onClick={() => setSelectedDocument(prev => prev === file.path ? null : file.path)}>
+                  {file.path} <small>v{file.revision}</small>
+                </button>
+              ))}
+            </div>
+            {data.documents.filter(file => file.path === selectedDocument).map(file => (
+              <div key={file.path} className="world-file-view">
+                <div className="world-file-caption">{file.path} · revision {file.revision}</div>
+                <pre>{file.content}</pre>
+              </div>
+            ))}
+          </>
+        ) : <p className="meta">No documents yet. Nimo can create text files when awake.</p>}
+      </section>
       <div className="world-grid">
         <section className="world-card">
           <h2>Core beliefs</h2>
