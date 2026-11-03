@@ -11,6 +11,7 @@ type Snapshot = {
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
   availableTools?: string[];
+  position?: { x: number; y: number };
 };
 
 export default function World() {
@@ -109,7 +110,7 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld />
+      <IsometricWorld position={data?.position ?? null} />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>
