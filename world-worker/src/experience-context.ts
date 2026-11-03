@@ -26,13 +26,22 @@ export function buildExperienceContext(history: ExperienceEvent[]) {
   const recent = history.slice(0, 4);
   const seen = new Set(recent.map(e => e.id));
   const distinctive = new Set<string>();
+  const categoryCounts = new Map<string, number>();
   const significant: ExperienceEvent[] = [];
   for (const e of history) {
     if (seen.has(e.id) || !meaningful(e)) continue;
-    // Inspection repeats of the same object are not different discoveries.
+    // Bound any one kind of event so repeated inspections cannot crowd out
+    // interaction, writing, failures, identity changes, and other experiences.
+    const category = e.kind === "visitor" || e.kind === "reply"
+      ? "conversation" : e.action === "INSPECT_OK"
+      ? "inspection" : e.action === "WRITE_OK" || e.action === "WRITE_ERROR"
+      ? "writing" : e.action === "ERROR" || e.action?.endsWith("_ERROR")
+      ? "failure" : e.kind;
+    if ((categoryCounts.get(category) ?? 0) >= 2) continue;
     const key = e.action === "INSPECT_OK" ? e.content : String(e.id);
     if (distinctive.has(key)) continue;
     distinctive.add(key);
+    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
     significant.push(e);
     if (significant.length === 8) break;
   }
