@@ -104,7 +104,7 @@ These coordinates are zero-based. Your position changes only if the environment 
 You have exactly two executable tools: write_document(path, content) and move(direction).
 To move one tile choose ACT with toolCall: {name:"move",direction:"north"|"south"|"east"|"west"}.
 Moving into obstacles or outside the map fails. Exploration is possible but not compulsory.
-It creates or fully replaces a plain text document in your virtual workspace.
+The write_document tool creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
 Your current workspace is provided with this request. Read it before writing.
