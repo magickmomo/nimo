@@ -53,3 +53,14 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-file-view{border:1px solid #dfe5e4;border-radius:10px;overflow:hidden}
 .world-file-caption{background:#f1f5f2;padding:10px 14px;font-size:12px;color:#526b68}
 .world-file-view pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;max-height:420px;overflow:auto}
+
+/* Compact internal-state indicators: retain the original three values. */
+.world-status-strip{padding:5px 10px;border-width:2px;border-radius:26px;margin-bottom:12px;box-shadow:0 3px 0 rgba(53,43,86,.14)}
+.world-status-item{padding:6px 12px}
+.world-status-head{margin-bottom:5px;gap:7px;font-size:13px}
+.world-status-dot{width:18px;height:18px;border-width:2px}
+.world-status-dot:before{top:2px;left:3px;width:4px;height:3px}
+.world-status-percent{font-size:11px}
+.world-status-bar{height:11px;border-width:2px}
+@media(max-width:780px){.world-status-item{padding:6px 8px}.world-status-head{font-size:12px}.world-status-dot{width:16px;height:16px}}
+@media(max-width:520px){.world-status-strip{padding:6px 12px}.world-status-item{padding:9px 2px}.world-status-head{font-size:13px}.world-status-dot{width:18px;height:18px}}
