@@ -258,6 +258,8 @@ export default {
         const due = started + i * 10000;
         const delay = due - Date.now();
         if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay));
+        // Avoid overlapping the next minute\'s cron execution after slow model calls.
+        if (Date.now() - started >= 55000) break;
         if (!(await autonomousEnabled(env.DB))) break;
         try {
           const result = await tick(env);
