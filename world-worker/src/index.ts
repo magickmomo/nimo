@@ -16,10 +16,38 @@ type Decision = {
   goal: string | null;
   belief?: { text: string; evidence: string; confidence: number } | null;
   identityUpdate?: { text: string; evidence: string } | null;
+  toolCall?: { name: "write_document"; path: string; content: string } | null;
 };
 const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
+type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
+const MAX_DOCS = 12;
+const MAX_DOC_CHARS = 2000;
+async function documents(db: D1Database): Promise<DocumentRow[]> {
+  const r = await db.prepare("SELECT path,content,revision,updated_at FROM documents ORDER BY path LIMIT ?")
+    .bind(MAX_DOCS).all<DocumentRow>();
+  return r.results;
+}
+// A virtual directory: D1 rows, never host filesystem access.
+async function writeDocument(db: D1Database, input: { path: string; content: string }) {
+  if (typeof input.path !== "string" || !/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(input.path))
+    throw new Error("Path must be a simple lowercase .txt filename (no directories)");
+  if (typeof input.content !== "string" || input.content.length < 1 || input.content.length > MAX_DOC_CHARS)
+    throw new Error("Document must contain 1-2000 characters");
+  const existing = await db.prepare("SELECT path FROM documents WHERE path=?").bind(input.path).first();
+  if (!existing) {
+    const count = await db.prepare("SELECT count(*) AS n FROM documents").first<{n:number}>();
+    if ((count?.n ?? 0) >= MAX_DOCS) throw new Error("Workspace is full (12 documents)");
+  }
+  await db.prepare(`INSERT INTO documents(path,content,revision) VALUES(?,?,1)
+    ON CONFLICT(path) DO UPDATE SET content=excluded.content, revision=documents.revision+1,
+    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`).bind(input.path,input.content).run();
+  const saved = await db.prepare("SELECT path,revision FROM documents WHERE path=?")
+    .bind(input.path).first<{path:string;revision:number}>();
+  if (!saved) throw new Error("Document could not be verified after saving");
+  return saved;
+}
 
 // Control lives outside the AI-editable personality state.
 async function autonomousEnabled(db: D1Database): Promise<boolean> {
@@ -44,33 +72,42 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[]): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: DocumentRow[]): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
-You have no body, avatar, physical senses, or external tools.
-You occupy a text-based world whose only independently verified events are in the supplied journal.
-Your tool registry is empty. You cannot execute code, send email, spend money, access the internet,
-or grant yourself capabilities. ACT means proposing a textual creation or plan, not executing it.
-REQUEST means proposing a new capability, not receiving it.
+You have no body, avatar or physical senses. You inhabit a text-based world.
+You have exactly one executable tool: write_document(path, content).
+It creates or fully replaces a plain text document in your virtual workspace.
+Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
+Content is limited to 2000 characters, workspace to 12 files.
+Your current workspace is provided with this request. Read it before writing.
+To use your tool, choose action ACT and supply toolCall: {name:"write_document",path:"...",content:"..."}.
+This is the ONLY actual external action. ACT without toolCall does not create anything.
+You cannot execute code, send email, spend money, browse the internet, or add tools.
+REQUEST asks your owner for a new capability; it does not grant it.
+Do not say a write succeeded before a later journal event confirms the result.
+Avoid endlessly planning: when a goal involves writing, actually write something concrete.
+If the recent events contain an unanswered creator message, address it clearly in your public monologue.
 Your internal-state values are simulated, not proof of literal feelings.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences), NOT private chain-of-thought.
 Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 Return only JSON with action, monologue, activity, goal (string or null),
-belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}).`;
+belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
+toolCall (null or {name:"write_document",path,content}). Keep monologue short.`;
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: env.OPENAI_MODEL || "gpt-4.1-mini",
       temperature: 0.7,
-      max_tokens: 260,
+      max_tokens: 1100,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state, recentEvents: history.slice(0, 20) }) },
+        { role: "user", content: JSON.stringify({ state, recentEvents: history.slice(0, 20), workspace }) },
       ],
     }),
     signal: AbortSignal.timeout(25000),
@@ -85,6 +122,10 @@ belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evide
       (d.goal !== null && typeof d.goal !== "string")) {
     throw new Error("Invalid AI decision");
   }
+  if (d.toolCall != null && (
+    d.action !== "ACT" || d.toolCall.name !== "write_document" ||
+    typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string"
+  )) throw new Error("Invalid tool call");
   return d;
 }
 async function tick(env: Env) {
@@ -114,15 +155,16 @@ async function tick(env: Env) {
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
   const history = await events(env.DB, 20);
+  const workspace = await documents(env.DB);
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
   const interacted = history.some(e => e.kind === "visitor" && (!Number.isFinite(last) || Date.parse(e.created_at) > last));
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
-  const state: WorldState = { ...world.state, emotions };
+  const state: WorldState = { ...world.state, emotions, tools: ["write_document"] };
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
-  try { d = await decide(env, state, history); }
+  try { d = await decide(env, state, history, workspace); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
@@ -130,6 +172,19 @@ async function tick(env: Env) {
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
   if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
+  // The write runs only after the model decision and sleep check.
+  // Journal records the verified outcome, never a model's unverified claim.
+  let writeOutcome: string | null = null;
+  if (d.toolCall) {
+    try {
+      const saved = await writeDocument(env.DB, d.toolCall);
+      writeOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${d.toolCall.content.length} chars)`;
+      await log(env.DB, "tool", writeOutcome, "WRITE_OK");
+    } catch (err) {
+      writeOutcome = `WRITE FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      await log(env.DB, "tool", writeOutcome, "WRITE_ERROR");
+    }
+  }
   const beliefs = [...state.beliefs];
   const b = d.belief;
   if (b && typeof b.text === "string" && typeof b.evidence === "string" &&
@@ -150,7 +205,7 @@ async function tick(env: Env) {
   await log(env.DB, "thought", d.monologue, d.action);
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
-  return { status: "ok", tickCount: next.tickCount, action: d.action };
+  return { status: "ok", tickCount: next.tickCount, action: d.action, writeOutcome };
 }
 
 export default {
@@ -168,7 +223,7 @@ export default {
       const path = new URL(request.url).pathname;
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
-        return json({ world, events: await events(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
