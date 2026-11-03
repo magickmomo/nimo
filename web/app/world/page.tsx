@@ -7,6 +7,7 @@ import "./world.css";
 type Snapshot = {
   world: { state: WorldState; next_tick: string };
   events: WorldEvent[];
+  autonomousEnabled?: boolean;
 };
 
 export default function World() {
@@ -57,13 +58,51 @@ export default function World() {
 
   const state = data?.world.state;
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
+  const meters = state ? [
+    { label: "Energy", value: state.emotions.energy, tone: "energy" },
+    { label: "Wonder", value: 1 - state.emotions.boredom, tone: "wonder" },
+    { label: "Joy", value: state.emotions.happiness, tone: "joy" },
+  ] : [];
   return (
     <div className="world-page">
-      <p className="eyebrow">World 001 · seed experiment</p>
-      <h1>A beginning, not a body.</h1>
-      <p><a href="/world/settings">World settings — Sleep / Wake</a></p>
-      <p className="lead">A persistent character with a simple identity, changing emotions and the freedom to discover its own goals. No avatar has been chosen.</p>
+      <div className="world-topbar">
+        <a className="world-settings-link" href="/world/settings">World settings — Sleep / Wake</a>
+      </div>
       {error && <div className="world-warning" role="status">{error}</div>}
+      {state && (
+        <>
+          <section className="world-status-strip" aria-label="Nimo's internal state">
+            {meters.map((item) => {
+              const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
+              return (
+                <div className="world-status-item" key={item.label}>
+                  <div className="world-status-head">
+                    <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
+                    <span>{item.label}</span>
+                    <span className="world-status-percent">{Math.round(value * 100)}%</span>
+                  </div>
+                  <div className="world-status-bar" role="progressbar"
+                    aria-label={item.label} aria-valuenow={Math.round(value * 100)}
+                    aria-valuemin={0} aria-valuemax={100}>
+                    <div className={`world-status-fill ${item.tone}`}
+                      style={{ width: `${value * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+          <div className="world-status-meta">
+            <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
+            <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
+            <div className="world-status-meta-item"><strong>Status</strong>
+              <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
+            </div>
+            <div className="world-status-meta-item"><strong>Tools</strong>
+              <span>{state.tools.length ? state.tools.join(", ") : "None available"}</span>
+            </div>
+          </div>
+        </>
+      )}
       <div className="world-frame">
         <div className="world-frame-top"><span>WORLD 001</span><span>{state ? "IDENTITY ACTIVE" : "WAITING FOR INITIALISATION"}</span></div>
         <div className="world-presence">
@@ -77,22 +116,6 @@ export default function World() {
         </div>
       </div>
       <div className="world-grid">
-        <section className="world-card">
-          <h2>Internal state</h2>
-          {state ? (
-            <>
-              {Object.entries(state.emotions).map(([name, value]) => (
-                <div className="world-meter" key={name}>
-                  <div><span>{name}</span><strong>{Math.round(value * 100)}%</strong></div>
-                  <progress max={1} value={value}/>
-                </div>
-              ))}
-              <div className="world-meta"><strong>Activity</strong><span>{state.currentActivity}</span></div>
-              <div className="world-meta"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
-              <div className="world-meta"><strong>Tools</strong><span>{state.tools.length ? state.tools.join(", ") : "None available"}</span></div>
-            </>
-          ) : <p className="meta">Run the database setup to initialise the character.</p>}
-        </section>
         <section className="world-card">
           <h2>Core beliefs</h2>
           {state?.beliefs.length ? (
