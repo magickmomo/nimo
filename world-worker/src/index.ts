@@ -173,14 +173,14 @@ async function tick(env: Env) {
     .bind(day(now)).first<{ n: number }>();
   if ((count?.n || 0) >= limit) {
     await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
-      .bind(new Date(now.getTime() + 60000).toISOString()).run();
+      .bind(new Date(now.getTime() + 10000).toISOString()).run();
     return { status: "daily_limit_reached" };
   }
 
   // Atomically claim the due slot; don't double-invoke the LLM.
   const claimed = await env.DB.prepare(
     "UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?"
-  ).bind(new Date(now.getTime() + 60000).toISOString(), world.next_tick).run();
+  ).bind(new Date(now.getTime() + 10000).toISOString(), world.next_tick).run();
   if (claimed.meta.changes !== 1) return { status: "already_claimed" };
   if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
 
@@ -249,9 +249,24 @@ async function tick(env: Env) {
 
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(tick(env).catch(async e => {
-      await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
-    }));
+    // Cloudflare cron is minute-granular. Run six sequential attempts, each
+    // anchored about 10 seconds apart, within one scheduled invocation.
+    // Never overlap model decisions, and stop promptly when Nimo sleeps.
+    ctx.waitUntil((async () => {
+      const started = Date.now();
+      for (let i = 0; i < 6; i++) {
+        const due = started + i * 10000;
+        const delay = due - Date.now();
+        if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay));
+        if (!(await autonomousEnabled(env.DB))) break;
+        try {
+          const result = await tick(env);
+          if (result.status === "daily_limit_reached" || result.status === "sleeping") break;
+        } catch (e) {
+          await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
+        }
+      }
+    })());
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     if (!env.WORLD_INTERNAL_SECRET ||
