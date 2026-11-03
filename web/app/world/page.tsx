@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld from "./isometric-world";
+import { groupJournalEvents } from "../../lib/world-journal";
 
 type Snapshot = {
   world: { state: WorldState; next_tick: string };
@@ -163,10 +164,14 @@ export default function World() {
         </div>
       <section className="world-card world-journal">
         <div className="world-journal-head"><h2>Journal</h2><button type="button" onClick={()=>void refresh()}>Refresh</button></div>
-        {data?.events.length ? data.events.map(event => (
+        {data?.events.length ? groupJournalEvents(data.events).map(event => (
           <article key={event.id} className="world-event">
-            <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.action?.startsWith("REPLY_TO:") ? "REPLY" : (event.action || event.kind)}</span></div>
-            <p>{event.content}</p>
+            <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
+            {event.movement && (
+              <p className="world-event-route"><strong>From:</strong> {event.movement.from} <span aria-hidden="true">→</span> <strong>To:</strong> {event.movement.to}</p>
+            )}
+            {event.narration && <p className="world-event-narration"><strong>Nimo:</strong> {event.narration}</p>}
+            {event.outcome && <p className="world-event-result"><strong>{event.narration ? "Result:" : "Event:"}</strong> {event.outcome}</p>}
           </article>
         )) : <p className="meta">Nothing has happened yet.</p>}
       </section>
