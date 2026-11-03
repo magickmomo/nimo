@@ -9,6 +9,7 @@ type Snapshot = {
   events: WorldEvent[];
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
+  availableTools?: string[];
 };
 
 export default function World() {
@@ -102,7 +103,7 @@ export default function World() {
               <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
             <div className="world-status-meta-item"><strong>Tools</strong>
-              <span>{state.tools.length ? state.tools.join(", ") : "None available"}</span>
+              <span>{data?.availableTools ? (data.availableTools.length ? data.availableTools.join(", ") : "None available") : "Checking environment…"}</span>
             </div>
           </div>
         </>
