@@ -64,3 +64,17 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-status-bar{height:11px;border-width:2px}
 @media(max-width:780px){.world-status-item{padding:6px 8px}.world-status-head{font-size:12px}.world-status-dot{width:16px;height:16px}}
 @media(max-width:520px){.world-status-strip{padding:6px 12px}.world-status-item{padding:9px 2px}.world-status-head{font-size:13px}.world-status-dot{width:18px;height:18px}}
+
+/* World 002: small isometric prototype, deliberately separate from autonomous state. */
+.nimo-map{border:1px solid #304741;background:radial-gradient(ellipse at 50% 55%,#29443a 0%,#142b28 67%,#102220 100%);border-radius:16px;color:#e0eee4;margin:0 0 20px;overflow:hidden}
+.nimo-map-heading,.nimo-map-footer{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px 18px;font-size:11px;letter-spacing:.07em;color:#bdcfc1}
+.nimo-map-heading{border-bottom:1px solid #345349;font-weight:700}
+.nimo-map-canvas{display:block;width:100%;height:auto;max-height:440px;margin:auto;overflow:visible}
+.nimo-map-footer{letter-spacing:0;border-top:1px solid #345349;font-size:12px}
+.nimo-map-footer strong{color:#f6f0d7}
+.nimo-map-preview{color:#9db9ac;text-align:right}
+.nimo-map-controls{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:7px;padding:0 14px 15px;font-size:11px;color:#a9c2b1}
+.nimo-map-controls button{min-width:32px;min-height:32px;border:1px solid #658475;background:#24473f;color:#f4f4dd;border-radius:8px;font-size:12px;cursor:pointer}
+.nimo-map-controls button:hover{background:#346451}
+.nimo-map-controls button:focus-visible{outline:2px solid #f2d88b;outline-offset:2px}
+@media(max-width:600px){.nimo-map-heading,.nimo-map-footer{padding:11px 12px}.nimo-map-footer{flex-direction:column;align-items:flex-start}.nimo-map-preview{text-align:left}.nimo-map-controls{padding:3px 10px 14px}}
