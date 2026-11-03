@@ -78,7 +78,7 @@ export function modelPerception(position: Point) {
       distance: o.distance, directlyAdjacent: o.distance === 1,
     })),
     directions: raw.directions.map(d => ({
-      direction: d.direction, destination: displayPoint(destination(position,d.direction)),
+      direction: d.direction, destination: d.blockedBy === "world edge" ? null : displayPoint(destination(position,d.direction)),
       canMove: d.canMove, blockedBy: d.blockedBy,
       canInspect: !!objectAt(destination(position,d.direction)),
     })),
