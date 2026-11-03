@@ -61,6 +61,7 @@ export default function World() {
     <div className="world-page">
       <p className="eyebrow">World 001 · seed experiment</p>
       <h1>A beginning, not a body.</h1>
+      <p><a href="/world/settings">World settings — Sleep / Wake</a></p>
       <p className="lead">A persistent character with a simple identity, changing emotions and the freedom to discover its own goals. No avatar has been chosen.</p>
       {error && <div className="world-warning" role="status">{error}</div>}
       <div className="world-frame">
