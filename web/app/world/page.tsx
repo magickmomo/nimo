@@ -12,6 +12,10 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   position?: { x: number; y: number };
+  environmentMemory?: {
+    visited: { x: number; y: number; visit_count: number }[];
+    inspected: { x: number; y: number; kind: string; description: string; inspection_count: number }[];
+  };
 };
 
 export default function World() {
@@ -110,7 +114,7 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld position={data?.position ?? null} />
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} inspected={data?.environmentMemory?.inspected} />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>
