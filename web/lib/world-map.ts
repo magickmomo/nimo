@@ -42,3 +42,13 @@ export function perceive(position: Point) {
     terrain:"grass", visibleObjects, directions,
     coordinates:"zero-based: x increases east, y increases south" };
 }
+
+export function inspectedDescription(kind: SceneryKind): string {
+  // Deterministic information from the game world, not model-generated lore.
+  const descriptions: Record<SceneryKind, string> = {
+    tree: "A rooted tree with a broad green canopy and a narrow trunk. It occupies this tile and blocks walking.",
+    rock: "A solid grey rock resting on the grass. It occupies this tile and blocks walking.",
+    shrub: "A low cluster of leafy green bushes. It occupies this tile and blocks walking.",
+  };
+  return descriptions[kind];
+}
