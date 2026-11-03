@@ -52,3 +52,37 @@ export function inspectedDescription(kind: SceneryKind): string {
   };
   return descriptions[kind];
 }
+
+/** User-facing and model-facing coordinates are always one-based (1–9).
+ * D1 and the SVG use zero-based coordinates internally.
+ */
+export function displayPoint(point: Point): Point {
+  return { x: point.x + 1, y: point.y + 1 };
+}
+export function directionOf(from: Point, to: Point): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const vertical = dy < 0 ? "north" : dy > 0 ? "south" : "";
+  const horizontal = dx < 0 ? "west" : dx > 0 ? "east" : "";
+  return vertical && horizontal ? `${vertical}-${horizontal}` : vertical || horizontal || "here";
+}
+export function modelPerception(position: Point) {
+  const raw = perceive(position);
+  return {
+    position: displayPoint(position),
+    worldSize: WORLD_SIZE,
+    perceptionRadius: PERCEPTION_RADIUS,
+    terrain: raw.terrain,
+    visibleObjects: raw.visibleObjects.map(o => ({
+      type: o.type, position: displayPoint(o), direction: directionOf(position,o),
+      distance: o.distance, directlyAdjacent: o.distance === 1,
+    })),
+    directions: raw.directions.map(d => ({
+      direction: d.direction, destination: displayPoint(destination(position,d.direction)),
+      canMove: d.canMove, blockedBy: d.blockedBy,
+      canInspect: !!objectAt(destination(position,d.direction)),
+    })),
+    coordinates: "ONE-BASED: x and y range 1–9; north decreases y; south increases y; west decreases x; east increases x. Directions refer to grid axes, not diagonal directions on the isometric screen.",
+    inspectionRule: "inspect(direction) succeeds ONLY when that adjacent tile has an object and canInspect=true",
+  };
+}
