@@ -191,27 +191,47 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
   const data = await res.json() as { choices?: { message?: { content?: string } }[] };
   const raw = data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision");
-  const d = JSON.parse(raw) as Decision;
-  if (!d || typeof d !== "object") throw new Error("Invalid AI decision: expected object");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch (error) {
+    throw new Error(`Invalid AI decision: malformed JSON (${error instanceof Error ? error.message : String(error)}). Model output: ${raw.slice(0, 900)}`);
+  }
+  // Keep a bounded record of what the model *actually attempted* when a
+  // structured response fails validation, rather than hiding its chosen action.
+  const diagnostic = () => {
+    const proposed = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : null;
+    return JSON.stringify({
+      action: proposed?.action ?? null,
+      toolCall: proposed?.toolCall ?? null,
+      fields: proposed ? Object.keys(proposed) : [],
+      raw: raw.slice(0, 900),
+    }).slice(0, 1600);
+  };
+  const invalid = (reason: string): never => {
+    throw new Error(`Invalid AI decision: ${reason}. Model response: ${diagnostic()}`);
+  };
+  const d = parsed as Decision;
+  if (!d || typeof d !== "object" || Array.isArray(d)) invalid("expected JSON object");
   // The model sometimes omits optional goal; preserve an otherwise valid action.
   if (d.goal === undefined) d.goal = null;
-  if (!ACTIONS.includes(d.action)) throw new Error("Invalid AI decision: unsupported action");
+  if (!ACTIONS.includes(d.action)) invalid("unsupported action");
   if (typeof d.monologue !== "string" || d.monologue.length > 1800)
-    throw new Error("Invalid AI decision: monologue must be 0-1800 characters");
-  if (typeof d.activity !== "string") throw new Error("Invalid AI decision: activity must be a string");
-  if (d.goal !== null && typeof d.goal !== "string") throw new Error("Invalid AI decision: goal must be string or null");
+    invalid("monologue must be 0-1800 characters");
+  if (typeof d.activity !== "string") invalid("activity must be a string");
+  if (d.goal !== null && typeof d.goal !== "string") invalid("goal must be string or null");
   if (d.toolCall != null) {
-    if (d.action !== "ACT") throw new Error("Invalid tool call: requires ACT");
+    if (d.action !== "ACT") invalid("tool call requires ACT");
     if (d.toolCall.name === "write_document") {
       if (typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string")
-        throw new Error("Invalid write_document parameters");
+        invalid("invalid write_document parameters");
     } else if (d.toolCall.name === "move" || d.toolCall.name === "inspect") {
       if (!["north","south","east","west"].includes(d.toolCall.direction))
-        throw new Error("Invalid direction for movement or inspection");
-    } else throw new Error("Unknown tool name");
+        invalid("invalid movement or inspection direction");
+    } else invalid("unknown tool name");
   }
   if (pendingMessage && (d.action !== "THINK" || d.toolCall != null))
-    throw new Error("Visitor reply must be THINK without a tool call");
+    invalid("visitor reply must be THINK without tool call");
   return d;
 }
 async function tick(env: Env) {
