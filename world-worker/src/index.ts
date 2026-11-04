@@ -171,7 +171,7 @@ Your internal-state values are simulated, not proof of literal feelings.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
-Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
+Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y} or {name:"inspect",direction}). Keep monologue short.`;
@@ -237,6 +237,14 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
   if (!d || typeof d !== "object" || Array.isArray(d)) invalid("expected JSON object");
   // The model sometimes omits optional goal; preserve an otherwise valid action.
   if (d.goal === undefined) d.goal = null;
+  // A narrow schema repair for a common tool/action mix-up. We only accept
+  // a tool-named action if it exactly matches the supplied toolCall name;
+  // all tool parameters are still validated below before execution.
+  const proposedAction = d.action as string;
+  if (d.toolCall && ["travel_to", "inspect", "write_document"].includes(proposedAction) &&
+      d.toolCall.name === proposedAction) {
+    d.action = "ACT";
+  }
   if (!ACTIONS.includes(d.action)) invalid("unsupported action");
   if (typeof d.monologue !== "string" || d.monologue.length > 1800)
     invalid("monologue must be 0-1800 characters");
