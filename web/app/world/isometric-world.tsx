@@ -72,15 +72,15 @@ export default function IsometricWorld({ position, visited = [], inspected = [],
   // Read-only: the Worker controls the authoritative position.
   const authoritative = position ?? { x: 4, y: 4 };
   const route = journey?.path ?? [];
-  const moving = journey && journey.status !== "idle" &&
-    route.length > 1 && journey.startedAt && journey.stepMs > 0;
+  const moving = !!(journey && journey.status !== "idle" &&
+    route.length > 1 && journey.startedAt && journey.stepMs > 0);
   // SVG animation is only a visual interpolation of the persisted timed route.
   // D1 remains authoritative; closing the page does not pause Nimo's journey.
   const time = journey?.status === "paused" && journey.pausedAt
     ? Date.parse(journey.pausedAt) : clock;
   const progress = moving
     ? Math.max(0, Math.min(route.length - 1,
-      (time - Date.parse(journey.startedAt!)) / journey.stepMs)) : 0;
+      (time - Date.parse(journey?.startedAt ?? "")) / (journey?.stepMs ?? 1600))) : 0;
   const waypoint = Math.min(route.length - 1, Math.floor(progress));
   const portion = progress - waypoint;
   const from = route[waypoint] ?? authoritative;
@@ -137,7 +137,7 @@ export default function IsometricWorld({ position, visited = [], inspected = [],
       </svg>
       <div className="nimo-map-footer">
         <span><strong>Nimo</strong> · {moving ?
-          `${journey.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
+          `${journey?.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
           `tile (${authoritative.x+1}, ${authoritative.y+1})`}</span>
         <span className="nimo-map-preview">{visited.length} / 81 visited · {inspected.length} objects inspected · position stored in D1</span>
       </div>
