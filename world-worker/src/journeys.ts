@@ -46,9 +46,14 @@ export async function journeySnapshot(db: D1Database): Promise<JourneySnapshot> 
   };
 }
 
+function sightInsert(db: D1Database, position: Point): D1PreparedStatement {
+  const tiles = visibleTiles(position);
+  const placeholders = tiles.map(() => "(?,?)").join(",");
+  return db.prepare(`INSERT OR IGNORE INTO world_seen(x,y) VALUES ${placeholders}`)
+    .bind(...tiles.flatMap(p => [p.x,p.y]));
+}
 export async function recordSight(db: D1Database, position: Point): Promise<void> {
-  await db.batch(visibleTiles(position).map(p =>
-    db.prepare("INSERT OR IGNORE INTO world_seen(x,y) VALUES(?,?)").bind(p.x,p.y)));
+  await sightInsert(db,position).run();
 }
 
 export async function beginJourney(db: D1Database, from: Point, to: Point, now = new Date()): Promise<Point[]> {
@@ -89,8 +94,7 @@ export async function advanceJourney(db: D1Database, now = new Date()):
       db.prepare(`INSERT INTO world_visited(x,y,visit_count) VALUES(?,?,1)
         ON CONFLICT(x,y) DO UPDATE SET visit_count=world_visited.visit_count+1,
         last_visited=strftime('%Y-%m-%dT%H:%M:%fZ','now')`).bind(next.x,next.y),
-      ...visibleTiles(next).map(p =>
-        db.prepare("INSERT OR IGNORE INTO world_seen(x,y) VALUES(?,?)").bind(p.x,p.y)),
+      sightInsert(db,next),
     ]);
     currentIndex = nextIndex;
   }
