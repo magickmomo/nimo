@@ -1,12 +1,12 @@
 
-// Nimo 003: durable action state; coordinates are zero-based internally.
-// Migration is additive; existing world position, memories and controls are preserved.
+-- Nimo 003: durable action state; coordinates are zero-based internally.
+-- Migration is additive; existing world position, memories and controls are preserved.
 CREATE TABLE IF NOT EXISTS world_journey (
  id INTEGER PRIMARY KEY CHECK(id=1),
  status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle','travelling','paused')),
  path TEXT NOT NULL DEFAULT '[]',
  step_index INTEGER NOT NULL DEFAULT 0,
- step_ms INTEGER NOT NULL DEFAULT 1500,
+ step_ms INTEGER NOT NULL DEFAULT 3000,
  started_at TEXT,
  paused_at TEXT
 );
