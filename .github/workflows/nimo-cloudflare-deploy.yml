@@ -1,0 +1,161 @@
+name: Nimo Cloudflare deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Run migration 007 first; deploy Worker only after migration succeeds"
+        required: true
+        type: choice
+        options:
+          - verify
+          - migrate-007
+          - deploy-worker
+        default: verify
+      source:
+        description: "Nimo code to check or deploy"
+        type: choice
+        required: true
+        options:
+          - feature/nimo-0032a-object-memory-action-monitor
+          - feature/nimo-003-vision-navigation
+          - main
+        default: feature/nimo-0032a-object-memory-action-monitor
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: ${{ inputs.operation }} from ${{ inputs.source }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout selected Nimo revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Worker and website dependencies
+        run: |
+          npm install --prefix world-worker --no-audit --no-fund
+          npm install --prefix web --no-audit --no-fund
+
+      - name: Typecheck Worker
+        run: npm run typecheck --prefix world-worker
+
+      - name: Run Worker tests
+        run: npm test --prefix world-worker
+
+      - name: Typecheck website
+        run: npm run typecheck --prefix web
+
+      - name: Validate migration SQL locally
+        if: inputs.operation == 'migrate-007'
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          conn=sqlite3.connect(":memory:")
+          conn.executescript(Path("world-worker/migrations/006_journeys_and_vision.sql").read_text())
+          conn.executescript(Path("world-worker/migrations/007_object_memory_and_actions.sql").read_text())
+          names={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          assert {"world_journey","object_observations","object_notes","action_trace"} <= names
+          print("Migration 007 SQL parsed and required tables exist")
+          PY
+
+      - name: Require configured Cloudflare secrets
+        if: inputs.operation != 'verify'
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE: ${{ secrets.NIMO_D1_DATABASE_ID }}
+        run: |
+          test -n "$TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN repository secret"; exit 1; }
+          test -n "$ACCOUNT" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
+          test -n "$DATABASE" || { echo "::error::Missing NIMO_D1_DATABASE_ID repository secret"; exit 1; }
+
+      - name: Create temporary Wrangler config
+        if: inputs.operation != 'verify'
+        working-directory: world-worker
+        env:
+          DATABASE: ${{ secrets.NIMO_D1_DATABASE_ID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          template=Path("wrangler.toml.example").read_text()
+          assert template.count("REPLACE_WITH_YOUR_D1_DATABASE_ID") == 1
+          database=os.environ["DATABASE"]
+          # A D1 ID is a UUID, never interpret secret text as TOML.
+          import re
+          if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", database):
+              raise SystemExit("NIMO_D1_DATABASE_ID must be a D1 UUID")
+          Path("wrangler.toml").write_text(template.replace("REPLACE_WITH_YOUR_D1_DATABASE_ID",database))
+          PY
+
+      - name: Check migration 007 has not already run
+        if: inputs.operation == 'migrate-007'
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # An existing table signals that this migration already ran. Do not replay it.
+          npx wrangler d1 execute nimo-world --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name='object_observations';" --json > migration-status.json
+          python3 - <<'PY'
+          import json
+          with open("migration-status.json") as f: data=json.load(f)
+          if not isinstance(data,list) or not data or data[0].get("success") is not True:
+              raise SystemExit("Could not confirm D1 schema; refusing to migrate")
+          if data[0].get("results"):
+              raise SystemExit("Migration 007 already exists; refusing to re-run")
+          print("No previous 007 tables found")
+          PY
+
+      - name: Apply migration 007 to production D1
+        if: inputs.operation == 'migrate-007'
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 execute nimo-world --remote --file=migrations/007_object_memory_and_actions.sql --yes
+
+      - name: Require migration 007 before deploying Worker
+        if: inputs.operation == 'deploy-worker'
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler d1 execute nimo-world --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('object_observations','object_notes','action_trace');" --json > migration-status.json
+          python3 - <<'PY'
+          import json
+          with open("migration-status.json") as f: data=json.load(f)
+          if not isinstance(data,list) or not data or data[0].get("success") is not True:
+              raise SystemExit("D1 schema query failed")
+          names={row.get("name") for row in data[0].get("results",[])}
+          if names!={"object_observations","object_notes","action_trace"}:
+              raise SystemExit("Migration 007 is missing; run migrate-007 first")
+          PY
+
+      - name: Deploy Cloudflare Worker
+        if: inputs.operation == 'deploy-worker'
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
+
+      - name: Report outcome
+        run: echo "Finished ${{ inputs.operation }} for ${{ inputs.source }}"
