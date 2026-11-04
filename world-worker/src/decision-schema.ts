@@ -24,7 +24,7 @@ const string = (v: unknown, maximum: number): v is string =>
   typeof v === "string" && v.length <= maximum;
 
 export function validateDecision(input: unknown, hasPendingVisitor: boolean): Decision {
-  const fail = (reason: string): never => { throw new Error(reason); };
+  function fail(reason: string): never { throw new Error(reason); }
   if (!object(input)) fail("expected JSON object");
   const d = input as Record<string, unknown>;
 
