@@ -1,6 +1,6 @@
 import { shortestPath, visibleTiles, type Point } from "../../web/lib/world-map";
 
-export const WALK_STEP_MS = 1600;
+export const WALK_STEP_MS = 3000;
 export type JourneyStatus = "idle" | "travelling" | "paused";
 export type JourneyRow = {
   id: number;
