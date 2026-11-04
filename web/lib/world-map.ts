@@ -11,7 +11,7 @@ export const WORLD_OBJECTS: readonly WorldObject[] = [
   {x:2,y:5,kind:"shrub"},{x:5,y:7,kind:"shrub"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
-export const PERCEPTION_RADIUS = 2; // Manhattan distance: no diagonal perception shortcut.
+export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
 export function inBounds(p: Point) {
   return Number.isInteger(p.x) && Number.isInteger(p.y) &&
     p.x >= 0 && p.x < WORLD_SIZE && p.y >= 0 && p.y < WORLD_SIZE;
@@ -28,9 +28,18 @@ export function destination(from: Point, direction: Direction): Point {
   };
   return { x: from.x + delta[direction].x, y: from.y + delta[direction].y };
 }
+export function visibleTiles(position: Point): Point[] {
+  const tiles: Point[] = [];
+  for (let y = Math.max(0,position.y-PERCEPTION_RADIUS); y <= Math.min(WORLD_SIZE-1,position.y+PERCEPTION_RADIUS); y++)
+    for (let x = Math.max(0,position.x-PERCEPTION_RADIUS); x <= Math.min(WORLD_SIZE-1,position.x+PERCEPTION_RADIUS); x++)
+      tiles.push({x,y});
+  return tiles;
+}
 export function perceive(position: Point) {
+  const visible = visibleTiles(position);
   const visibleObjects = WORLD_OBJECTS.filter(o =>
-    Math.abs(o.x-position.x) + Math.abs(o.y-position.y) <= PERCEPTION_RADIUS
+    Math.abs(o.x-position.x) <= PERCEPTION_RADIUS &&
+    Math.abs(o.y-position.y) <= PERCEPTION_RADIUS
   ).map(o => ({ type:o.kind, x:o.x, y:o.y,
     distance: Math.abs(o.x-position.x)+Math.abs(o.y-position.y) }));
   const directions = (["north","south","east","west"] as const).map(direction => {
@@ -38,9 +47,36 @@ export function perceive(position: Point) {
     const obstacle = objectAt(to);
     return { direction, canMove:isWalkable(to), blockedBy:!inBounds(to)?"world edge":obstacle?.kind ?? null };
   });
-  return { position, worldSize:WORLD_SIZE, perceptionRadius:PERCEPTION_RADIUS,
-    terrain:"grass", visibleObjects, directions,
+  return { position, worldSize: WORLD_SIZE, perceptionRadius:PERCEPTION_RADIUS,
+    visionShape:"9x9 square clipped to world",terrain:"grass",
+    visibleTiles: visible, visibleObjects, directions,
     coordinates:"zero-based: x increases east, y increases south" };
+}
+
+// Deterministic shortest path around objects; never let the model invent
+// intermediate moves or route through scenery.
+export function shortestPath(start: Point, target: Point): Point[] | null {
+  if (!isWalkable(start) || !isWalkable(target)) return null;
+  const key = (p: Point) => `${p.x},${p.y}`;
+  const parents = new Map<string, Point | null>([[key(start),null]]);
+  const queue: Point[] = [start];
+  const directions: Direction[] = ["north","east","south","west"];
+  for (let at=0; at<queue.length; at++) {
+    const p = queue[at];
+    if (p.x === target.x && p.y === target.y) {
+      const route: Point[] = [];
+      let node: Point | null = p;
+      while (node) { route.push(node); node = parents.get(key(node)) ?? null; }
+      return route.reverse();
+    }
+    for (const direction of directions) {
+      const next = destination(p,direction);
+      if (!isWalkable(next) || parents.has(key(next))) continue;
+      parents.set(key(next),p);
+      queue.push(next);
+    }
+  }
+  return null;
 }
 
 export function inspectedDescription(kind: SceneryKind): string {
@@ -72,6 +108,10 @@ export function modelPerception(position: Point) {
     position: displayPoint(position),
     worldSize: WORLD_SIZE,
     perceptionRadius: PERCEPTION_RADIUS,
+    visionShape: raw.visionShape,
+    visibleTiles: raw.visibleTiles.map(p => ({
+      ...displayPoint(p), terrain:"grass", object: objectAt(p)?.kind ?? null,
+    })),
     terrain: raw.terrain,
     visibleObjects: raw.visibleObjects.map(o => ({
       type: o.type, position: displayPoint(o), direction: directionOf(position,o),

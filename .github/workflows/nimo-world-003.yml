@@ -1,0 +1,36 @@
+name: Nimo World 003 checks
+on:
+  pull_request:
+    paths:
+      - 'world-worker/**'
+      - 'web/**'
+      - '.github/workflows/nimo-world-003.yml'
+  push:
+    branches: [feature/nimo-003-vision-navigation]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install worker dependencies
+        run: npm install --prefix world-worker --no-audit --no-fund
+      - name: Install website dependencies
+        run: npm install --prefix web --no-audit --no-fund
+      - name: Validate D1 migration SQL syntax
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db = sqlite3.connect(":memory:")
+          db.executescript(Path("world-worker/migrations/006_journeys_and_vision.sql").read_text())
+          assert db.execute("SELECT status FROM world_journey WHERE id=1").fetchone() == ("idle",)
+          PY
+      - name: Worker TypeScript
+        run: npm run typecheck --prefix world-worker
+      - name: Navigation tests
+        run: npm run test --prefix world-worker
+      - name: Website TypeScript
+        run: npm run typecheck --prefix web

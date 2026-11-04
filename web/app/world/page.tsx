@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
-import IsometricWorld from "./isometric-world";
+import IsometricWorld, { type JourneyView } from "./isometric-world";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type Snapshot = {
@@ -13,8 +13,10 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   position?: { x: number; y: number };
+  journey?: JourneyView;
   environmentMemory?: {
     visited: { x: number; y: number; visit_count: number }[];
+    seen: { x: number; y: number }[];
     inspected: { x: number; y: number; kind: string; description: string; inspection_count: number }[];
   };
 };
@@ -42,9 +44,9 @@ export default function World() {
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => { void refresh(); setClock(Date.now()); }, 10000);
+    const interval = window.setInterval(() => { void refresh(); setClock(Date.now()); }, data?.autonomousEnabled === false ? 10000 : 2000);
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [refresh, data?.journey?.status]);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -115,7 +117,7 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} inspected={data?.environmentMemory?.inspected} />
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>

@@ -1,6 +1,7 @@
 "use client";
 
-import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
+import { useEffect, useState } from "react";
+import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
 
 const HW = 29;
 const HH = 16;
@@ -49,11 +50,50 @@ function Character() {
   );
 }
 
-export default function IsometricWorld({ position, visited = [], inspected = [] }: { position: Point | null; visited?: Point[]; inspected?: (Point & { kind: string })[] }) {
+export type JourneyView = {
+  status: "idle" | "travelling" | "paused";
+  path: Point[];
+  stepIndex: number;
+  stepMs: number;
+  startedAt: string | null;
+  pausedAt: string | null;
+};
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey }: {
+  position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
+  journey?: JourneyView;
+}) {
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!journey || journey.status !== "travelling") return;
+    const timer = window.setInterval(() => setClock(Date.now()), 50);
+    return () => window.clearInterval(timer);
+  }, [journey?.status]);
+
   // Read-only: the Worker controls the authoritative position.
-  const current = position ?? { x: 4, y: 4 };
-  const seen = new Set(visited.map(p => `${p.x}:${p.y}`));
-  const sprites = [...objects.map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
+  const authoritative = position ?? { x: 4, y: 4 };
+  const route = journey?.path ?? [];
+  const moving = !!(journey && journey.status !== "idle" &&
+    route.length > 1 && journey.startedAt && journey.stepMs > 0);
+  // SVG animation is only a visual interpolation of the persisted timed route.
+  // D1 remains authoritative; closing the page does not pause Nimo's journey.
+  const time = journey?.status === "paused" && journey.pausedAt
+    ? Date.parse(journey.pausedAt) : clock;
+  const progress = moving
+    ? Math.max(0, Math.min(route.length - 1,
+      (time - Date.parse(journey?.startedAt ?? "")) / (journey?.stepMs ?? 1600))) : 0;
+  const waypoint = Math.min(route.length - 1, Math.floor(progress));
+  const portion = progress - waypoint;
+  const from = route[waypoint] ?? authoritative;
+  const to = route[Math.min(route.length - 1, waypoint + 1)] ?? from;
+  const current = moving ? {
+    x: from.x + (to.x-from.x)*portion,
+    y: from.y + (to.y-from.y)*portion,
+  } : authoritative;
+  const visitedKeys = new Set(visited.map(p => `${p.x}:${p.y}`));
+  const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
+  const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
+  const sprites = [...objects.filter(o => inSight.has(`${o.x}:${o.y}`) || remembered.has(`${o.x}:${o.y}`))
+    .map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
@@ -64,7 +104,7 @@ export default function IsometricWorld({ position, visited = [], inspected = [] 
         <span>9 × 9</span>
       </div>
       <svg className="nimo-map-canvas" viewBox="0 0 620 365" role="img"
-        aria-label={`Isometric nine by nine map showing Nimo at column ${current.x + 1}, row ${current.y + 1}, with trees and rocks.`}>
+        aria-label={`Isometric nine by nine map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
         <defs>
           <linearGradient id="nimo-ground" x1="0" y1="0" x2="0.8" y2="1">
             <stop offset="0" stopColor="#9bc17d"/><stop offset="1" stopColor="#719b63"/>
@@ -73,17 +113,27 @@ export default function IsometricWorld({ position, visited = [], inspected = [] 
         <ellipse cx="310" cy="190" rx="272" ry="132" fill="#071a18" opacity=".35"/>
         {tiles.map(tile => {
           const p = project(tile);
-          const hasVisited = seen.has(`${tile.x}:${tile.y}`);
+          const tileKey = `${tile.x}:${tile.y}`;
+          const hasVisited = visitedKeys.has(tileKey);
+          const isVisible = inSight.has(tileKey);
+          const wasSeen = remembered.has(tileKey);
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
-              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)")}
+              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)") } opacity={isVisible ? 1 : wasSeen ? .68 : .32}
                 stroke="#648b5a" strokeWidth="1" />
               <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
-              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : " · unvisited"}`}</title>
+              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : wasSeen ? " · seen previously" : " · unseen"}`}</title>
             </g>
           );
         })}
+        {moving && (
+          <polyline points={route.map(p => {
+            const projected = project(p);
+            return `${projected.x},${projected.y}`;
+          }).join(" ")} fill="none" stroke="#315c67" strokeWidth="2"
+            strokeDasharray="5 5" strokeLinecap="round" opacity=".5"/>
+        )}
         {sprites.map(sprite => {
           const p = project(sprite);
           return <g key={sprite.id} transform={`translate(${p.x} ${p.y + 2})`}>
@@ -92,8 +142,10 @@ export default function IsometricWorld({ position, visited = [], inspected = [] 
         })}
       </svg>
       <div className="nimo-map-footer">
-        <span><strong>Nimo</strong> · tile ({current.x + 1}, {current.y + 1})</span>
-        <span className="nimo-map-preview">{visited.length} / 81 visited · {inspected.length} objects inspected · position stored in D1</span>
+        <span><strong>Nimo</strong> · {moving ?
+          `${journey?.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
+          `tile (${authoritative.x+1}, ${authoritative.y+1})`}</span>
+        <span className="nimo-map-preview">{visited.length} visited · {seenTiles.length} remembered as seen · {inspected.length} inspected</span>
       </div>
       {inspected.length > 0 && (
         <details className="nimo-map-discoveries">

@@ -5,7 +5,9 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 execute nimo-world --remote --file=schema.sql",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "wrangler": "^4.0.0",
