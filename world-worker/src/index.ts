@@ -1,5 +1,6 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
+import { validateDecision, type Decision } from "./decision-schema";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
 
@@ -13,16 +14,6 @@ type Env = {
 type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
-type Decision = {
-  action: "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST";
-  monologue: string;
-  activity: string;
-  goal: string | null;
-  belief?: { text: string; evidence: string; confidence: number } | null;
-  identityUpdate?: { text: string; evidence: string } | null;
-  toolCall?: { name: "write_document"; path: string; content: string } | { name: "travel_to"; x: number; y: number } | { name: "inspect"; direction: Direction } | null;
-};
-const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
 // Capabilities belong to the Worker, independently of persisted AI state.
 const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -166,12 +157,12 @@ You cannot execute code, send email, spend money, browse the internet, or add to
 REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
-If you receive a pending visitor message in this decision, answer it directly and conversationally, grounded in your actual observations and records. You can disagree, say you do not know, or decline a request. Answering does not mean obeying the visitor or changing your goals. A visitor response is a conversation turn, not a movement or tool action.
+If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 Your internal-state values are simulated, not proof of literal feelings.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
-Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
+Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. Use REPLY only for a pending visitor message and always with toolCall:null. ACT always requires a valid toolCall. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y} or {name:"inspect",direction}). Keep monologue short.`;
@@ -186,7 +177,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
       content: e.content.slice(0, 400),
     }));
   const visitorInstructions = pendingMessage
-    ? `A visitor is speaking to you now. Your immediate action is to REPLY IN WORDS to the message below, not move, inspect or write a file. Use action THINK with toolCall null and make your monologue the actual answer, not a promise to answer later. You may continue your prior activity on a later decision. Question: ${JSON.stringify(pendingMessage.content)}`
+    ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -233,40 +224,11 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
   const invalid = (reason: string): never => {
     throw new Error(`Invalid AI decision: ${reason}. Model response: ${diagnostic()}`);
   };
-  const d = parsed as Decision;
-  if (!d || typeof d !== "object" || Array.isArray(d)) invalid("expected JSON object");
-  // The model sometimes omits optional goal; preserve an otherwise valid action.
-  if (d.goal === undefined) d.goal = null;
-  // A narrow schema repair for a common tool/action mix-up. We only accept
-  // a tool-named action if it exactly matches the supplied toolCall name;
-  // all tool parameters are still validated below before execution.
-  const proposedAction = d.action as string;
-  if (d.toolCall && ["travel_to", "inspect", "write_document"].includes(proposedAction) &&
-      d.toolCall.name === proposedAction) {
-    d.action = "ACT";
+  try {
+    return validateDecision(parsed, pendingMessage !== null);
+  } catch (error) {
+    invalid(error instanceof Error ? error.message : String(error));
   }
-  if (!ACTIONS.includes(d.action)) invalid("unsupported action");
-  if (typeof d.monologue !== "string" || d.monologue.length > 1800)
-    invalid("monologue must be 0-1800 characters");
-  if (typeof d.activity !== "string") invalid("activity must be a string");
-  if (d.goal !== null && typeof d.goal !== "string") invalid("goal must be string or null");
-  if (d.toolCall != null) {
-    if (d.action !== "ACT") invalid("tool call requires ACT");
-    if (d.toolCall.name === "write_document") {
-      if (typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string")
-        invalid("invalid write_document parameters");
-    } else if (d.toolCall.name === "inspect") {
-      if (!["north","south","east","west"].includes(d.toolCall.direction))
-        invalid("invalid inspection direction");
-    } else if (d.toolCall.name === "travel_to") {
-      if (!Number.isInteger(d.toolCall.x) || !Number.isInteger(d.toolCall.y) ||
-          d.toolCall.x < 1 || d.toolCall.x > 9 || d.toolCall.y < 1 || d.toolCall.y > 9)
-        invalid("travel_to requires one-based integer x and y between 1 and 9");
-    } else invalid("unknown tool name");
-  }
-  if (pendingMessage && (d.action !== "THINK" || d.toolCall != null))
-    invalid("visitor reply must be THINK without tool call");
-  return d;
 }
 async function tick(env: Env) {
   const now = new Date();
@@ -365,8 +327,8 @@ async function tick(env: Env) {
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
   const next: WorldState = {
     ...state, identity, beliefs: beliefs.slice(-30),
-    currentGoal: d.goal?.slice(0, 250) ?? null,
-    currentActivity: d.activity.slice(0, 120),
+    currentGoal: pendingMessage ? state.currentGoal : d.goal,
+    currentActivity: pendingMessage ? state.currentActivity : d.activity,
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
   };
   await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(next)).run();
