@@ -4,7 +4,8 @@ export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST
 export type DecisionTool =
   | { name: "write_document"; path: string; content: string }
   | { name: "travel_to"; x: number; y: number }
-  | { name: "inspect"; direction: "north" | "south" | "east" | "west" };
+  | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
+  | { name: "remember_object"; objectId: string; label: string; note: string };
 export type Decision = {
   action: DecisionAction;
   monologue: string;
@@ -16,7 +17,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -73,6 +74,12 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
       if (!DIRECTIONS.includes(String(tool.direction)))
         fail("inspect direction must be north/south/east/west");
       toolCall = { name: "inspect", direction: tool.direction as "north" | "south" | "east" | "west" };
+    } else if (tool.name === "remember_object") {
+      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub)_\\d{3}$/.test(tool.objectId) ||
+          !string(tool.label, 80) || !string(tool.note, 500) ||
+          (!tool.label.trim() && !tool.note.trim()))
+        fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
+      toolCall = {name:"remember_object",objectId:tool.objectId,label:tool.label,note:tool.note};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
           (tool.x as number) < 1 || (tool.x as number) > 9 ||

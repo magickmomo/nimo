@@ -58,9 +58,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView;
+  journey?: JourneyView; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
   const sprites = [...objects.filter(o => inSight.has(`${o.x}:${o.y}`) || remembered.has(`${o.x}:${o.y}`))
-    .map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
+    .map(o => ({ ...o })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
@@ -136,8 +136,21 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         )}
         {sprites.map(sprite => {
           const p = project(sprite);
-          return <g key={sprite.id} transform={`translate(${p.x} ${p.y + 2})`}>
-            {sprite.kind === "nimo" ? <Character/> : <Scenery kind={sprite.kind}/>}
+          return <g key={sprite.id} transform={`translate(${p.x} ${p.y + 2})`}
+            role={sprite.kind === "nimo" ? undefined : "button"}
+            tabIndex={sprite.kind === "nimo" ? undefined : 0}
+            aria-label={sprite.kind === "nimo" ? undefined : `View Nimo's memory of ${sprite.kind} at (${Math.round(sprite.x)+1},${Math.round(sprite.y)+1})`}
+            onClick={sprite.kind === "nimo" ? undefined : ()=>onSelectObject?.(sprite.id)}
+            onKeyDown={sprite.kind === "nimo" ? undefined : event=>{
+              if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
+            }}
+            style={sprite.kind === "nimo" ? undefined : {cursor:"pointer"}}>
+            {sprite.kind === "nimo" ? <Character/> : <>
+              {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
+              <Scenery kind={sprite.kind}/>
+              <circle cx="0" cy="-14" r="29" fill="transparent"/>
+              <title>Inspect Nimo's saved memory for {sprite.id}</title>
+            </>}
           </g>;
         })}
       </svg>
