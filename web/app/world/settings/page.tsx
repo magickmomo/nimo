@@ -5,6 +5,7 @@ import "../world.css";
 
 type WorldSnapshot = {
   autonomousEnabled: boolean;
+  journey?: { status: "idle" | "travelling" | "paused"; stepIndex: number; path: {x:number;y:number}[] };
   world: { state: { tickCount: number; lastTick: string | null } };
 };
 
@@ -45,8 +46,8 @@ export default function WorldSettings() {
       if (!res.ok) throw new Error(data.error || "Could not change setting");
       if (typeof data.autonomousEnabled !== "boolean") throw new Error("Invalid Worker response");
       setSnapshot(s => s && ({ ...s, autonomousEnabled: data.autonomousEnabled }));
-      setNotice(data.autonomousEnabled ? "Nimo is awake. Decisions will resume on the next eligible minute." :
-        "Nimo is sleeping. New AI decisions are paused.");
+      setNotice(data.autonomousEnabled ? "Nimo is awake. A paused journey resumes, or a new decision becomes eligible at the next scheduled check." :
+        "Nimo is sleeping. Decisions and active travel are paused.");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update sleep setting");
@@ -59,14 +60,15 @@ export default function WorldSettings() {
     <div className="world-page">
       <p className="eyebrow">World 001 · owner controls</p>
       <h1>World settings</h1>
-      <p className="lead">Temporarily pause autonomous thinking while testing. Nimo keeps his identity, memories, beliefs and journal.</p>
+      <p className="lead">Pause both autonomous decisions and ongoing journeys. Nimo keeps his position, identity, memories, beliefs and journal.</p>
       <div className="world-card">
         <h2>Autonomous loop</h2>
+        {snapshot?.journey && snapshot.journey.status !== "idle" && <p className="meta">Journey: {snapshot.journey.status} · {snapshot.journey.stepIndex} of {Math.max(0,snapshot.journey.path.length-1)} steps completed.</p>}
         <p><strong>Current status: </strong>
           {snapshot ? snapshot.autonomousEnabled ? "Awake — enabled" : "Sleeping — paused" : "Loading…"}
         </p>
         <p className="meta">
-          Cloudflare still checks every minute, but sleeping skips the OpenAI call.
+          Cloudflare uses a minute-level cron with faster checks while awake. Sleep pauses walking and skips new OpenAI calls.
           A request already in progress may still be billed.
         </p>
         <label htmlFor="world-owner-setting">Owner access token</label>
