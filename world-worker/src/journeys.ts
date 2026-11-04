@@ -1,4 +1,5 @@
 import { shortestPath, visibleTiles, type Point } from "../../web/lib/world-map";
+import { completedStepIndex, resumeStartTime } from "./journey-clock";
 
 export const WALK_STEP_MS = 3000;
 export type JourneyStatus = "idle" | "travelling" | "paused";
@@ -77,8 +78,7 @@ export async function advanceJourney(db: D1Database, now = new Date()):
   const route = parsePath(row.path);
   const start = Date.parse(row.started_at || "");
   if (!Number.isFinite(start) || route.length < 2) throw new Error("Invalid active journey");
-  const targetIndex = Math.min(route.length-1,Math.max(row.step_index,
-    Math.floor(Math.max(0,now.getTime()-start)/row.step_ms)));
+  const targetIndex = completedStepIndex(start,now.getTime(),row.step_ms,route.length,row.step_index);
   let currentIndex = row.step_index;
   // Steps are claimed in D1. If a scheduled invocation overlaps, the
   // second one cannot claim the same step and double-count a visit.
@@ -131,8 +131,7 @@ export async function resumeJourney(db: D1Database, now = new Date()) {
   const pausedAt = Date.parse(row.paused_at || "");
   const start = Date.parse(row.started_at || "");
   if (!Number.isFinite(pausedAt) || !Number.isFinite(start)) throw new Error("Invalid paused journey");
-  const shift = Math.max(0,now.getTime()-pausedAt);
   await db.prepare(`UPDATE world_journey SET status='travelling',started_at=?,paused_at=NULL
     WHERE id=1 AND status='paused'`)
-    .bind(new Date(start+shift).toISOString()).run();
+    .bind(new Date(resumeStartTime(start,pausedAt,now.getTime())).toISOString()).run();
 }
