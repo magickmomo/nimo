@@ -85,18 +85,27 @@ export async function advanceJourney(db: D1Database, now = new Date()):
   while (currentIndex < targetIndex) {
     const nextIndex = currentIndex+1;
     const next = route[nextIndex];
-    const changed = await db.prepare(`UPDATE world_journey SET step_index=?
-      WHERE id=1 AND status='travelling' AND step_index=?`)
-      .bind(nextIndex,currentIndex).run();
-    if (changed.meta.changes !== 1) return {status:"travelling"};
-    await db.batch([
-      db.prepare(`UPDATE world_position SET x=?,y=?,updated_at=? WHERE id=1`)
-        .bind(next.x,next.y,now.toISOString()),
-      db.prepare(`INSERT INTO world_visited(x,y,visit_count) VALUES(?,?,1)
+    const previous = route[currentIndex];
+    // D1 batch executes as one transaction. A competing invocation cannot
+    // claim the same waypoint, and a failed batch rolls back the claim too.
+    const results = await db.batch([
+      db.prepare(`UPDATE world_journey SET step_index=?
+        WHERE id=1 AND status='travelling' AND step_index=?`)
+        .bind(nextIndex,currentIndex),
+      db.prepare(`UPDATE world_position SET x=?,y=?,updated_at=?
+        WHERE id=1 AND x=? AND y=?
+          AND EXISTS(SELECT 1 FROM world_journey
+            WHERE id=1 AND status='travelling' AND step_index=?)`)
+        .bind(next.x,next.y,now.toISOString(),previous.x,previous.y,nextIndex),
+      db.prepare(`INSERT INTO world_visited(x,y,visit_count)
+        SELECT ?,?,1 WHERE changes()=1
         ON CONFLICT(x,y) DO UPDATE SET visit_count=world_visited.visit_count+1,
-        last_visited=strftime('%Y-%m-%dT%H:%M:%fZ','now')`).bind(next.x,next.y),
+          last_visited=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
+        .bind(next.x,next.y),
       sightInsert(db,next),
     ]);
+    if (results[0].meta.changes !== 1) return {status:"travelling"};
+    if (results[1].meta.changes !== 1) throw new Error("Journey position out of sync; pause and investigate");
     currentIndex = nextIndex;
   }
   if (currentIndex === route.length-1) {
