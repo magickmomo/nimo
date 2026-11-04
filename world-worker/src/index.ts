@@ -227,7 +227,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
   try {
     return validateDecision(parsed, pendingMessage !== null);
   } catch (error) {
-    invalid(error instanceof Error ? error.message : String(error));
+    return invalid(error instanceof Error ? error.message : String(error));
   }
 }
 async function tick(env: Env) {
