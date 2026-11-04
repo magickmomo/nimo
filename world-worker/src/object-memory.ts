@@ -35,6 +35,9 @@ export async function inspectAndRemember(db:D1Database, object:WorldObject) {
 export async function saveObjectNote(db:D1Database,id:string,label:string,note:string) {
   const object = objectById(id);
   if (!object) throw new Error("Unknown object ID");
+  const seen = await db.prepare("SELECT 1 AS known FROM world_seen WHERE x=? AND y=?")
+    .bind(object.x,object.y).first<{known:number}>();
+  if (!seen) throw new Error("Nimo has not encountered that object yet");
   if (label.length>80 || note.length>500 || (!label.trim()&&!note.trim()))
     throw new Error("Provide a label or note within the length limits");
   await db.prepare(`INSERT INTO object_notes(object_id,label,note) VALUES(?,?,?)
@@ -44,17 +47,20 @@ export async function saveObjectNote(db:D1Database,id:string,label:string,note:s
 }
 
 export async function objectMemory(db:D1Database) {
-  const [observations,notes] = await Promise.all([
+  const [observations,notes,counts] = await Promise.all([
     db.prepare(`SELECT id,object_id,observed_at,properties_json,comparison,changed_properties
       FROM object_observations ORDER BY id DESC LIMIT 500`).all<ObservationRow>(),
     db.prepare("SELECT object_id,label,note,updated_at FROM object_notes").all<NoteRow>(),
+    db.prepare("SELECT object_id, COUNT(*) AS total FROM object_observations GROUP BY object_id")
+      .all<{object_id:string;total:number}>(),
   ]);
   return WORLD_OBJECTS.map(object => {
     const history=observations.results.filter(o=>o.object_id===object.id);
     const note=notes.results.find(n=>n.object_id===object.id);
     return { id:object.id,kind:object.kind,x:object.x,y:object.y,
       label:note?.label??"",note:note?.note??"",notesUpdatedAt:note?.updated_at??null,
-      inspectionCount:history.length,latestComparison:history[0]?.comparison??null,
+      inspectionCount:counts.results.find(row=>row.object_id===object.id)?.total??0,
+      latestComparison:history[0]?.comparison??null,
       // Historical world_inspected rows may predate 007; only report comparisons actually recorded.
       observations:history.map(h=>({id:h.id,at:h.observed_at,comparison:h.comparison,
         properties:JSON.parse(h.properties_json),changedProperties:JSON.parse(h.changed_properties)})),
