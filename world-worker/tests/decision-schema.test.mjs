@@ -52,3 +52,18 @@ test("optional goal may be omitted but malformed optional state is rejected",()=
   assert.equal(validateDecision(d,false).goal,null);
   assert.throws(()=>validateDecision({...base("THINK"),belief:{text:"x",evidence:"y",confidence:2}},false));
 });
+
+test("remember_object accepts genuine object IDs including rock_002",()=>{
+  for (const objectId of ["tree_001","rock_002","shrub_003"]) {
+    const toolCall = {name:"remember_object",objectId,label:"rock at (7,6)",note:"A solid grey rock resting on the grass."};
+    const d = validateDecision(base("ACT",toolCall),false);
+    assert.deepEqual(d.toolCall,toolCall);
+  }
+});
+test("remember_object rejects malformed IDs and empty or oversized notes",()=>{
+  for (const objectId of ["rock_02","rock_0002","rock_\\d{3}","tree_001/../evil","stone_002"]) {
+    assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId,label:"label",note:"note"}),false));
+  }
+  assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"rock_002",label:"",note:""}),false));
+  assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"rock_002",label:"x".repeat(81),note:"note"}),false));
+});

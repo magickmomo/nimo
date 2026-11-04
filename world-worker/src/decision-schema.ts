@@ -75,7 +75,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
         fail("inspect direction must be north/south/east/west");
       toolCall = { name: "inspect", direction: tool.direction as "north" | "south" | "east" | "west" };
     } else if (tool.name === "remember_object") {
-      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub)_\\d{3}$/.test(tool.objectId) ||
+      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub)_\d{3}$/.test(tool.objectId) ||
           !string(tool.label, 80) || !string(tool.note, 500) ||
           (!tool.label.trim() && !tool.note.trim()))
         fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
