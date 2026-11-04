@@ -16,6 +16,7 @@ type Snapshot = {
   journey?: JourneyView;
   environmentMemory?: {
     visited: { x: number; y: number; visit_count: number }[];
+    seen: { x: number; y: number }[];
     inspected: { x: number; y: number; kind: string; description: string; inspection_count: number }[];
   };
 };
@@ -116,7 +117,7 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} inspected={data?.environmentMemory?.inspected} journey={data?.journey} />
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} />
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>
