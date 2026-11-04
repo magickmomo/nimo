@@ -64,7 +64,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   if (tool !== null) {
     if (!object(tool) || typeof tool.name !== "string") fail("invalid toolCall");
     if (tool.name === "write_document") {
-      if (!string(tool.path, 44) || !/^[a-z0-9][a-z0-9_-]{0,39}\\.txt$/.test(tool.path))
+      if (!string(tool.path, 44) || !/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(tool.path))
         fail("write_document requires a safe lowercase .txt filename");
       if (!string(tool.content, 2000))
         fail("write_document content must be a string up to 2000 characters");
