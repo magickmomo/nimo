@@ -1,4 +1,4 @@
-import { shortestPath, visibleTiles, type Point } from "../../web/lib/world-map";
+import { shortestPath, visibleTiles, displayPoint, type Point } from "../../web/lib/world-map";
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 
 export const WALK_STEP_MS = 3000;
@@ -109,11 +109,18 @@ export async function advanceJourney(db: D1Database, now = new Date()):
     currentIndex = nextIndex;
   }
   if (currentIndex === route.length-1) {
-    const completed = await db.prepare(`UPDATE world_journey
-      SET status='idle', started_at=NULL, paused_at=NULL
-      WHERE id=1 AND status='travelling' AND step_index=?`)
-      .bind(currentIndex).run();
-    if (completed.meta.changes === 1)
+    const arrival = displayPoint(route[route.length-1]);
+    // Commit completion and its verified journal event together, exactly once.
+    const completed = await db.batch([
+      db.prepare(`UPDATE world_journey
+        SET status='idle', started_at=NULL, paused_at=NULL
+        WHERE id=1 AND status='travelling' AND step_index=?`)
+        .bind(currentIndex),
+      db.prepare(`INSERT INTO events(kind,content,action)
+        SELECT 'tool',?,'TRAVEL_OK' WHERE changes()=1`)
+        .bind(`TRAVEL OK: arrived at (${arrival.x}, ${arrival.y}) after ${route.length-1} steps`),
+    ]);
+    if (completed[0].meta.changes === 1)
       return {status:"completed",position:route[route.length-1],route};
   }
   return {status:"travelling"};
