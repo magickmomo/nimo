@@ -63,7 +63,8 @@ export async function beginJourney(db: D1Database, from: Point, to: Point, now =
   const claimed = await db.prepare(`UPDATE world_journey
     SET status='travelling',path=?,step_index=0,step_ms=?,started_at=?,paused_at=NULL
     WHERE id=1 AND status='idle'
-      AND EXISTS(SELECT 1 FROM world_position WHERE id=1 AND x=? AND y=?)`)
+      AND EXISTS(SELECT 1 FROM world_position WHERE id=1 AND x=? AND y=?)
+      AND EXISTS(SELECT 1 FROM world_control WHERE id=1 AND autonomous_enabled=1)`)
     .bind(JSON.stringify(route), WALK_STEP_MS, now.toISOString(), from.x, from.y).run();
   if (claimed.meta.changes !== 1) throw new Error("Nimo is already travelling or has moved");
   return route;
