@@ -44,7 +44,7 @@ export default function World() {
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => { void refresh(); setClock(Date.now()); }, data?.journey?.status === "travelling" ? 2500 : 10000);
+    const interval = window.setInterval(() => { void refresh(); setClock(Date.now()); }, data?.autonomousEnabled === false ? 10000 : 2000);
     return () => window.clearInterval(interval);
   }, [refresh, data?.journey?.status]);
 
