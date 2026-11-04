@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
+import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
 
 const HW = 29;
 const HH = 16;
@@ -58,8 +58,8 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], inspected = [], journey }: {
-  position: Point | null; visited?: Point[]; inspected?: (Point & { kind: string })[];
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey }: {
+  position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
   journey?: JourneyView;
 }) {
   const [clock, setClock] = useState(() => Date.now());
@@ -89,7 +89,9 @@ export default function IsometricWorld({ position, visited = [], inspected = [],
     x: from.x + (to.x-from.x)*portion,
     y: from.y + (to.y-from.y)*portion,
   } : authoritative;
-  const seen = new Set(visited.map(p => `${p.x}:${p.y}`));
+  const visitedKeys = new Set(visited.map(p => `${p.x}:${p.y}`));
+  const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
+  const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
   const sprites = [...objects.map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
@@ -110,14 +112,17 @@ export default function IsometricWorld({ position, visited = [], inspected = [],
         <ellipse cx="310" cy="190" rx="272" ry="132" fill="#071a18" opacity=".35"/>
         {tiles.map(tile => {
           const p = project(tile);
-          const hasVisited = seen.has(`${tile.x}:${tile.y}`);
+          const tileKey = `${tile.x}:${tile.y}`;
+          const hasVisited = visitedKeys.has(tileKey);
+          const isVisible = inSight.has(tileKey);
+          const wasSeen = remembered.has(tileKey);
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
-              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)")}
+              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)") } opacity={isVisible ? 1 : wasSeen ? .68 : .32}
                 stroke="#648b5a" strokeWidth="1" />
               <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
-              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : " · unvisited"}`}</title>
+              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : wasSeen ? " · seen previously" : " · unseen"}`}</title>
             </g>
           );
         })}
@@ -139,7 +144,7 @@ export default function IsometricWorld({ position, visited = [], inspected = [],
         <span><strong>Nimo</strong> · {moving ?
           `${journey?.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
           `tile (${authoritative.x+1}, ${authoritative.y+1})`}</span>
-        <span className="nimo-map-preview">{visited.length} / 81 visited · {inspected.length} objects inspected · position stored in D1</span>
+        <span className="nimo-map-preview">{visited.length} visited · {seenTiles.length} remembered as seen · {inspected.length} inspected</span>
       </div>
       {inspected.length > 0 && (
         <details className="nimo-map-discoveries">
