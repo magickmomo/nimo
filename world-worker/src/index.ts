@@ -269,11 +269,9 @@ async function tick(env: Env) {
   const journey = await advanceJourney(env.DB, now);
   if (journey.status === "travelling" || journey.status === "paused")
     return {status:"action_in_progress"};
-  if (journey.status === "completed" && journey.position) {
-    const to = displayPoint(journey.position);
-    await log(env.DB,"tool",
-      `TRAVEL OK: arrived at (${to.x}, ${to.y}) after ${journey.route!.length-1} steps`,"TRAVEL_OK");
-    // A completed physical action unlocks the next eligible model decision.
+  if (journey.status === "completed") {
+    // Completion and TRAVEL_OK are committed atomically in advanceJourney.
+    // The next decision can now start without waiting for an arbitrary timer.
     await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
       .bind(now.toISOString()).run();
   }
@@ -421,11 +419,7 @@ export default {
         const changedAt = new Date();
         if (!body.enabled) {
           // Freeze timed movement at its completed waypoint before sleeping.
-          const finished = await advanceJourney(env.DB,changedAt);
-          if (finished.status === "completed" && finished.position) {
-            const pos = displayPoint(finished.position);
-            await log(env.DB,"tool",`TRAVEL OK: arrived at (${pos.x}, ${pos.y}) after ${finished.route!.length-1} steps`,"TRAVEL_OK");
-          }
+          await advanceJourney(env.DB,changedAt);
         }
         await env.DB.prepare(
           "UPDATE world_control SET autonomous_enabled=?, updated_at=? WHERE id=1"
