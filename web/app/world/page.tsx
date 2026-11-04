@@ -6,7 +6,19 @@ import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
 import { groupJournalEvents } from "../../lib/world-journal";
 
+type ObjectRecord = {
+  id:string;kind:string;x:number;y:number;label:string;note:string;
+  inspectionCount:number;latestComparison:string|null;
+  observations:{id:number;at:string;comparison:string;changedProperties:string[];
+    properties:{appearance?:string;blocksMovement?:boolean}}[];
+};
+type TraceRecord = {
+  id:number;started_at:string;finished_at:string|null;kind:string;
+  status:string;detail:string;result:string|null;
+};
 type Snapshot = {
+  objects?: ObjectRecord[];
+  actionTrace?: TraceRecord[];
   world: { state: WorldState; next_tick: string };
   events: WorldEvent[];
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
@@ -29,6 +41,7 @@ export default function World() {
   const [sending, setSending] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +82,12 @@ export default function World() {
   }
 
   const state = data?.world.state;
+  const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
+  const recentActions = data?.actionTrace ?? [];
+  const runningActions = recentActions.filter(a=>a.status==="running" && (
+    (a.kind==="travel" && (data?.journey?.status==="travelling" || data?.journey?.status==="paused")) ||
+    (clock-Date.parse(a.started_at)<90000)
+  ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Energy", value: state.emotions.energy, tone: "energy" },
@@ -117,7 +136,60 @@ export default function World() {
           </div>
         </>
       )}
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} />
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
+        selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+      <section className="world-card world-action-monitor" aria-label="Live execution monitor">
+        <div className="world-journal-head">
+          <h2>Active actions</h2>
+          <span className="meta">Worker execution · separate from journal</span>
+        </div>
+        <p className="meta">Actual operations, recorded by the Worker. “Decide” means an LLM request; perception, lookup and comparison are code, not LLM thoughts.</p>
+        <div className="world-action-current">
+          <strong>{data?.autonomousEnabled===false?"Sleeping":data?.journey?.status==="paused"?"Journey paused":runningActions.length?runningActions[0].detail:"Idle / between actions"}</strong>
+          <span>{data?.journey?.status==="travelling"?"Walking along a persisted route":runningActions.length?runningActions[0].kind:"No operation running right now"}</span>
+        </div>
+        <details className="world-action-details" open>
+          <summary>Recent operations ({recentActions.length})</summary>
+          <ol className="world-action-list">
+            {recentActions.slice(0,10).map(action=>(
+              <li key={action.id}>
+                <div className="world-action-line">
+                  <span className="world-action-kind">{action.kind}</span>
+                  <span>{action.status==="running" && !runningActions.some(item=>item.id===action.id) ? "stale / interrupted" : action.status}</span>
+                  <time dateTime={action.started_at}>{new Date(action.started_at).toLocaleTimeString()}</time>
+                </div>
+                <div>{action.detail}</div>
+                {action.result && <small>{action.result}</small>}
+              </li>
+            ))}
+          </ol>
+          {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
+        </details>
+      </section>
+      <section className="world-card world-object-memory">
+        <div className="world-journal-head">
+          <h2>Object memory</h2>
+          <span className="meta">Select a tree, rock or shrub in the map</span>
+        </div>
+        {selectedObject ? <>
+          <h3>{selectedObject.label || selectedObject.kind} <small>({selectedObject.x+1}, {selectedObject.y+1})</small></h3>
+          <p className="meta">Environment ID: <code>{selectedObject.id}</code> · {selectedObject.inspectionCount} recorded observations</p>
+          <p><strong>Nimo's label:</strong> {selectedObject.label || "Not named yet"}</p>
+          <p><strong>Nimo's note:</strong> {selectedObject.note || "No personal note yet"}</p>
+          <p><strong>Last comparison:</strong> {selectedObject.latestComparison || "No post-migration inspection yet"}</p>
+          {selectedObject.observations.length ? <ol className="world-observation-list">
+            {selectedObject.observations.slice(0,15).map(observation=>(
+              <li key={observation.id}>
+                <time dateTime={observation.at}>{new Date(observation.at).toLocaleString()}</time>
+                <strong>{observation.comparison}</strong>
+                {observation.changedProperties.length>0 && <span>Changed: {observation.changedProperties.join(", ")}</span>}
+                <p>{observation.properties.appearance}</p>
+              </li>
+            ))}
+          </ol> : <p className="meta">Nimo has not recorded a structured inspection of this object yet.</p>}
+          <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
+        </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
+      </section>
       <section className="world-card world-workspace">
         <div className="world-journal-head">
           <h2>Workspace</h2>

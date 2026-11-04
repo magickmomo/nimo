@@ -104,6 +104,11 @@ export async function advanceJourney(db: D1Database, now = new Date()):
     ]);
     if (results[0].meta.changes !== 1) return {status:"travelling"};
     if (results[1].meta.changes !== 1) throw new Error("Journey position out of sync; pause and investigate");
+    // Instrument completed physical steps without adding another model call.
+    await db.prepare(`INSERT INTO action_trace(kind,status,detail,result,finished_at)
+      VALUES('travel','completed',?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+      .bind(`Reach waypoint ${nextIndex} of ${route.length-1}`,
+        `At (${displayPoint(next).x},${displayPoint(next).y})`).run();
     currentIndex = nextIndex;
   }
   if (currentIndex === route.length-1) {
@@ -118,8 +123,13 @@ export async function advanceJourney(db: D1Database, now = new Date()):
         SELECT 'tool',?,'TRAVEL_OK' WHERE changes()=1`)
         .bind(`TRAVEL OK: arrived at (${arrival.x}, ${arrival.y}) after ${route.length-1} steps`),
     ]);
-    if (completed[0].meta.changes === 1)
+    if (completed[0].meta.changes === 1) {
+      await db.prepare(`UPDATE action_trace SET status='completed',
+        result=?,finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=(SELECT MAX(id) FROM action_trace WHERE kind='travel' AND status='running')`)
+        .bind(`Arrived at (${arrival.x},${arrival.y}) after ${route.length-1} steps`).run();
       return {status:"completed",position:route[route.length-1],route};
+    }
   }
   return {status:"travelling"};
 }

@@ -4,11 +4,11 @@ export const WORLD_SIZE = 9;
 export type Point = { x: number; y: number };
 export type Direction = "north" | "south" | "east" | "west";
 export type SceneryKind = "tree" | "rock" | "shrub";
-export type WorldObject = Point & { kind: SceneryKind };
+export type WorldObject = Point & { id: string; kind: SceneryKind };
 export const WORLD_OBJECTS: readonly WorldObject[] = [
-  {x:1,y:1,kind:"tree"},{x:6,y:1,kind:"tree"},{x:7,y:6,kind:"tree"},
-  {x:1,y:7,kind:"tree"},{x:3,y:2,kind:"rock"},{x:6,y:5,kind:"rock"},
-  {x:2,y:5,kind:"shrub"},{x:5,y:7,kind:"shrub"},
+  {id:"tree_001",x:1,y:1,kind:"tree"},{id:"tree_002",x:6,y:1,kind:"tree"},{id:"tree_003",x:7,y:6,kind:"tree"},
+  {id:"tree_004",x:1,y:7,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
+  {id:"shrub_001",x:2,y:5,kind:"shrub"},{id:"shrub_002",x:5,y:7,kind:"shrub"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
 export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
@@ -16,6 +16,7 @@ export function inBounds(p: Point) {
   return Number.isInteger(p.x) && Number.isInteger(p.y) &&
     p.x >= 0 && p.x < WORLD_SIZE && p.y >= 0 && p.y < WORLD_SIZE;
 }
+export function objectById(id: string) { return WORLD_OBJECTS.find(o => o.id === id); }
 export function objectAt(p: Point) {
   return WORLD_OBJECTS.find(o => o.x === p.x && o.y === p.y);
 }
@@ -40,7 +41,7 @@ export function perceive(position: Point) {
   const visibleObjects = WORLD_OBJECTS.filter(o =>
     Math.abs(o.x-position.x) <= PERCEPTION_RADIUS &&
     Math.abs(o.y-position.y) <= PERCEPTION_RADIUS
-  ).map(o => ({ type:o.kind, x:o.x, y:o.y,
+  ).map(o => ({ id:o.id, type:o.kind, x:o.x, y:o.y,
     distance: Math.abs(o.x-position.x)+Math.abs(o.y-position.y) }));
   const directions = (["north","south","east","west"] as const).map(direction => {
     const to = destination(position,direction);
@@ -111,18 +112,24 @@ export function modelPerception(position: Point) {
     visionShape: raw.visionShape,
     visibleTiles: raw.visibleTiles.map(p => ({
       ...displayPoint(p), terrain:"grass", object: objectAt(p)?.kind ?? null,
+      objectId: objectAt(p)?.id ?? null,
     })),
     terrain: raw.terrain,
     visibleObjects: raw.visibleObjects.map(o => ({
-      type: o.type, position: displayPoint(o), direction: directionOf(position,o),
+      id: o.id, type: o.type, position: displayPoint(o), direction: directionOf(position,o),
       distance: o.distance, directlyAdjacent: o.distance === 1,
     })),
     directions: raw.directions.map(d => ({
       direction: d.direction, destination: d.blockedBy === "world edge" ? null : displayPoint(destination(position,d.direction)),
       canMove: d.canMove, blockedBy: d.blockedBy,
       canInspect: !!objectAt(destination(position,d.direction)),
+      objectId: objectAt(destination(position,d.direction))?.id ?? null,
     })),
     coordinates: "ONE-BASED: x and y range 1–9; north decreases y; south increases y; west decreases x; east increases x. Directions refer to grid axes, not diagonal directions on the isometric screen.",
     inspectionRule: "inspect(direction) succeeds ONLY when that adjacent tile has an object and canInspect=true",
   };
+}
+
+export function observableProperties(object: WorldObject) {
+  return { kind:object.kind, appearance:inspectedDescription(object.kind), blocksMovement:true, position:displayPoint(object) };
 }
