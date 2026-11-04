@@ -64,7 +64,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
 }) {
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
-    if (!journey || journey.status === "idle") return;
+    if (!journey || journey.status !== "travelling") return;
     const timer = window.setInterval(() => setClock(Date.now()), 50);
     return () => window.clearInterval(timer);
   }, [journey?.status]);
