@@ -92,7 +92,8 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const visitedKeys = new Set(visited.map(p => `${p.x}:${p.y}`));
   const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
-  const sprites = [...objects.map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
+  const sprites = [...objects.filter(o => inSight.has(`${o.x}:${o.y}`) || remembered.has(`${o.x}:${o.y}`))
+    .map(o => ({ ...o, id: `object-${o.x}-${o.y}` })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
