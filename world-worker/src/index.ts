@@ -1,5 +1,6 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
+import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
@@ -19,11 +20,11 @@ type Decision = {
   goal: string | null;
   belief?: { text: string; evidence: string; confidence: number } | null;
   identityUpdate?: { text: string; evidence: string } | null;
-  toolCall?: { name: "write_document"; path: string; content: string } | { name: "move"; direction: Direction } | { name: "inspect"; direction: Direction } | null;
+  toolCall?: { name: "write_document"; path: string; content: string } | { name: "travel_to"; x: number; y: number } | { name: "inspect"; direction: Direction } | null;
 };
 const ACTIONS = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST"];
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "move", "inspect"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
@@ -49,11 +50,12 @@ async function move(db: D1Database, direction: Direction) {
 type VisitedRow = Point & { visit_count: number; first_visited: string; last_visited: string };
 type InspectedRow = Point & { kind: string; description: string; inspection_count: number; last_inspected: string };
 async function environmentMemory(db: D1Database) {
-  const [visits, inspections] = await Promise.all([
+  const [visits, inspections, seen] = await Promise.all([
     db.prepare("SELECT x,y,visit_count,first_visited,last_visited FROM world_visited ORDER BY first_visited ASC").all<VisitedRow>(),
     db.prepare("SELECT x,y,kind,description,inspection_count,last_inspected FROM world_inspected ORDER BY last_inspected DESC").all<InspectedRow>(),
+    db.prepare("SELECT x,y FROM world_seen ORDER BY first_seen ASC").all<Point>(),
   ]);
-  return { visited: visits.results, inspected: inspections.results };
+  return { visited: visits.results, inspected: inspections.results, seen: seen.results };
 }
 async function recordVisit(db: D1Database, point: Point) {
   await db.prepare(`INSERT INTO world_visited(x,y,visit_count) VALUES(?,?,1)
@@ -147,15 +149,13 @@ async function decide(env: Env, state: WorldState, history: EventRow[], landmark
   const system = `${SEED}
 
 You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
-Your world perception contains your actual position, objects within two cardinal steps,
-and whether each adjacent direction is walkable. You cannot see beyond that radius.
+Your perception contains a 9×9 square field of vision centred on your actual position and clipped to the world boundary. You can see all visible tiles and objects within it, including their coordinates. You cannot see beyond that field unless you remember previously seen places.
 All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 9, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
-You have exactly three executable tools: write_document(path, content), move(direction), and inspect(direction).
+You have exactly three executable tools: write_document(path, content), travel_to(x, y), and inspect(direction).
 To inspect an object one tile north/south/east/west, choose ACT with toolCall: {name:"inspect",direction:"north"|"south"|"east"|"west"}. Only inspect if perception.directions shows canInspect=true. Do not inspect objects two steps away: move adjacent first.
 The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
-To move one tile choose ACT with toolCall: {name:"move",direction:"north"|"south"|"east"|"west"}.
-Moving into obstacles or outside the map fails. Exploration is possible but not compulsory.
+To travel, choose any reachable walkable destination using one-based coordinates: ACT with toolCall: {name:"travel_to",x:5,y:6}. The environment calculates the entire shortest obstacle-aware route. You make NO new decisions during travel; your next decision happens after arrival. A tree, rock or shrub occupies its tile and cannot be a destination, so travel next to it to inspect. You can also remain still, write, observe, think or request capabilities. Exploration is possible but not compulsory.
 The write_document tool creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
@@ -164,7 +164,7 @@ To use your tool, choose action ACT and supply toolCall: {name:"write_document",
 These are your ONLY actual external actions. ACT without toolCall does not create anything.
 You cannot execute code, send email, spend money, browse the internet, or add tools.
 REQUEST asks your owner for a new capability; it does not grant it.
-Do not claim a write, inspection or movement has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
+Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message in this decision, answer it directly and conversationally, grounded in your actual observations and records. You can disagree, say you do not know, or decline a request. Answering does not mean obeying the visitor or changing your goals. A visitor response is a conversation turn, not a movement or tool action.
 Your internal-state values are simulated, not proof of literal feelings.
@@ -174,7 +174,7 @@ Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a v
 Choose one action from OBSERVE, THINK, REMEMBER, ACT, REQUEST.
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
-toolCall (null or {name:"write_document",path,content} or {name:"move",direction} or {name:"inspect",direction}). Keep monologue short.`;
+toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y} or {name:"inspect",direction}). Keep monologue short.`;
   const experience = buildExperienceContext(history);
   const knownRecentIds = new Set([
     ...experience.recentEvents.map(e => e.id),
@@ -199,6 +199,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
       messages: [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify({ state, perception, environmentMemory: {
+          seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
@@ -246,9 +247,13 @@ toolCall (null or {name:"write_document",path,content} or {name:"move",direction
     if (d.toolCall.name === "write_document") {
       if (typeof d.toolCall.path !== "string" || typeof d.toolCall.content !== "string")
         invalid("invalid write_document parameters");
-    } else if (d.toolCall.name === "move" || d.toolCall.name === "inspect") {
+    } else if (d.toolCall.name === "inspect") {
       if (!["north","south","east","west"].includes(d.toolCall.direction))
-        invalid("invalid movement or inspection direction");
+        invalid("invalid inspection direction");
+    } else if (d.toolCall.name === "travel_to") {
+      if (!Number.isInteger(d.toolCall.x) || !Number.isInteger(d.toolCall.y) ||
+          d.toolCall.x < 1 || d.toolCall.x > 9 || d.toolCall.y < 1 || d.toolCall.y > 9)
+        invalid("travel_to requires one-based integer x and y between 1 and 9");
     } else invalid("unknown tool name");
   }
   if (pendingMessage && (d.action !== "THINK" || d.toolCall != null))
@@ -259,6 +264,19 @@ async function tick(env: Env) {
   const now = new Date();
   // Sleep stops decisions *before* any model call or usage quota reservation.
   if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
+  // Complete or advance an existing journey before considering another LLM call.
+  // No AI decisions occur while the physical action remains in progress.
+  const journey = await advanceJourney(env.DB, now);
+  if (journey.status === "travelling" || journey.status === "paused")
+    return {status:"action_in_progress"};
+  if (journey.status === "completed" && journey.position) {
+    const to = displayPoint(journey.position);
+    await log(env.DB,"tool",
+      `TRAVEL OK: arrived at (${to.x}, ${to.y}) after ${journey.route!.length-1} steps`,"TRAVEL_OK");
+    // A completed physical action unlocks the next eligible model decision.
+    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
+      .bind(now.toISOString()).run();
+  }
   const world = await getWorld(env.DB);
   if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
 
@@ -284,7 +302,9 @@ async function tick(env: Env) {
   const history = await events(env.DB, 120);
   const landmarks = await longTermLandmarks(env.DB);
   const workspace = await documents(env.DB);
-  const perception = modelPerception(await getPosition(env.DB));
+  const position = await getPosition(env.DB);
+  await recordSight(env.DB,position);
+  const perception = modelPerception(position);
   const memory = await environmentMemory(env.DB);
   const pendingMessage = await pendingVisitorMessage(env.DB);
   const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
@@ -312,18 +332,19 @@ async function tick(env: Env) {
         const saved = await writeDocument(env.DB, call);
         toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
         await log(env.DB, "tool", toolOutcome, "WRITE_OK");
-      } else if (call.name === "move") {
-        const to = await move(env.DB, call.direction);
-        toolOutcome = `MOVE OK: ${call.direction} to (${displayPoint(to).x}, ${displayPoint(to).y})`;
-        await log(env.DB, "tool", toolOutcome, "MOVE_OK");
+      } else if (call.name === "travel_to") {
+        const from = await getPosition(env.DB);
+        const route = await beginJourney(env.DB, from, {x:call.x-1,y:call.y-1});
+        toolOutcome = `TRAVEL START: (${displayPoint(from).x}, ${displayPoint(from).y}) to (${call.x}, ${call.y}); ${route.length-1} steps`;
+        await log(env.DB, "tool", toolOutcome, "TRAVEL_START");
       } else if (call.name === "inspect") {
         const found = await inspectObject(env.DB, call.direction);
         toolOutcome = `INSPECT OK: ${found.object.kind} at (${displayPoint(found.object).x}, ${displayPoint(found.object).y}). ${found.description}`;
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
       }
     } catch (err) {
-      toolOutcome = `${call.name === "move" ? "MOVE" : call.name === "inspect" ? "INSPECT" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
-      await log(env.DB, "tool", toolOutcome, call.name === "move" ? "MOVE_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : "WRITE_ERROR");
+      toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : "WRITE_ERROR");
     }
   }
   const beliefs = [...state.beliefs];
@@ -389,16 +410,27 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), environmentMemory: await environmentMemory(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
         if (typeof body.enabled !== "boolean")
           return json({ error: "enabled must be a boolean" }, 400);
         // Separate, durable operator control; never available to the agent as a tool.
+        const changedAt = new Date();
+        if (!body.enabled) {
+          // Freeze timed movement at its completed waypoint before sleeping.
+          const finished = await advanceJourney(env.DB,changedAt);
+          if (finished.status === "completed" && finished.position) {
+            const pos = displayPoint(finished.position);
+            await log(env.DB,"tool",`TRAVEL OK: arrived at (${pos.x}, ${pos.y}) after ${finished.route!.length-1} steps`,"TRAVEL_OK");
+          }
+        }
         await env.DB.prepare(
           "UPDATE world_control SET autonomous_enabled=?, updated_at=? WHERE id=1"
-        ).bind(body.enabled ? 1 : 0, new Date().toISOString()).run();
+        ).bind(body.enabled ? 1 : 0, changedAt.toISOString()).run();
+        if (body.enabled) await resumeJourney(env.DB,changedAt);
+        else await pauseJourney(env.DB,changedAt);
         await log(env.DB, "system",
           body.enabled ? "Autonomous loop enabled by owner." : "Autonomous loop paused by owner.",
           body.enabled ? "WAKE" : "SLEEP");
