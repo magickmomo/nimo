@@ -192,7 +192,8 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
-        }, objectMemory: objects.map(({observations,...item})=>({ ...item,
+        }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
+          .map(({observations,...item})=>({ ...item,
           recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
