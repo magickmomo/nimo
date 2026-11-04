@@ -378,24 +378,25 @@ async function tick(env: Env) {
 
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // Cloudflare cron is minute-granular. Run six sequential attempts, each
-    // anchored about 10 seconds apart, within one scheduled invocation.
-    // Never overlap model decisions, and stop promptly when Nimo sleeps.
+    // Cloudflare cron is minute-granular. Within each invocation poll active
+    // journeys at shorter intervals; make LLM decisions only when idle and due.
+    // Journey completion, not a fixed number of step actions, unlocks the model.
     ctx.waitUntil((async () => {
-      const started = Date.now();
-      for (let i = 0; i < 6; i++) {
-        const due = started + i * 10000;
-        const delay = due - Date.now();
-        if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay));
-        // Avoid overlapping the next minute's cron execution after slow model calls.
-        if (Date.now() - started >= 55000) break;
-        if (!(await autonomousEnabled(env.DB))) break;
+      const began = Date.now();
+      let nextCheck = began;
+      while (Date.now() - began < 55000) {
+        const delay = nextCheck - Date.now();
+        if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve,delay));
+        if (Date.now() - began >= 55000 || !(await autonomousEnabled(env.DB))) break;
+        let interval = 10000;
         try {
           const result = await tick(env);
           if (result.status === "daily_limit_reached" || result.status === "sleeping") break;
+          if (result.status === "action_in_progress") interval = 2000;
         } catch (e) {
           await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
         }
+        nextCheck = Date.now() + interval;
       }
     })());
   },
