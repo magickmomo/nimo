@@ -16,7 +16,9 @@ export async function traced<T>(db:D1Database,kind:TraceKind,detail:string,run:(
 }
 export async function recentTrace(db:D1Database) {
   const result=await db.prepare(`SELECT id,started_at,finished_at,kind,status,detail,result,metadata
-    FROM action_trace ORDER BY id DESC LIMIT 24`).all<{
+    FROM action_trace WHERE status='running' OR id IN
+      (SELECT id FROM action_trace ORDER BY id DESC LIMIT 24)
+    ORDER BY id DESC LIMIT 40`).all<{
       id:number;started_at:string;finished_at:string|null;kind:TraceKind;
       status:string;detail:string;result:string|null;metadata:string|null
     }>();
