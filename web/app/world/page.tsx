@@ -84,7 +84,10 @@ export default function World() {
   const state = data?.world.state;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const recentActions = data?.actionTrace ?? [];
-  const runningActions = recentActions.filter(a=>a.status==="running");
+  const runningActions = recentActions.filter(a=>a.status==="running" && (
+    (a.kind==="travel" && (data?.journey?.status==="travelling" || data?.journey?.status==="paused")) ||
+    (clock-Date.parse(a.started_at)<90000)
+  ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Energy", value: state.emotions.energy, tone: "energy" },
@@ -152,7 +155,7 @@ export default function World() {
               <li key={action.id}>
                 <div className="world-action-line">
                   <span className="world-action-kind">{action.kind}</span>
-                  <span>{action.status}</span>
+                  <span>{action.status==="running" && !runningActions.some(item=>item.id===action.id) ? "stale / interrupted" : action.status}</span>
                   <time dateTime={action.started_at}>{new Date(action.started_at).toLocaleTimeString()}</time>
                 </div>
                 <div>{action.detail}</div>
