@@ -12,7 +12,7 @@ export const REWARD_POINTS = {
   firstDocument: 4,
   revisedDocument: 0,
   visitorReply: 2,
-  newBelief: 3,
+  newBelief: 0,
   failedAction: -2,
   passive: 0,
 } as const;
