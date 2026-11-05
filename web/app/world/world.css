@@ -115,3 +115,7 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-observation-list li strong{text-transform:capitalize;color:#294440;margin-right:10px}
 .world-observation-list li p{margin:4px 0 0;color:#526b68}
 .nimo-map-canvas [role="button"]:focus-visible{outline:none;filter:drop-shadow(0 0 8px #f1d58b)}
+
+/* Needs use the existing compact status-strip layout and visual conventions. */
+.world-status-dot.hunger,.world-status-fill.hunger{background:#e58a59}
+.world-status-dot.tiredness,.world-status-fill.tiredness{background:#729bc6}

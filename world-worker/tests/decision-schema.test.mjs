@@ -67,3 +67,16 @@ test("remember_object rejects malformed IDs and empty or oversized notes",()=>{
   assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"rock_002",label:"",note:""}),false));
   assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"rock_002",label:"x".repeat(81),note:"note"}),false));
 });
+
+test("REMEMBER with remember_object normalizes to ACT without weakening validation",()=>{
+  const toolCall = {name:"remember_object",objectId:"rock_002",label:"rock_002",
+    note:"A solid grey rock resting on the grass. It occupies this tile and blocks walking."};
+  const d=validateDecision(base("REMEMBER",toolCall),false);
+  assert.equal(d.action,"ACT");
+  assert.deepEqual(d.toolCall,toolCall);
+  assert.throws(()=>validateDecision(base("REMEMBER",{name:"inspect",direction:"north"}),false),
+    /only ACT can execute tools/);
+  assert.throws(()=>validateDecision(base("REMEMBER",{...toolCall,objectId:"invalid"}),false));
+  assert.throws(()=>validateDecision(base("REMEMBER",toolCall),true),
+    /pending visitor message requires REPLY/);
+});

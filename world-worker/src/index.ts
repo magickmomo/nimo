@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
@@ -127,13 +128,16 @@ async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
 async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick: string }> {
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
-  return { state: JSON.parse(row.state) as WorldState, next_tick: row.next_tick };
+  const state = JSON.parse(row.state) as WorldState;
+  // Older D1 worlds lack hunger; preserve existing energy, happiness and boredom.
+  state.emotions = updateEmotions(state.emotions, 0, new Date().getUTCHours());
+  return { state, next_tick: row.next_tick };
 }
 async function log(db: D1Database, kind: string, content: string, action: string | null = null) {
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -156,7 +160,7 @@ REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
-Your internal-state values are simulated, not proof of literal feelings.
+You receive outcome-based rewards (not points for attempting actions). In this 9×9 world: first entry to an unvisited tile +10, revisit 0, first inspection of an object +12, changed inspection +8, unchanged inspection -1, first object note +3, revising notes 0, new document +4, overwriting document 0, verified visitor reply +2, failed tool -2, THINK/OBSERVE/REMEMBER/REQUEST without a tool 0. You can compare recent reward history to choose whether something is worth repeating. Do not farm points by cycling actions; a zero-scoring action can still be useful for other reasons. Hunger cannot yet be satisfied because eating is not an available tool. Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
@@ -194,7 +198,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12) }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
     }),
@@ -276,16 +280,20 @@ async function tick(env: Env) {
   const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
     async()=>{await recordSight(env.DB,position);return modelPerception(position);},
     result=>`${result.visibleTiles.length} visible tiles, ${result.visibleObjects.length} visible objects`);
-  const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
+  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
+  const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
+  emotions = applyRewards(emotions, earlierRewards);
+  const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
+  const rewardHistory = await recentRewards(env.DB, 20);
   const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
-  if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
-  const state: WorldState = { ...world.state, emotions, tools: [...AVAILABLE_TOOLS] };
+  if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.15); }
+  const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
   try { d = await traced(env.DB,"decide",pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage),
+    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory),
     result=>`Selected ${result.action}${result.toolCall ? " / "+result.toolCall.name : ""}`); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
@@ -296,6 +304,7 @@ async function tick(env: Env) {
   if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
   // Tool execution is authoritative; journal records verified results, never claims.
   let toolOutcome: string | null = null;
+  const decisionKey = `decision:${state.tickCount+1}`;
   if (d.toolCall) {
     const call = d.toolCall;
     try {
@@ -304,6 +313,9 @@ async function tick(env: Env) {
           result=>`Saved revision ${result.revision}`);
         toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
         await log(env.DB, "tool", toolOutcome, "WRITE_OK");
+        await recordReward(env.DB,decisionKey,"write_document",
+          saved.revision===1?REWARD_POINTS.firstDocument:REWARD_POINTS.revisedDocument,
+          `${saved.path} revision ${saved.revision}`);
       } else if (call.name === "travel_to") {
         const from = await getPosition(env.DB);
         const trace = await startTrace(env.DB,"travel",`Travel from (${displayPoint(from).x},${displayPoint(from).y}) to (${call.x},${call.y})`);
@@ -312,25 +324,38 @@ async function tick(env: Env) {
         catch (error) {await finishTrace(env.DB,trace,"failed",String(error));throw error;}
         toolOutcome = `TRAVEL START: (${displayPoint(from).x}, ${displayPoint(from).y}) to (${call.x}, ${call.y}); ${route.length-1} steps`;
         await log(env.DB, "tool", toolOutcome, "TRAVEL_START");
+        // Each verified waypoint will receive its own reward in advanceJourney.
+        // Starting a journey does not earn points.
       } else if (call.name === "inspect") {
         const found = await traced(env.DB,"inspect",`Inspect object ${call.direction} of Nimo`,
           ()=>inspectObject(env.DB,call.direction),
           result=>`${result.objectId}: ${result.comparison}; ${result.recordedObservations} recorded observations`);
         toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.`;
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
+        await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
+          `${found.objectId}: ${found.comparison}`);
       } else if (call.name === "remember_object") {
+        const beforeNote = await env.DB.prepare("SELECT object_id FROM object_notes WHERE object_id=?")
+          .bind(call.objectId).first();
         const saved = await traced(env.DB,"label",`Save Nimo note for ${call.objectId}`,
           ()=>saveObjectNote(env.DB,call.objectId,call.label,call.note),
           result=>`Saved personal label and note for ${result.objectId}`);
         toolOutcome = `OBJECT NOTE OK: ${saved.objectId}. Label: ${saved.label}. Note: ${saved.note}`;
         await log(env.DB,"tool",toolOutcome,"OBJECT_NOTE_OK");
+        await recordReward(env.DB,decisionKey,"remember_object",
+          beforeNote?REWARD_POINTS.revisedObjectNote:REWARD_POINTS.firstObjectNote,
+          `${saved.objectId}: ${beforeNote?"revised":"first"} note`);
       }
     } catch (err) {
       toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      await recordReward(env.DB,decisionKey,call.name,REWARD_POINTS.failedAction,toolOutcome);
       await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : "WRITE_ERROR");
     }
   }
   if (!d.toolCall) {
+    await recordReward(env.DB,decisionKey,d.action.toLowerCase(),
+      d.action==="REPLY"&&pendingMessage?REWARD_POINTS.visitorReply:REWARD_POINTS.passive,
+      d.action==="REPLY"&&pendingMessage?"Verified response to visitor":`${d.action}: no independently verified external outcome`);
     const kind = d.action === "REPLY" ? "reply" : d.action.toLowerCase() as "observe"|"think"|"remember"|"request";
     await traced(env.DB,kind,`Nimo selected ${d.action}`,
       async()=>d.monologue, text=>text.slice(0,220));
@@ -345,6 +370,11 @@ async function tick(env: Env) {
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
+  // Newly executed actions are scored only from recorded outcomes, then applied
+  // to the same four existing meters before persisting state.
+  const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
+  state.emotions = applyRewards(state.emotions,newRewards);
+  state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const next: WorldState = {
     ...state, identity, beliefs: beliefs.slice(-30),
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
@@ -399,7 +429,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], rewards: await recentRewards(env.DB, 30), rewardTotal: await totalRewards(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };

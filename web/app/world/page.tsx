@@ -24,6 +24,8 @@ type Snapshot = {
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
   availableTools?: string[];
+  rewardTotal?: number;
+  rewards?: { id:number; created_at:string; action:string; points:number; detail:string }[];
   position?: { x: number; y: number };
   journey?: JourneyView;
   environmentMemory?: {
@@ -90,7 +92,8 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Energy", value: state.emotions.energy, tone: "energy" },
+    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness" },
+    { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger" },
     { label: "Happiness", value: state.emotions.happiness, tone: "happiness" },
     { label: "Boredom", value: state.emotions.boredom, tone: "boredom" },
   ] : [];
@@ -164,6 +167,33 @@ export default function World() {
             ))}
           </ol>
           {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
+        </details>
+      </section>
+      <section className="world-card world-rewards" aria-label="Verified action rewards">
+        <div className="world-journal-head">
+          <h2>Reward feedback</h2>
+          <span className="meta">Lifetime score: {typeof data?.rewardTotal === "number" ? `${data.rewardTotal} points` : "Unavailable"}</span>
+        </div>
+        {data && (!Array.isArray(data.rewards) || typeof data.rewardTotal !== "number") ? (
+          <p className="world-warning" role="status">Reward data is unavailable from the World Worker. The frontend may be running a newer version than the backend, or the reward database migration may not be applied. This is not a confirmed zero score.</p>
+        ) : (
+          <p className="meta">Rewards are awarded after verified actions, not for intending to act. Zero and negative scores are recorded too.</p>
+        )}
+        <details open>
+          <summary>Recent scored outcomes ({Array.isArray(data?.rewards) ? data.rewards.length : "unavailable"})</summary>
+          <ol className="world-action-list">
+            {(data?.rewards ?? []).slice(0,15).map(item => (
+              <li key={item.id}>
+                <div className="world-action-line">
+                  <span className="world-action-kind">{item.action}</span>
+                  <strong>{item.points > 0 ? "+" : ""}{item.points}</strong>
+                  <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleTimeString()}</time>
+                </div>
+                <small>{item.detail}</small>
+              </li>
+            ))}
+          </ol>
+          {Array.isArray(data?.rewards) && data.rewards.length===0 && <p className="meta">No scored actions yet.</p>}
         </details>
       </section>
       <section className="world-card world-object-memory">
