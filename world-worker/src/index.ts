@@ -1,4 +1,4 @@
-import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { SEED, INITIAL_STATE, clamp, updateEmotions, rewardNovelty, type WorldState } from "../../web/lib/world";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
@@ -127,7 +127,10 @@ async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
 async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick: string }> {
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
-  return { state: JSON.parse(row.state) as WorldState, next_tick: row.next_tick };
+  const state = JSON.parse(row.state) as WorldState;
+  // Older D1 worlds lack hunger; preserve existing energy, happiness and boredom.
+  state.emotions = updateEmotions(state.emotions, 0, new Date().getUTCHours());
+  return { state, next_tick: row.next_tick };
 }
 async function log(db: D1Database, kind: string, content: string, action: string | null = null) {
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
@@ -156,7 +159,7 @@ REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
-Your internal-state values are simulated, not proof of literal feelings.
+Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
@@ -276,9 +279,9 @@ async function tick(env: Env) {
   const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
     async()=>{await recordSight(env.DB,position);return modelPerception(position);},
     result=>`${result.visibleTiles.length} visible tiles, ${result.visibleObjects.length} visible objects`);
-  const emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
+  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
   const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
-  if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.3); }
+  if (interacted) { emotions = rewardNovelty(emotions, 1); emotions.happiness = clamp(emotions.happiness + 0.15); }
   const state: WorldState = { ...world.state, emotions, tools: [...AVAILABLE_TOOLS] };
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -345,6 +348,10 @@ async function tick(env: Env) {
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
+  if (toolOutcome?.startsWith("INSPECT OK:") && toolOutcome.includes("Comparison: first."))
+    state.emotions = rewardNovelty(state.emotions, 1);
+  else if (toolOutcome?.startsWith("INSPECT OK:") && toolOutcome.includes("Comparison: changed."))
+    state.emotions = rewardNovelty(state.emotions, 0.8);
   const next: WorldState = {
     ...state, identity, beliefs: beliefs.slice(-30),
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
