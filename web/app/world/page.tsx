@@ -172,11 +172,15 @@ export default function World() {
       <section className="world-card world-rewards" aria-label="Verified action rewards">
         <div className="world-journal-head">
           <h2>Reward feedback</h2>
-          <span className="meta">Lifetime score: {data?.rewardTotal ?? 0} points</span>
+          <span className="meta">Lifetime score: {typeof data?.rewardTotal === "number" ? `${data.rewardTotal} points` : "Unavailable"}</span>
         </div>
-        <p className="meta">Rewards are awarded after verified actions, not for intending to act. Zero and negative scores are recorded too.</p>
+        {data && (!Array.isArray(data.rewards) || typeof data.rewardTotal !== "number") ? (
+          <p className="world-warning" role="status">Reward data is unavailable from the World Worker. The frontend may be running a newer version than the backend, or the reward database migration may not be applied. This is not a confirmed zero score.</p>
+        ) : (
+          <p className="meta">Rewards are awarded after verified actions, not for intending to act. Zero and negative scores are recorded too.</p>
+        )}
         <details open>
-          <summary>Recent scored outcomes ({data?.rewards?.length ?? 0})</summary>
+          <summary>Recent scored outcomes ({Array.isArray(data?.rewards) ? data.rewards.length : "unavailable"})</summary>
           <ol className="world-action-list">
             {(data?.rewards ?? []).slice(0,15).map(item => (
               <li key={item.id}>
@@ -189,7 +193,7 @@ export default function World() {
               </li>
             ))}
           </ol>
-          {!data?.rewards?.length && <p className="meta">No scored actions yet.</p>}
+          {Array.isArray(data?.rewards) && data.rewards.length===0 && <p className="meta">No scored actions yet.</p>}
         </details>
       </section>
       <section className="world-card world-object-memory">
