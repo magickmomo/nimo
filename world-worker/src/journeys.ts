@@ -101,6 +101,17 @@ export async function advanceJourney(db: D1Database, now = new Date()):
           last_visited=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
         .bind(next.x,next.y),
       sightInsert(db,next),
+      // Reward the verified waypoint exactly once; revisit scores zero.
+      // visit_count=1 only after a first-ever successful arrival.
+      db.prepare(`INSERT OR IGNORE INTO world_rewards(source_key,action,points,detail)
+        SELECT ?,'explore_tile',
+          CASE WHEN (SELECT visit_count FROM world_visited WHERE x=? AND y=?)=1 THEN 10 ELSE 0 END,
+          ?
+        WHERE EXISTS(SELECT 1 FROM world_journey WHERE id=1 AND step_index=?)
+          AND EXISTS(SELECT 1 FROM world_position WHERE id=1 AND x=? AND y=?)`)
+        .bind(`journey:${row.started_at}:step:${nextIndex}`,next.x,next.y,
+          `Reached tile (${displayPoint(next).x}, ${displayPoint(next).y})`,
+          nextIndex,next.x,next.y),
     ]);
     if (results[0].meta.changes !== 1) return {status:"travelling"};
     if (results[1].meta.changes !== 1) throw new Error("Journey position out of sync; pause and investigate");
