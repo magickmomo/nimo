@@ -90,7 +90,7 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Tiredness", value: state.emotions.tiredness ?? (1 - state.emotions.energy), tone: "tiredness" },
+    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness" },
     { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger" },
     { label: "Happiness", value: state.emotions.happiness, tone: "happiness" },
     { label: "Boredom", value: state.emotions.boredom, tone: "boredom" },
