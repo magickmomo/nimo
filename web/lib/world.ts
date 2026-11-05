@@ -7,6 +7,7 @@ export type WorldState = {
   tools: string[];
   tickCount: number;
   lastTick: string | null;
+  rewardCursor?: number;
 };
 
 export type WorldEvent = {
