@@ -42,6 +42,10 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   // The model sometimes puts the tool name in action rather than ACT.
   // Repair only when the names match exactly; validate the actual tool below.
   if (object(tool) && TOOLS.includes(proposed) && tool.name === proposed) action = "ACT";
+  // REMEMBER naturally describes storing an object note, even though the
+  // executable tool protocol calls the enclosing action ACT.
+  if (!hasPendingVisitor && action === "REMEMBER" && object(tool) &&
+      tool.name === "remember_object") action = "ACT";
 
   // Preserve old THINK-based visitor replies. They are never executable tools.
   if (hasPendingVisitor && action === "THINK" && tool === null) action = "REPLY";
