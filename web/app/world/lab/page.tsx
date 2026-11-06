@@ -16,23 +16,97 @@ export default function LearningLab(){
   const [busy,setBusy]=useState(false);
   const trialGeneration=useRef(0);
   const requestInFlight=useRef(false);
+  const runController=useRef<AbortController|null>(null);
+  const currentState=useRef(state);
+  const [runnerProgress,setRunnerProgress]=useState<{completed:number;total:number;status:string}|null>(null);
   const [error,setError]=useState("");
   const [decision,setDecision]=useState<{action:string;reason:string}|null>(null);
   const [runLog,setRunLog]=useState<{step:number;action:LabAction;reason:string;mode:string;source:string;context:ReturnType<typeof labDecisionContext>}[]>([]);
   const available=availableLabActions(state);
 
-  function act(action:LabAction,reason="Selected manually",source="manual",context=labDecisionContext(state,memoryEnabled)){
+  function applyDecision(
+    action:LabAction,reason:string,source:string,
+    context:ReturnType<typeof labDecisionContext>,generation=trialGeneration.current
+  ){
+    if(generation!==trialGeneration.current)return false;
+    const before=currentState.current;
+    if(!availableLabActions(before).includes(action))return false;
+    const after=performLabAction(before,action,memoryEnabled);
+    currentState.current=after;
+    setState(after);
+    setDecision({action,reason});
+    setRunLog(current=>[...current,{step:after.step,action,reason,mode:memoryEnabled?"memory":"control",source,context}].slice(-80));
+    return true;
+  }
+  function act(action:LabAction,reason="Selected manually",source="manual",context=labDecisionContext(currentState.current,memoryEnabled)){
+    if(requestInFlight.current)return;
     setError("");
-    try {
-      setState(current=>performLabAction(current,action,memoryEnabled));
-      setDecision({action,reason});
-      setRunLog(current=>[...current,{step:state.step+1,action,reason,mode:memoryEnabled?"memory":"control",source,context}].slice(-80));
+    try{
+      if(!applyDecision(action,reason,source,context))throw new Error("Action unavailable in this lab state");
     }catch(e){setError(e instanceof Error?e.message:"Could not execute action");}
+  }
+  function stopRun(){
+    // Abort the current fetch and cancel the next iteration; preserve completed steps.
+    runController.current?.abort();
+    if(runController.current)setRunnerProgress(p=>p&&({...p,status:"Stopping…"}));
+  }
+  async function requestDecision(context:ReturnType<typeof labDecisionContext>,signal:AbortSignal){
+    const res=await fetch("/api/world/lab/decide",{
+      method:"POST",headers:{"Content-Type":"application/json","x-lab-owner-token":ownerToken},
+      body:JSON.stringify({context,memoryEnabled}),signal,
+    });
+    const body=await res.json() as {error?:string;action?:LabAction;reason?:string};
+    if(!res.ok||!body.action||!body.reason)throw new Error(body.error||"No valid lab action");
+    if(!context.availableActions.includes(body.action))throw new Error("Model chose an unavailable action");
+    return {action:body.action,reason:body.reason};
+  }
+  async function runDecisions(total:number){
+    if(requestInFlight.current||!ownerToken)return;
+    requestInFlight.current=true;
+    const controller=new AbortController();
+    runController.current=controller;
+    const generation=trialGeneration.current;
+    setBusy(true);setError("");
+    setRunnerProgress({completed:0,total,status:"Running"});
+    let completed=0;
+    try{
+      for(let i=0;i<total;i++){
+        if(controller.signal.aborted||generation!==trialGeneration.current)break;
+        const context=labDecisionContext(currentState.current,memoryEnabled);
+        const result=await requestDecision(context,controller.signal);
+        if(controller.signal.aborted||generation!==trialGeneration.current)break;
+        if(!applyDecision(result.action,result.reason,"llm",context,generation))
+          throw new Error("Decision no longer available");
+        completed++;
+        setRunnerProgress({completed,total,status:completed===total?"Completed":"Running"});
+        if(completed<total){
+          await new Promise<void>(resolve=>{
+            const timeout=window.setTimeout(()=>{controller.signal.removeEventListener("abort",onAbort);resolve();},900);
+            function onAbort(){window.clearTimeout(timeout);resolve();}
+            controller.signal.addEventListener("abort",onAbort,{once:true});
+          });
+        }
+      }
+      if(controller.signal.aborted)setRunnerProgress({completed,total,status:"Stopped"});
+    }catch(e){
+      if(controller.signal.aborted)setRunnerProgress({completed,total,status:"Stopped"});
+      else{
+        setError(e instanceof Error?e.message:"Experiment failed");
+        setRunnerProgress({completed,total,status:"Failed"});
+      }
+    }finally{
+      runController.current=null;
+      requestInFlight.current=false;
+      setBusy(false);
+    }
   }
   function resetTrial(retainMemory:boolean){
     if(requestInFlight.current)return;
     trialGeneration.current++;
-    setState(s=>nextTrial(s,0.65,retainMemory&&memoryEnabled));
+    const next=nextTrial(currentState.current,0.65,retainMemory&&memoryEnabled);
+    currentState.current=next;
+    setState(next);
+    setRunnerProgress(null);
     setDecision(null);
     setError("");
     setRunLog([]);
@@ -41,7 +115,10 @@ export default function LearningLab(){
     if(requestInFlight.current)return;
     trialGeneration.current++;
     setMemoryEnabled(enabled);
-    setState(createLab(0.65));
+    const next=createLab(0.65);
+    currentState.current=next;
+    setState(next);
+    setRunnerProgress(null);
     setDecision(null);
     setRunLog([]);
     setError("");
@@ -91,24 +168,7 @@ export default function LearningLab(){
     document.body.appendChild(link);link.click();link.remove();
     window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
-  async function askModel(){
-    if(requestInFlight.current)return;
-    requestInFlight.current=true;
-    const generation=trialGeneration.current;
-    setBusy(true);setError("");
-    try{
-      const res=await fetch("/api/world/lab/decide",{
-        method:"POST",headers:{"Content-Type":"application/json","x-lab-owner-token":ownerToken},
-        body:JSON.stringify({context:labDecisionContext(state,memoryEnabled),memoryEnabled}),
-      });
-      const body=await res.json() as {error?:string;action?:LabAction;reason?:string};
-      if(!res.ok || !body.action || !body.reason)throw new Error(body.error||"No valid lab action");
-      if(generation!==trialGeneration.current)return; // Ignore stale decisions from an earlier trial.
-      if(!available.includes(body.action))throw new Error("Decision no longer available; retry");
-      act(body.action,body.reason,"llm",labDecisionContext(state,memoryEnabled));
-    }catch(e){if(generation===trialGeneration.current)setError(e instanceof Error?e.message:"Model request failed");}
-    finally{requestInFlight.current=false;setBusy(false);}
-  }
+  async function askModel(){await runDecisions(1);}
   const last=state.events.at(-1);
   return <main className="nimo-lab">
     <nav className="lab-nav"><a href="/world">Nimo's world</a><span>Independent experiment · No production writes</span></nav>
@@ -143,14 +203,26 @@ export default function LearningLab(){
         </div>
         <hr/>
         <h3>Ask Nimo to choose one action</h3>
-        <p className="lab-muted">Each press makes exactly one LLM call, then executes one verified lab action. There is no autonomous loop or background billing.</p>
+        <p className="lab-muted">Run 20 sequential LLM decisions with a short delay, or step through one at a time. Stop preserves completed actions. Each decision is a separate model request; no background scheduler runs.</p>
         <label htmlFor="lab-token">Owner token</label>
         <input id="lab-token" type="password" autoComplete="off" placeholder="World owner token"
           value={ownerToken} onChange={e=>setOwnerToken(e.target.value)}/>
-        <button className="lab-primary" type="button" disabled={!ownerToken||busy} onClick={()=>void askModel()}>
-          {busy?"Deciding…":"Ask Nimo · one decision"}
-        </button>
-        <p className="lab-muted">LLM decisions require the separate server-side LAB_OPENAI_API_KEY and your existing WORLD_OWNER_TOKEN. Manual actions work without a model key.</p>
+        <div className="lab-actions">
+          <button className="lab-primary" type="button" disabled={!ownerToken||busy} onClick={()=>void runDecisions(20)}>
+            Run experiment · 20 decisions
+          </button>
+          <button type="button" disabled={!ownerToken||busy} onClick={()=>void askModel()}>
+            Ask Nimo · one decision
+          </button>
+          <button type="button" disabled={!busy||!runController.current} onClick={stopRun}>
+            Stop
+          </button>
+        </div>
+        {runnerProgress&&<div className="lab-result" role="status">
+          <strong>{runnerProgress.status}: {runnerProgress.completed} / {runnerProgress.total} decisions</strong>
+          <p>Completed actions are retained and included in the downloadable log.</p>
+        </div>
+        <p className="lab-muted">Each automatic run makes up to 20 billable LLM calls. The lab requires LAB_OPENAI_API_KEY and your existing WORLD_OWNER_TOKEN. Closing or refreshing the page stops the browser-run sequence; completed steps must be downloaded before refreshing.</p>
         {error&&<p className="lab-error" role="alert">{error}</p>}
         {decision&&<div className="lab-result"><strong>Last choice: {LABEL[decision.action as LabAction]}</strong><p>{decision.reason}</p></div>}
       </div>
@@ -169,7 +241,7 @@ export default function LearningLab(){
       </div>
       <div className="lab-panel">
         <h2>Action history</h2>
-        <button type="button" onClick={downloadLog} disabled={busy || state.events.length===0}>Download experiment log (.md)</button>
+        <button type="button" onClick={downloadLog} disabled={state.events.length===0}>Download experiment log (.md)</button>
         <p className="lab-muted">Save the trial settings, LLM decisions, decision contexts, predictions and verified outcomes before resetting or refreshing.</p>
         <p className="lab-muted">Lab-only outcomes; no production logs are read or written.</p>
         {state.events.length===0?<p>No actions yet.</p>:
