@@ -444,6 +444,15 @@ export default {
     }
     try {
       const path = new URL(request.url).pathname;
+      // Lightweight status poll. Historical journal, documents and observations
+      // are deliberately excluded so the dashboard can update without D1 scans.
+      if (path === "/snapshot/live" && request.method === "GET") {
+        const [world,position,journey,enabled] = await Promise.all([
+          getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
+        ]);
+        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
+        return json({world,position,journey,autonomousEnabled:enabled});
+      }
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
