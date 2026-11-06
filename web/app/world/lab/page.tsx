@@ -16,15 +16,15 @@ export default function LearningLab(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [decision,setDecision]=useState<{action:string;reason:string}|null>(null);
-  const [runLog,setRunLog]=useState<{action:LabAction;reason:string;mode:string}[]>([]);
+  const [runLog,setRunLog]=useState<{step:number;action:LabAction;reason:string;mode:string;source:string;context:ReturnType<typeof labDecisionContext>}[]>([]);
   const available=availableLabActions(state);
 
-  function act(action:LabAction,reason="Selected manually"){
+  function act(action:LabAction,reason="Selected manually",source="manual",context=labDecisionContext(state,memoryEnabled)){
     setError("");
     try {
       setState(current=>performLabAction(current,action,memoryEnabled));
       setDecision({action,reason});
-      setRunLog(current=>[...current,{action,reason,mode:memoryEnabled?"memory":"control"}].slice(-80));
+      setRunLog(current=>[...current,{step:state.step+1,action,reason,mode:memoryEnabled?"memory":"control",source,context}].slice(-80));
     }catch(e){setError(e instanceof Error?e.message:"Could not execute action");}
   }
   function resetTrial(retainMemory:boolean){
@@ -40,6 +40,51 @@ export default function LearningLab(){
     setRunLog([]);
     setError("");
   }
+  function downloadLog(){
+    const timestamp=new Date().toISOString();
+    const lines=[
+      "# Nimo 004 — Learning Laboratory", "",
+      "## Trial configuration", "",
+      "- Initial hunger: 65%",
+      "- Experience memory: "+(memoryEnabled?"enabled":"disabled (control)"),
+      "- Exported: "+timestamp,
+      "- Completed steps: "+state.step,
+      "- Final hunger: "+Math.round(state.hunger*100)+"%",
+      "- Fruit remaining: "+state.treeFruit,
+      "- Fruit in inventory: "+state.inventory,
+      "", "## Learned consequences", ""
+    ];
+    const knowledge=Object.entries(state.knowledge);
+    if(!memoryEnabled || knowledge.length===0)lines.push("No learned consequences recorded.");
+    else for(const [action,info] of knowledge){
+      if(info)lines.push("- "+action+": "+info.count+" observations; mean hunger change "+Math.round(info.meanHungerDelta*100)+" percentage points");
+    }
+    lines.push("","## Chronological action log","");
+    if(state.events.length===0)lines.push("No actions yet.");
+    for(const event of state.events){
+      const log=runLog.find(item=>item.step===event.step);
+      lines.push("### Step "+event.step+" — "+event.action,"",
+        "- Source: "+(log?.source??"unknown"),
+        "- Condition: "+(log?.mode??(memoryEnabled?"memory":"control")),
+        "- Reason: "+(log?.reason??"not recorded").replace(/[\\r\\n]+/g," "),
+        "- Hunger before: "+Math.round(event.beforeHunger*100)+"%",
+        "- Hunger after: "+Math.round(event.afterHunger*100)+"%",
+        "- Observed change: "+Math.round(event.hungerDelta*100)+" percentage points",
+        "- Predicted change: "+(event.predictedHungerDelta===null?"unknown":Math.round(event.predictedHungerDelta*100)+" percentage points"),
+        "- Verified result: "+event.result.replace(/[\\r\\n]+/g," "),
+        "");
+      if(log){lines.push("Context supplied before decision:","", "~~~json",JSON.stringify(log.context,null,2),"~~~","");}
+    }
+    lines.push("## Analysis note","",
+      "This log records observed consequences and the model\u2019s stated reasons. A single successful action does not establish learning; compare memory-enabled and control trials.","");
+    const blob=new Blob([lines.join("\\n")],{type:"text/markdown;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement("a");
+    link.href=url;
+    link.download="nimo-learning-lab-"+timestamp.replace(/[:.]/g,"-")+".md";
+    document.body.appendChild(link);link.click();link.remove();
+    window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
   async function askModel(){
     if(busy)return;
     setBusy(true);setError("");
@@ -51,7 +96,7 @@ export default function LearningLab(){
       const body=await res.json() as {error?:string;action?:LabAction;reason?:string};
       if(!res.ok || !body.action || !body.reason)throw new Error(body.error||"No valid lab action");
       if(!available.includes(body.action))throw new Error("Decision no longer available; retry");
-      act(body.action,body.reason);
+      act(body.action,body.reason,"llm",labDecisionContext(state,memoryEnabled));
     }catch(e){setError(e instanceof Error?e.message:"Model request failed");}
     finally{setBusy(false);}
   }
@@ -115,6 +160,8 @@ export default function LearningLab(){
       </div>
       <div className="lab-panel">
         <h2>Action history</h2>
+        <button type="button" onClick={downloadLog} disabled={busy || state.events.length===0}>Download experiment log (.md)</button>
+        <p className="lab-muted">Save the trial settings, LLM decisions, decision contexts, predictions and verified outcomes before resetting or refreshing.</p>
         <p className="lab-muted">Lab-only outcomes; no production logs are read or written.</p>
         {state.events.length===0?<p>No actions yet.</p>:
           <ol className="lab-history">{[...state.events].reverse().slice(0,16).map(e=>
