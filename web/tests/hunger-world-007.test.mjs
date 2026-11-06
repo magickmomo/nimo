@@ -70,6 +70,50 @@ test("learned effects subtract passage of time and do not dilute censored mean",
   assert.equal(after.learning.amber.mean,null);
   assert.equal(after.learning.amber.minimumRelief,12);
 });
+test("upper boundary does not leak hidden neutral versus harmful fruit effects",()=>{
+  const initial={...initial007(),hunger:100,inventory:"blue"};
+  const neutral=apply007(initial,{type:"eat"},{amber:-35,blue:0,red:18},2);
+  const harmful=apply007(initial,{type:"eat"},{amber:-35,blue:18,red:0},2);
+  assert.equal(neutral.hunger,100);
+  assert.equal(harmful.hunger,100);
+  assert.deepEqual(neutral.learning.blue,harmful.learning.blue);
+  assert.deepEqual(view007(neutral).learning,view007(harmful).learning);
+  assert.deepEqual(neutral.learning.blue,{
+    count:1,uncensored:0,mean:null,minimumRelief:0,helpful:0,harmful:0,
+  });
+});
+test("boundary outcome registers harm only when visible against the time-only baseline",()=>{
+  const s={...initial007(),hunger:90,inventory:"red"};
+  const after=apply007(s,{type:"eat"},map,2);
+  assert.equal(after.hunger,100);
+  assert.equal(after.learning.red.uncensored,0);
+  assert.equal(after.learning.red.mean,null);
+  assert.equal(after.learning.red.minimumRelief,0);
+  assert.equal(after.learning.red.helpful,0);
+  assert.equal(after.learning.red.harmful,1);
+});
+test("low-bound censoring preserves observed minimum relief and beneficial sign",()=>{
+  const s={...initial007(),hunger:10,inventory:"amber"};
+  const after=apply007(s,{type:"eat"},map,2);
+  assert.equal(after.hunger,0);
+  assert.equal(after.learning.amber.uncensored,0);
+  assert.equal(after.learning.amber.mean,null);
+  assert.equal(after.learning.amber.minimumRelief,12);
+  assert.equal(after.learning.amber.helpful,1);
+  assert.equal(after.learning.amber.harmful,0);
+});
+test("later saturated outcomes cannot alter an established uncensored estimate",()=>{
+  let s={...initial007(),hunger:50,inventory:"blue"};
+  s=apply007(s,{type:"eat"},map,2);
+  assert.equal(s.learning.blue.mean,0);
+  s=apply007({...s,hunger:100,inventory:"blue"},{type:"eat"},map,2);
+  assert.equal(s.learning.blue.count,2);
+  assert.equal(s.learning.blue.uncensored,1);
+  assert.equal(s.learning.blue.mean,0);
+  assert.equal(s.learning.blue.minimumRelief,0);
+  assert.equal(s.learning.blue.harmful,0);
+  assert.equal(s.learning.blue.helpful,0);
+});
 test("tree regrowth is simulated and does not erase learned consequences",()=>{
   let s=initial007();s={...s,x:4,y:2};
   s=apply(s,{type:"inspect",treeId:"tree_e"});
