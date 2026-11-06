@@ -195,7 +195,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
       response_format: decisionResponseFormat(menu,pendingMessage !== null),
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state, perception, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{...state,tools:menu.tools}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
