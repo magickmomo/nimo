@@ -15,3 +15,4 @@ BEGIN
 END;
 CREATE INDEX IF NOT EXISTS events_kind_id ON events(kind,id);
 CREATE INDEX IF NOT EXISTS events_action_id ON events(action,id);
+CREATE INDEX IF NOT EXISTS action_trace_status_id ON action_trace(status,id DESC);
