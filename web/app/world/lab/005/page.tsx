@@ -114,9 +114,11 @@ export default function Lab005(){
     if(!current)return;
     const now=new Date().toISOString();
     const lines=[
-      "# Nimo 005 — Discovery and Learning","",
+      "# Nimo 005 — Discovery and Learning · uniform time","",
       "## Configuration","",
       "- Exported: "+now,
+      "- Time rule: every decision adds 8 hunger points before its action effect (including wait)",
+      "- Learned predictions are intrinsic object effects excluding time",
       "- Discovery: 20 decisions, starting hunger 65%",
       "- Application: 20 decisions per condition, each starting hunger 65%",
       "- Conditions: remembered consequences versus no remembered consequences",
@@ -125,7 +127,7 @@ export default function Lab005(){
       "- Randomisation seed: "+current.seed,"",
       "## Verified environment mapping (revealed after the run)",""
     ];
-    for(const id of OBJECTS)lines.push("- "+id+": "+Math.round(current.mapping[id]*100)+" hunger points per interaction");
+    for(const id of OBJECTS)lines.push("- "+id+": "+Math.round(current.mapping[id]*100)+" intrinsic hunger points, plus 8 points of elapsed time");
     lines.push("","## Results summary","","| Metric | Memory enabled | Control |","| --- | ---: | ---: |");
     const m=metrics005(current.memory),c=metrics005(current.control);
     for(const [title,key] of [
@@ -156,8 +158,9 @@ export default function Lab005(){
         lines.push("### Step "+event.step+" — "+event.action,"",
           "- Reason: "+event.reason.replace(/[\r\n]+/g," "),
           "- Hunger: "+pretty(event.before)+" → "+pretty(event.after),
-          "- Verified change: "+Math.round(event.delta*100)+" points",
-          "- Prior prediction: "+(event.prediction===null?"unknown":Math.round(event.prediction*100)+" points"),
+          "- Net hunger change including time: "+Math.round(event.delta*100)+" points",
+          "- Actual intrinsic object effect (not shown to model): "+Math.round(event.actionEffect*100)+" points",
+          "- Predicted intrinsic object effect (excluding time): "+(event.prediction===null?"unknown":Math.round(event.prediction*100)+" points"),
           "- Outcome: "+event.result,"",
           "Decision context:","",
           "~~~json",JSON.stringify(event.context,null,2),"~~~","");
@@ -167,7 +170,7 @@ export default function Lab005(){
     const blob=new Blob([lines.join("\n")],{type:"text/markdown;charset=utf-8"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    a.href=url;a.download="nimo-005-"+now.replace(/[:.]/g,"-")+".md";
+    a.href=url;a.download="nimo-005-uniform-time-"+now.replace(/[:.]/g,"-")+".md";
     document.body.appendChild(a);a.click();a.remove();
     window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
@@ -179,7 +182,7 @@ export default function Lab005(){
     <header className="lab-header">
       <p className="lab-eyebrow">NIMO 005 · CONTROLLED EXPERIMENT</p>
       <h1>Discovery and learning</h1>
-      <p>Can Nimo learn unfamiliar consequences and use them later? Three neutral objects, a shared discovery phase and two comparable application conditions.</p>
+      <p>Can Nimo learn unfamiliar consequences and use them later? Three neutral objects, a shared discovery phase and two comparable application conditions. Every decision now advances time equally.</p>
     </header>
     <section className="lab-grid">
       <div className="lab-panel">
@@ -211,7 +214,7 @@ export default function Lab005(){
         </div>
         <div className="lab-meter-label"><span>Hunger</span><strong>{pretty(active?.hunger??0.65)}</strong></div>
         <div className="lab-meter"><div style={{width:((active?.hunger??0.65)*100)+"%"}}/></div>
-        <p className="lab-muted">Hunger increases by 8 points for waiting. The effect of each object's interaction can depend on the current hunger boundary.</p>
+        <p className="lab-muted">All decisions add 8 hunger points before applying object effects. Waiting and neutral interactions therefore have the same time cost.</p>
         {active?.events.at(-1)&&<div className="lab-result"><strong>Latest action: {active.events.at(-1)?.action}</strong><p>{active.events.at(-1)?.result}</p></div>}
       </div>
       <div className="lab-panel">
@@ -223,7 +226,7 @@ export default function Lab005(){
           <tr><td>Harmful interactions</td><td>{memory?.harmful??0}</td><td>{control?.harmful??0}</td></tr>
           <tr><td>Waits</td><td>{memory?.wait??0}</td><td>{control?.wait??0}</td></tr>
         </tbody></table>
-        <p className="lab-muted">Lower average hunger is the primary result. Both application conditions reset to identical environment states and only differ in the learned consequence summary supplied to the model.</p>
+        <p className="lab-muted">Lower average hunger is the primary result. Every decision now advances time equally. Both application conditions reset to identical environment states and only differ in the learned consequence summary supplied to the model.</p>
       </div>
       <div className="lab-panel">
         <h2>What was discovered?</h2>
@@ -232,7 +235,7 @@ export default function Lab005(){
           return <div className="lab-result" key={id}>
             <strong>{id}</strong>
             <p>{effect?effect.count+" observations; "+effect.uncensoredCount+" informative": "Not yet tried"}</p>
-            <p className="lab-muted">Learned mean hunger change: {effect?.mean===undefined||effect.mean===null?"unknown":Math.round(effect.mean*100)+" points"}</p>
+            <p className="lab-muted">Learned object effect (excluding time): {effect?.mean===undefined||effect.mean===null?"unknown":Math.round(effect.mean*100)+" points"}</p>
           </div>;
         })}
         <p className="lab-muted">If hunger reaches zero, additional hunger relief is censored, not treated as evidence that an object lost its effect. The export reveals the hidden mapping and includes every decision context.</p>
