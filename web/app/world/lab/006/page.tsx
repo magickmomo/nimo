@@ -14,7 +14,7 @@ type Session006={
   seed:number;mapping:Mapping005;discovery:State005;
   control:State005;memory:State005;evaluation:State005;finished:boolean;
   trace: {phase:Phase006;step:number;action:Action005;reason:string;
-    context:ReturnType<typeof decisionView006>}[];
+    modelMessages:{role:string;content:string}[]}[];
 };
 const fresh=(seed:number):Session006=>({
   seed,mapping:mappingFromSeed005(seed),discovery:initial005(),control:initial005(),
@@ -53,11 +53,15 @@ export default function Nimo006(){
       method:"POST",headers:{"Content-Type":"application/json","x-lab-owner-token":token},
       body:JSON.stringify({phase:stage,context}),signal,
     });
-    const data=await response.json() as {error?:string;action?:Action005;reason?:string};
-    if(!response.ok||!data.action||typeof data.reason!=="string")
+    const data=await response.json() as {error?:string;action?:Action005;reason?:string;
+      modelMessages?:{role:string;content:string}[]};
+    if(!response.ok||!data.action||typeof data.reason!=="string"||
+      !Array.isArray(data.modelMessages)||
+      data.modelMessages.length!==2||
+      !data.modelMessages.every(m=>typeof m.role==="string"&&typeof m.content==="string"))
       throw new Error(data.error||"No valid model choice");
     if(!context.availableActions.includes(data.action))throw new Error("Unavailable action returned");
-    return {action:data.action,reason:data.reason};
+    return {action:data.action,reason:data.reason,modelMessages:data.modelMessages};
   }
   async function start(){
     if(locked.current||!token)return;
@@ -87,7 +91,7 @@ export default function Nimo006(){
             stage==="discovery"?"discovery":stage==="control"?"control":"memory");
           current={...current,[stage]:after,trace:[...current.trace,{
             phase:stage,step:after.step,action:decision.action,
-            reason:decision.reason,context,
+            reason:decision.reason,modelMessages:decision.modelMessages,
           }]};
           completed++;setProgress(completed);save(current);
           if(i<19)await delay(500,ctrl.signal);
@@ -153,8 +157,9 @@ export default function Nimo006(){
           "- Hidden intrinsic effect (not supplied to model): "+Math.round(event.actionEffect*100)+" points",
           "- Prior learned intrinsic effect: "+(event.prediction===null?"unknown":Math.round(event.prediction*100)+" points"),
           "- Verified result: "+event.result,"",
-          "Exact lab decision context:","",
-          "~~~json",JSON.stringify(trace?.context??event.context,null,2),"~~~","");
+          "Exact messages sent to the model (system and sanitized user prompt):","",
+          "~~~json",trace?JSON.stringify(trace.modelMessages,null,2):
+            "Not recorded: model prompt unavailable for this step.","~~~","");
       }
     }
     lines.push("## Caveats","",
