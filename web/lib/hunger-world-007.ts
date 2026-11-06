@@ -103,47 +103,96 @@ export function apply007(s:State007,a:Action007,effects:Effects007,rate=2,
   return next;
 }
 /** Shortest-path first movement to a tile adjacent to the target tree. */
-export function route007(s:State007,target:Tree007):Direction007|null{
-  const q:{x:number;y:number;first:Direction007|null}[]=[{x:s.x,y:s.y,first:null}];
+export function routeSteps007(s:State007,target:Tree007):Direction007[]{
+  const q:{x:number;y:number;path:Direction007[]}[]=[{x:s.x,y:s.y,path:[]}];
   const seen=new Set([s.x+","+s.y]);
   while(q.length){
     const p=q.shift()!;
-    if(distance007(p.x,p.y,target)===1)return p.first;
+    if(distance007(p.x,p.y,target)===1)return p.path;
     for(const d of ["north","south","east","west"] as const){
       const n=moved(p.x,p.y,d),key=n.x+","+n.y;
       if(n.x<0||n.y<0||n.x>=SIZE007||n.y>=SIZE007||seen.has(key)||
         s.trees.some(t=>t.x===n.x&&t.y===n.y))continue;
-      seen.add(key);q.push({...n,first:p.first??d});
+      seen.add(key);q.push({...n,path:[...p.path,d]});
     }
   }
-  return null;
+  return [];
 }
-/** Free baseline: learns from observations, never reads the hidden effects. */
-export function localDecision007(s:State007):{action:Action007;reason:string}{
-  const legal=actions007(s),can=(a:Action007)=>legal.some(b=>key007(a)===key007(b));
-  if(s.inventory!==null)return {action:{type:"eat"},reason:"Test or use the carried fruit and record its consequence."};
-  function approach(trees:Tree007[],reason:string):{action:Action007;reason:string}|null{
-    const sorted=[...trees].sort((a,b)=>distance007(s.x,s.y,a)-distance007(s.x,s.y,b)||a.id.localeCompare(b.id));
-    for(const t of sorted){
-      const inspect:Action007={type:"inspect",treeId:t.id};
-      if(can(inspect))return {action:inspect,reason:"Identify fruit on "+t.id+"."};
-      const pick:Action007={type:"pick",treeId:t.id};
-      if(can(pick))return {action:pick,reason};
-      const dir=route007(s,t);
-      if(dir&&can({type:"move",direction:dir}))return {action:{type:"move",direction:dir},reason:"Travel to "+t.id+": "+reason};
-    }
-    return null;
+export function route007(s:State007,target:Tree007):Direction007|null{
+  return routeSteps007(s,target)[0]??null;
+}
+/** Free baseline planner: prioritise survival, avoid waste and minimise travel.
+ * Decisions use only inspected tree identities and observed effects, never the hidden map.
+ * The simulator's clock advances once for each action, including waiting.
+ */
+export function localDecision007(s:State007,rate=2):{action:Action007;reason:string}{
+  const legal=actions007(s);
+  const can=(a:Action007)=>legal.some(b=>key007(a)===key007(b));
+  const wait=(reason:string)=>({action:{type:"wait"} as Action007,reason});
+  const observed=(t:Tree007)=>s.inspected.includes(t.id)?s.learning[t.fruit]:undefined;
+  const beneficial=(t:Tree007)=> {
+    const l=observed(t);
+    return l!==undefined&&(l.mean!==null?l.mean<0:l.minimumRelief>0);
+  };
+  // When an estimate is censored, minimumRelief is the only justified estimate.
+  const relief=(fruit:Fruit007)=>{
+    const l=s.learning[fruit];
+    return l?.mean!==null&&l?.mean!==undefined?
+      Math.max(0,-l.mean):l?.minimumRelief??0;
+  };
+  if(s.inventory!==null){
+    const learned=s.learning[s.inventory];
+    if((learned?.harmful??0)>0&&relief(s.inventory)===0)
+      return wait("Carrying a known harmful fruit; no safe discard action exists yet.");
+    // Preserve fruit until it would provide its expected benefit. For an
+    // untested fruit, leave room for a non-censored reading whenever possible.
+    const target=relief(s.inventory)>0?
+      Math.max(12,Math.ceil(relief(s.inventory)-rate)):38;
+    if(s.hunger<target&&rate>0)
+      return wait("Save carried "+s.inventory+" fruit until hunger makes eating worthwhile.");
+    return {action:{type:"eat"},reason:learned?
+      "Eat using the observed "+s.inventory+" effect.":
+      "Try this fruit at an informative hunger level and learn its consequence."};
   }
-  const ready=s.trees.filter(t=>t.readyAt<=s.seconds);
-  // Uninspected trees have UNKNOWN fruit. The policy must not use the
-  // environment's hidden fruit identity until an inspect action reveals it.
-  const known=(t:Tree007)=>s.inspected.includes(t.id)?s.learning[t.fruit]:undefined;
-  const good=ready.filter(t=>(known(t)?.mean??0)<0);
-  const novel=ready.filter(t=>!known(t)?.count);
-  // The only objective is low hunger: seek safe relief when hungry,
-  // otherwise experiment with previously untested fruit.
-  const targets=s.hunger>=50&&good.length?good:novel;
-  return approach(targets,"Learn or reduce hunger.")||
-    approach(good,"Return to a reliably beneficial fruit.")||
-    {action:{type:"wait"},reason:"Wait for fruit to regrow."};
+  // If a known helpful fruit is available, plan for it even if it needs to
+  // regrow. Never cross the whole map just because another tree is ripe now.
+  const good=s.trees.filter(beneficial);
+  if(good.length){
+    // Route distance is measured in actual navigable tiles, not just Manhattan distance.
+    const ranked=good.map(t=>{
+      const path=routeSteps007(s,t);
+      const waitForRipe=Math.max(0,t.readyAt-s.seconds);
+      return {t,path,arrival:Math.max(path.length,waitForRipe)};
+    }).filter(x=>Number.isFinite(x.arrival))
+      .sort((a,b)=>a.arrival-b.arrival||a.path.length-b.path.length||a.t.id.localeCompare(b.t.id));
+    if(ranked.length){
+      const best=ranked[0];
+      if(best.path.length){
+        return {action:{type:"move",direction:best.path[0]},
+          reason:"Head to "+best.t.id+" for known beneficial fruit; "+best.path.length+" moves remain."};
+      }
+      if(best.t.readyAt>s.seconds)
+        return wait("Stay beside "+best.t.id+" until its beneficial fruit regrows.");
+      const pick:Action007={type:"pick",treeId:best.t.id};
+      if(can(pick))return {action:pick,reason:"Collect reliable food to save for when hunger increases."};
+    }
+  }
+  // If nothing beneficial is known, gather evidence while hunger remains manageable.
+  // Fruit identity is not used for uninspected trees.
+  const unknown=s.trees.filter(t=>{
+    const learning=observed(t);
+    return !learning||(!learning.count&&!learning.minimumRelief);
+  }).map(t=>({t,path:routeSteps007(s,t)}))
+    .filter(x=>Number.isFinite(x.path.length))
+    .sort((a,b)=>a.path.length-b.path.length||a.t.id.localeCompare(b.t.id));
+  for(const {t,path} of unknown){
+    if(path.length)return {action:{type:"move",direction:path[0]},
+      reason:"Explore "+t.id+" to discover which fruit relieves hunger."};
+    const inspect:Action007={type:"inspect",treeId:t.id};
+    if(can(inspect))return {action:inspect,reason:"Inspect "+t.id+" to identify its fruit."};
+    const pick:Action007={type:"pick",treeId:t.id};
+    if(can(pick))return {action:pick,reason:"Test an untried fruit to learn its hunger effect."};
+    if(t.readyAt>s.seconds)return wait("Wait near an untested tree for its fruit to regrow.");
+  }
+  return wait("No known beneficial food or unexplored ripe fruit; conserve movement.");
 }
