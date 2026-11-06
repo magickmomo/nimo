@@ -78,16 +78,23 @@ export function apply007(s:State007,a:Action007,effects:Effects007,rate=2,
     const fruit=s.inventory!;
     effect=effects[fruit];fruitEffect=effect;next.inventory=null;
     const old=next.learning[fruit];
-    const raw=before+rate+effect;
-    const censored=raw<=0||raw>=100;
+    const after=round(clamp(before+rate+effect));
+    // Only the before/after readings and the public time cost may inform learning.
+    // At 100%, the time increase itself is clipped. Subtracting it from the
+    // observed 0-point change would falsely suggest that fruit relieved hunger.
+    const withoutFruit=round(clamp(before+rate));
+    const difference=round(after-withoutFruit);
+    const censored=after===0||after===100;
     const uncensored=(old?.uncensored??0)+(censored?0:1);
-    const observed=round(clamp(raw)-before-rate);
+    const observed=round(after-before-rate);
     next.learning[fruit]={
       count:(old?.count??0)+1,uncensored,
       mean:censored?old?.mean??null:round(((old?.mean??0)*(old?.uncensored??0)+observed)/uncensored),
-      minimumRelief:Math.max(old?.minimumRelief??0,Math.max(0,-observed)),
-      helpful:(old?.helpful??0)+(effect<0?1:0),
-      harmful:(old?.harmful??0)+(effect>0?1:0),
+      // This is a conservative observed lower bound, never hidden fruit truth.
+      minimumRelief:Math.max(old?.minimumRelief??0,Math.max(0,-difference)),
+      // An unchanged reading at a clamp boundary proves neither sign.
+      helpful:(old?.helpful??0)+(difference<0?1:0),
+      harmful:(old?.harmful??0)+(difference>0?1:0),
     };
     result="Ate "+fruit+" fruit: hunger changed "+round(rate+effect)+" points including time.";
   }else result="Waited one simulated second.";
