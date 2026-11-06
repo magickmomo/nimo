@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from "next/server";
-import {type LabAction} from "../../../../lib/learning-lab";
+import {type LabAction} from "../../../../../lib/learning-lab";
 
 export const runtime="nodejs";
 const ACTIONS:LabAction[]=["inspect_tree","pick_fruit","eat_fruit","wait"];
