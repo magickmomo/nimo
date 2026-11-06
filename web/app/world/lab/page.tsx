@@ -66,18 +66,18 @@ export default function LearningLab(){
       lines.push("### Step "+event.step+" — "+event.action,"",
         "- Source: "+(log?.source??"unknown"),
         "- Condition: "+(log?.mode??(memoryEnabled?"memory":"control")),
-        "- Reason: "+(log?.reason??"not recorded").replace(/[\\r\\n]+/g," "),
+        "- Reason: "+(log?.reason??"not recorded").replace(/[\r\n]+/g," "),
         "- Hunger before: "+Math.round(event.beforeHunger*100)+"%",
         "- Hunger after: "+Math.round(event.afterHunger*100)+"%",
         "- Observed change: "+Math.round(event.hungerDelta*100)+" percentage points",
         "- Predicted change: "+(event.predictedHungerDelta===null?"unknown":Math.round(event.predictedHungerDelta*100)+" percentage points"),
-        "- Verified result: "+event.result.replace(/[\\r\\n]+/g," "),
+        "- Verified result: "+event.result.replace(/[\r\n]+/g," "),
         "");
       if(log){lines.push("Context supplied before decision:","", "~~~json",JSON.stringify(log.context,null,2),"~~~","");}
     }
     lines.push("## Analysis note","",
       "This log records observed consequences and the model\u2019s stated reasons. A single successful action does not establish learning; compare memory-enabled and control trials.","");
-    const blob=new Blob([lines.join("\\n")],{type:"text/markdown;charset=utf-8"});
+    const blob=new Blob([lines.join("\n")],{type:"text/markdown;charset=utf-8"});
     const url=URL.createObjectURL(blob);
     const link=document.createElement("a");
     link.href=url;
