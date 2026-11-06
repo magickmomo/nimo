@@ -154,3 +154,64 @@ test("LLM endpoint and export record exact server-provided model messages",()=>{
   assert.match(page,/modelMessages:messages/);
   assert.match(page,/traceRef\.current/);
 });
+
+test("local policy carries known beneficial fruit until enough hunger has accumulated",()=>{
+  const s={...initial007(),hunger:5,inventory:"amber",
+    learning:{amber:{count:2,uncensored:2,mean:-35,minimumRelief:35,helpful:2,harmful:0}}};
+  assert.deepEqual(localDecision007(s,2).action,{type:"wait"});
+  assert.deepEqual(localDecision007({...s,hunger:34},2).action,{type:"eat"});
+  assert.deepEqual(localDecision007({...s,hunger:33},0.5).action,{type:"wait"});
+  assert.deepEqual(localDecision007({...s,hunger:35},0.5).action,{type:"eat"});
+});
+test("local policy stays by nearby regrowing food rather than crossing the map",()=>{
+  const initial=initial007();
+  const s={...initial,x:2,y:3,hunger:0,seconds:12,
+    inspected:["tree_a","tree_d"],
+    learning:{amber:{count:3,uncensored:2,mean:-35,minimumRelief:35,helpful:3,harmful:0}},
+    trees:initial.trees.map(t=>t.id==="tree_a"?{...t,readyAt:20}:t)};
+  assert.deepEqual(localDecision007(s,2).action,{type:"wait"});
+  assert.match(localDecision007(s,2).reason,/regrows/);
+  const ripe={...s,seconds:20};
+  assert.deepEqual(localDecision007(ripe,2).action,{type:"pick",treeId:"tree_a"});
+  const carrying=apply007(ripe,{type:"pick",treeId:"tree_a"},map,2);
+  assert.equal(carrying.inventory,"amber");
+  assert.deepEqual(localDecision007(carrying,2).action,{type:"wait"});
+});
+test("known harmful carried fruit can be discarded without creating new learning",()=>{
+  const s={...initial007(),inventory:"red",
+    learning:{red:{count:1,uncensored:1,mean:18,minimumRelief:0,helpful:0,harmful:1}}};
+  assert.deepEqual(localDecision007(s).action,{type:"discard"});
+  const after=apply007(s,{type:"discard"},map,2);
+  assert.equal(after.inventory,null);
+  assert.equal(after.hunger,s.hunger+2);
+  assert.deepEqual(after.learning,s.learning);
+});
+test("unknown fruit is explored without hidden mappings and not eaten at a censored low hunger",()=>{
+  const s={...initial007(),hunger:5,inventory:"red"};
+  assert.deepEqual(localDecision007(s,2).action,{type:"wait"});
+  assert.deepEqual(localDecision007({...s,hunger:40},2).action,{type:"eat"});
+});
+test("eating outcome text reveals only actual observed hunger, not hidden intrinsic effect",()=>{
+  const s={...initial007(),hunger:14,inventory:"amber"};
+  const after=apply007(s,{type:"eat"},map,2);
+  const result=after.events.at(-1).result;
+  assert.equal(after.hunger,0);
+  assert.match(result,/14% to 0%/);
+  assert.doesNotMatch(result,/-33|-35/);
+});
+test("planned food loop reduces travel after the first useful fruit is discovered",()=>{
+  let state=initial007();
+  const actions=[];
+  for(let i=0;i<100;i++){
+    const decision=localDecision007(state,2);
+    actions.push(decision.action);
+    state=apply007(state,decision.action,map,2,"local",decision.reason);
+  }
+  assert(state.learning.amber?.count>1);
+  const later=actions.slice(42);
+  const movements=later.filter(a=>a.type==="move").length;
+  // Original policy spent ~75% of later decisions walking between trees.
+  assert(movements<20, "Too much unnecessary travel: "+movements);
+  assert(later.some(a=>a.type==="wait"));
+  assert(state.hunger<80);
+});
