@@ -221,7 +221,7 @@ export default function LearningLab(){
         {runnerProgress&&<div className="lab-result" role="status">
           <strong>{runnerProgress.status}: {runnerProgress.completed} / {runnerProgress.total} decisions</strong>
           <p>Completed actions are retained and included in the downloadable log.</p>
-        </div>
+        </div>}
         <p className="lab-muted">Each automatic run makes up to 20 billable LLM calls. The lab requires LAB_OPENAI_API_KEY and your existing WORLD_OWNER_TOKEN. Closing or refreshing the page stops the browser-run sequence; completed steps must be downloaded before refreshing.</p>
         {error&&<p className="lab-error" role="alert">{error}</p>}
         {decision&&<div className="lab-result"><strong>Last choice: {LABEL[decision.action as LabAction]}</strong><p>{decision.reason}</p></div>}
