@@ -23,7 +23,6 @@ export default function Nimo007(){
   const [seed,setSeed]=useState(48162);
   const [world,setWorld]=useState<State007>(initial007);
   const latest=useRef<State007>(world);
-  const [trace,setTrace]=useState<Trace007[]>([]);
   const traceRef=useRef<Trace007[]>([]);
   const [rate,setRate]=useState(2);
   const [mode,setMode]=useState<"local"|"llm">("local");
@@ -33,13 +32,12 @@ export default function Nimo007(){
   const controller=useRef<AbortController|null>(null);
   const [status,setStatus]=useState("Ready — choose an action or run the agent.");
   const [error,setError]=useState("");
-  const currentView=view007(world);
   const actions=actions007(world);
   function save(next:State007){latest.current=next;setWorld(next);}
   function reset(){
     if(busy.current)return;
     const nextSeed=Math.floor(Math.random()*1_000_000);
-    setSeed(nextSeed);save(initial007());setTrace([]);traceRef.current=[];
+    setSeed(nextSeed);save(initial007());traceRef.current=[];
     setStatus("New world. Nimo has no fruit-effect knowledge.");setError("");
   }
   function stop(){controller.current?.abort();setStatus("Stopping after current decision.");}
@@ -65,7 +63,6 @@ export default function Nimo007(){
     save(next);
     if(messages){
       traceRef.current=[...traceRef.current,{step:next.step,modelMessages:messages}];
-      setTrace(traceRef.current);
     }
     setStatus("Step "+next.step+": "+next.events[next.events.length-1].result);
     return next;
