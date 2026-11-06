@@ -128,8 +128,11 @@ export function localDecision007(s:State007):{action:Action007;reason:string}{
     return null;
   }
   const ready=s.trees.filter(t=>t.readyAt<=s.seconds);
-  const good=ready.filter(t=>(s.learning[t.fruit]?.mean??0)<0);
-  const novel=ready.filter(t=>!s.learning[t.fruit]?.count);
+  // Uninspected trees have UNKNOWN fruit. The policy must not use the
+  // environment's hidden fruit identity until an inspect action reveals it.
+  const known=(t:Tree007)=>s.inspected.includes(t.id)?s.learning[t.fruit]:undefined;
+  const good=ready.filter(t=>(known(t)?.mean??0)<0);
+  const novel=ready.filter(t=>!known(t)?.count);
   // The only objective is low hunger: seek safe relief when hungry,
   // otherwise experiment with previously untested fruit.
   const targets=s.hunger>=50&&good.length?good:novel;
