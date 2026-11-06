@@ -172,6 +172,7 @@ export default function LearningLab(){
   const last=state.events.at(-1);
   return <main className="nimo-lab">
     <nav className="lab-nav"><a href="/world">Nimo's world</a><span>Independent experiment · No production writes</span></nav>
+    <p><a href="/world/lab/005">Open Nimo 005 — Discovery and Learning experiment</a></p>
     <header className="lab-header">
       <p className="lab-eyebrow">NIMO 004 · LEARNING LABORATORY</p>
       <h1>Can experience change Nimo's choices?</h1>
