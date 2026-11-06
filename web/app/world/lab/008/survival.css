@@ -1,0 +1,12 @@
+.nimo-survival{max-width:1260px}.survival-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:24px}
+.nimo-survival .survival-choice{display:flex;flex-direction:column;gap:5px;text-align:left;padding:17px;border:1px solid #bac7be;border-radius:12px;background:rgba(132,165,136,.07);color:inherit}
+.nimo-survival .survival-choice.active{border:2px solid #608774;background:rgba(132,165,136,.15)}.survival-choice strong{font-size:14px}
+.survival-choice span,.survival-choice small{color:#657886}.survival-choice b{font-size:22px}
+.survival-map{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:3px;width:min(100%,500px);aspect-ratio:1;background:#9bb490;padding:5px;border-radius:12px;box-sizing:border-box}
+.survival-tile{background:#d7e7cf;border-radius:4px;display:flex;justify-content:center;align-items:center;font-weight:700;color:#486851;font-size:clamp(10px,2vw,19px)}
+.survival-tile:nth-child(odd){background:#c8dfbd}.survival-tile.tree{background:#57835f;color:white;border-radius:50%}.survival-tile.player{background:#3c5569;color:white;border-radius:50%;border:2px solid white}
+.nimo-survival input[type=range]{width:100%;accent-color:#57835f}
+.survival-buttons{margin-top:15px}.survival-buttons .lab-primary{width:auto;margin:0}
+.survival-actions{display:flex;flex-wrap:wrap;gap:5px}.survival-actions button{font-size:11px;padding:7px 9px}
+.nimo-survival .lab-history{max-height:490px}
+@media(max-width:750px){.survival-compare{grid-template-columns:1fr}.survival-buttons .lab-primary{width:100%}}
