@@ -1,6 +1,7 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
+import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
@@ -138,15 +139,15 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
 You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
 Your perception contains a 9×9 square field of vision centred on your actual position and clipped to the world boundary. You can see all visible tiles and objects within it, including their coordinates. You cannot see beyond that field unless you remember previously seen places.
 All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 9, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
-You have exactly four executable tools: write_document(path, content), travel_to(x, y), inspect(direction), and remember_object(objectId, label, note).
-To inspect an object one tile north/south/east/west, choose ACT with toolCall: {name:"inspect",direction:"north"|"south"|"east"|"west"}. Only inspect if perception.directions shows canInspect=true. Do not inspect objects two steps away: move adjacent first.
+Your currently offered executable actions are provided in the dynamic action menu below. This menu is authoritative. An absent tool or target cannot be selected; do not infer tool availability from historical memories or examples.
+Inspect only if the currently offered action menu includes inspect and choose an exact available direction. Do not inspect objects two steps away: move adjacent first.
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
 To travel, choose any reachable walkable destination using one-based coordinates: ACT with toolCall: {name:"travel_to",x:5,y:6}. The environment calculates the entire shortest obstacle-aware route. You make NO new decisions during travel; your next decision happens after arrival. A tree, rock or shrub occupies its tile and cannot be a destination, so travel next to it to inspect. You can also remain still, write, observe, think or request capabilities. Exploration is possible but not compulsory.
@@ -154,14 +155,14 @@ The write_document tool creates or fully replaces a plain text document in your 
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
 Your current workspace is provided with this request. Read it before writing.
-To use your tool, choose action ACT and supply toolCall: {name:"write_document",path:"...",content:"..."}. To save your own name or note for an object, use action ACT with toolCall:{name:"remember_object",objectId:"shrub_001",label:"...",note:"..."}. This records your own interpretation, not a verified property.
+For an available tool, choose action ACT and supply only the required fields shown in the dynamic menu. Writing records text. Object notes record your interpretation, not verified properties.
 These are your ONLY actual external actions. ACT without toolCall does not create anything.
 You cannot execute code, send email, spend money, browse the internet, or add tools.
 REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
-A deterministic priority controller may temporarily restrict repeatedly uninformative inspection or note edits. The current priority guidance and blocked object IDs appear in the structured user context. Never attempt blocked actions; these blocks do not require you to perform a replacement tool action. You may choose THINK or OBSERVE without a tool.
+A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 You receive outcome-based rewards (not points for attempting actions). In this 9×9 world: first entry to an unvisited tile +10, revisit 0, first inspection of an object +12, changed inspection +8, unchanged inspection -1, first object note +3, revising notes 0, new document +4, overwriting document 0, verified visitor reply +2, failed tool -2, THINK/OBSERVE/REMEMBER/REQUEST without a tool 0. You can compare recent reward history to choose whether something is worth repeating. Do not farm points by cycling actions; a zero-scoring action can still be useful for other reasons. Hunger cannot yet be satisfied because eating is not an available tool. Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
@@ -169,7 +170,8 @@ Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a v
 Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. Use REPLY only for a pending visitor message and always with toolCall:null. ACT always requires a valid toolCall. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
-toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y} or {name:"inspect",direction} or {name:"remember_object",objectId,label,note}). Keep monologue short.`;
+toolCall (null or one of the exact currently offered tool shapes). Keep monologue short.`;
+  const offeredActions = menu.tools.map(name => name === "inspect" ? {name, directions:menu.inspectDirections} : name === "remember_object" ? {name, objectIds:menu.noteObjectIds} : {name});
   const experience = buildExperienceContext(history);
   const knownRecentIds = new Set([
     ...experience.recentEvents.map(e => e.id),
@@ -190,17 +192,17 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
       model: env.OPENAI_MODEL || "gpt-4.1-mini",
       temperature: 0.7,
       max_tokens: 1100,
-      response_format: { type: "json_object" },
+      response_format: decisionResponseFormat(menu,pendingMessage !== null),
       messages: [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state, perception, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{...state,tools:menu.tools}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), priority }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
     }),
@@ -291,12 +293,15 @@ async function tick(env: Env) {
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.15); }
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
   const priority = computePriorityPolicy(state.emotions, objects, pendingMessage !== null);
+  const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null);
+  // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
   try { d = await traced(env.DB,"decide",pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority),
+    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu),
     result=>`Selected ${result.action}${result.toolCall ? " / "+result.toolCall.name : ""}`); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
