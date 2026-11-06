@@ -11,7 +11,7 @@ import "./hunger.css";
 type Trace007={step:number;modelMessages:{role:string;content:string}[]};
 const actionText=(a:Action007)=>a.type==="move"?"Move "+a.direction:
   a.type==="inspect"?"Inspect "+a.treeId:a.type==="pick"?"Pick from "+a.treeId:
-  a.type==="eat"?"Eat carried fruit":"Wait";
+  a.type==="eat"?"Eat carried fruit":a.type==="discard"?"Discard carried fruit":"Wait";
 const delay=(ms:number,signal:AbortSignal)=>new Promise<void>(resolve=>{
   if(signal.aborted){resolve();return;}
   const done=()=>{clearTimeout(timer);signal.removeEventListener("abort",done);resolve();};
@@ -43,7 +43,7 @@ export default function Nimo007(){
   function stop(){controller.current?.abort();setStatus("Stopping after current decision.");}
   async function decide(s:State007,signal:AbortSignal):Promise<{
     action:Action007;reason:string;messages?:Trace007["modelMessages"]}>{
-    if(mode==="local")return localDecision007(s);
+    if(mode==="local")return localDecision007(s,rate);
     const context=view007(s);
     const response=await fetch("/api/world/lab/007/decide",{
       method:"POST",headers:{"Content-Type":"application/json","x-lab-owner-token":token},
@@ -165,7 +165,7 @@ export default function Nimo007(){
         <div className="lab-meter-label"><strong>Hunger</strong><strong>{world.hunger}%</strong></div>
         <div className="lab-meter"><div style={{width:world.hunger+"%",background:world.hunger>=80?"#c45c52":"#85a46d"}}/></div>
         <p className="lab-muted">Simulated seconds: {world.seconds} · Position: ({world.x+1}, {world.y+1}) · Carrying: {world.inventory||"nothing"}</p>
-        <p className="lab-muted">The simulation advances by one second per action, not continuously while paused. This is a deliberately accelerated hunger model.</p>
+        <p className="lab-muted">The simulation advances by one second per action, not continuously while paused. This is a deliberately accelerated hunger model. The local agent now saves fruit until it is useful and can wait near a regrowing tree instead of constantly crossing the map.</p>
       </div>
       <div className="lab-panel">
         <h2>Nimo's controls</h2>
