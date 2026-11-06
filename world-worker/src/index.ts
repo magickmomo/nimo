@@ -1,5 +1,6 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
+import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
@@ -137,7 +138,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -160,6 +161,7 @@ REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
+A deterministic priority controller may temporarily restrict repeatedly uninformative inspection or note edits. The current priority guidance and blocked object IDs appear in the structured user context. Never attempt blocked actions; these blocks do not require you to perform a replacement tool action. You may choose THINK or OBSERVE without a tool.
 You receive outcome-based rewards (not points for attempting actions). In this 9×9 world: first entry to an unvisited tile +10, revisit 0, first inspection of an object +12, changed inspection +8, unchanged inspection -1, first object note +3, revising notes 0, new document +4, overwriting document 0, verified visitor reply +2, failed tool -2, THINK/OBSERVE/REMEMBER/REQUEST without a tool 0. You can compare recent reward history to choose whether something is worth repeating. Do not farm points by cycling actions; a zero-scoring action can still be useful for other reasons. Hunger cannot yet be satisfied because eating is not an available tool. Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
@@ -198,7 +200,7 @@ toolCall (null or {name:"write_document",path,content} or {name:"travel_to",x,y}
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12) }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), priority }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
       ],
     }),
@@ -288,16 +290,28 @@ async function tick(env: Env) {
   const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
   if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.15); }
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
+  const priority = computePriorityPolicy(state.emotions, objects, pendingMessage !== null);
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
   try { d = await traced(env.DB,"decide",pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory),
+    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority),
     result=>`Selected ${result.action}${result.toolCall ? " / "+result.toolCall.name : ""}`); }
   catch (error) {
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
+  }
+  // Enforce priority outside the LLM, so a prohibited repetitive action cannot execute.
+  // Invalid proposals remain visible rather than being silently rewritten into other actions.
+  const priorityTarget = d.toolCall?.name === "inspect"
+    ? objectAt(destination(position,d.toolCall.direction))?.id ?? null : null;
+  const priorityBlock = priorityBlockReason(priority,d.toolCall,priorityTarget);
+  if (priorityBlock) {
+    await log(env.DB,"system",`Priority gate blocked proposed action: ${priorityBlock}`,"PRIORITY_BLOCK");
+    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
+      .bind(new Date(now.getTime()+30000).toISOString()).run();
+    return {status:"priority_blocked"};
   }
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
