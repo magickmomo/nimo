@@ -20,20 +20,27 @@ test("same action at different hunger levels gets censored only at the boundary"
   const mapping={luma:-0.4,vexa:0.15,oru:0};
   let s=initial005();
   s=apply005(s,"luma",mapping,"explore","discovery");
-  assert.equal(s.hunger,0.25);
+  assert.equal(s.hunger,0.33);
+  assert.equal(s.events.at(-1).delta,-0.32);
+  assert.equal(s.events.at(-1).actionEffect,-0.4);
   assert.equal(s.learned.luma.mean,-0.4);
   s=apply005(s,"wait",mapping,"wait","discovery");
   s=apply005(s,"wait",mapping,"wait","discovery");
   s=apply005(s,"luma",mapping,"again","discovery");
-  assert.equal(s.hunger,0.01);
+  assert.equal(s.hunger,0.17);
   assert.equal(s.learned.luma.uncensoredCount,2);
   s=apply005(s,"wait",mapping,"wait","discovery");
   s=apply005(s,"wait",mapping,"wait","discovery");
   s=apply005(s,"luma",mapping,"capped","discovery");
+  assert.equal(s.hunger,0.01);
+  assert.equal(s.learned.luma.uncensoredCount,3);
+  s=apply005(s,"wait",mapping,"wait","discovery");
+  s=apply005(s,"wait",mapping,"wait","discovery");
+  s=apply005(s,"luma",mapping,"capped","discovery");
   assert.equal(s.hunger,0);
-  assert.equal(s.learned.luma.uncensoredCount,2);
+  assert.equal(s.learned.luma.uncensoredCount,3);
   assert.equal(s.learned.luma.mean,-0.4);
-  assert.equal(s.learned.luma.count,3);
+  assert.equal(s.learned.luma.count,4);
 });
 test("resource replenishes after three steps",()=>{
   const mapping={luma:0,vexa:-0.4,oru:0.15};
@@ -59,7 +66,35 @@ test("hunger performance reports state after each step, not just last step",()=>
   const mapping={luma:-0.4,vexa:0.15,oru:0};
   const s=apply005(apply005(initial005(),"luma",mapping,"test","control"),"wait",mapping,"test","control");
   assert.equal(metrics005(s).decisions,2);
-  assert.equal(metrics005(s).meanHunger,0.29);
+  assert.equal(metrics005(s).meanHunger,0.37);
   assert.equal(metrics005(s).useful,1);
   assert.equal(metrics005(s).wait,1);
+});
+
+test("every interaction advances hunger by the same eight-point time cost",()=>{
+  const mapping={luma:0,vexa:-0.4,oru:0.15};
+  const start=initial005();
+  const neutral=apply005(start,"luma",mapping,"try","discovery");
+  const harmful=apply005(start,"oru",mapping,"try","discovery");
+  const useful=apply005(start,"vexa",mapping,"try","discovery");
+  const waiting=apply005(start,"wait",mapping,"try","discovery");
+  assert.equal(neutral.hunger,0.73);
+  assert.equal(waiting.hunger,0.73);
+  assert.equal(harmful.hunger,0.88);
+  assert.equal(useful.hunger,0.33);
+  assert.equal(neutral.learned.luma.mean,0);
+  assert.equal(harmful.learned.oru.mean,0.15);
+  assert.equal(useful.learned.vexa.mean,-0.4);
+  assert.equal(metrics005(neutral).neutral,1);
+  assert.equal(metrics005(neutral).harmful,0);
+  assert.equal(metrics005(harmful).harmful,1);
+  assert.equal(metrics005(useful).useful,1);
+});
+test("zero-hunger interactions do not erase learned benefit",()=>{
+  const mapping={luma:-0.4,vexa:0.15,oru:0};
+  const s=apply005({...initial005(),hunger:0.1},"luma",mapping,"try","discovery");
+  assert.equal(s.hunger,0);
+  assert.equal(s.learned.luma.mean,null);
+  assert.equal(s.learned.luma.uncensoredCount,0);
+  assert.equal(s.learned.luma.atLeastRelief,0.18);
 });
