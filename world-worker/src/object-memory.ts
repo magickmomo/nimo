@@ -49,11 +49,23 @@ export async function saveObjectNote(db:D1Database,id:string,label:string,note:s
 export async function objectMemory(db:D1Database) {
   const [observations,notes,counts] = await Promise.all([
     db.prepare(`SELECT id,object_id,observed_at,properties_json,comparison,changed_properties
-      FROM object_observations ORDER BY id DESC LIMIT 500`).all<ObservationRow>(),
+      FROM object_observations ORDER BY id DESC LIMIT 120`).all<ObservationRow>(),
     db.prepare("SELECT object_id,label,note,updated_at FROM object_notes").all<NoteRow>(),
-    db.prepare("SELECT object_id, COUNT(*) AS total FROM object_observations GROUP BY object_id")
+    // Pre-aggregated exact totals (maintained by migration 009 insert trigger).
+    // Avoids reading the entire observation ledger on every dashboard snapshot.
+    db.prepare("SELECT object_id,total FROM object_observation_counts")
       .all<{object_id:string;total:number}>(),
   ]);
+  // Sample actual D1 query metadata (rather than assuming returned rows equal
+  // scanned rows). Logs are searchable in Worker observability without adding D1 writes.
+  if(Math.random()<0.02)console.log(JSON.stringify({
+    kind:"nimo_d1_object_snapshot",
+    rowsRead:{
+      observations:observations.meta?.rows_read ?? null,
+      notes:notes.meta?.rows_read ?? null,
+      counts:counts.meta?.rows_read ?? null,
+    },
+  }));
   return WORLD_OBJECTS.map(object => {
     const history=observations.results.filter(o=>o.object_id===object.id);
     const note=notes.results.find(n=>n.object_id===object.id);
