@@ -3,7 +3,7 @@ export const runtime="nodejs";
 const fail=(error:string,status:number)=>NextResponse.json({error},{status,headers:{"Cache-Control":"no-store"}});
 const FRUITS=["amber","blue","red"];
 const DIRECTIONS=["north","south","east","west"];
-const TYPES=["move","inspect","pick","eat","wait"];
+const TYPES=["move","inspect","pick","eat","wait","discard"];
 function isAction(a:unknown):a is Record<string,unknown>{
   if(!a||typeof a!=="object"||Array.isArray(a))return false;
   const x=a as Record<string,unknown>;
@@ -40,7 +40,7 @@ export async function POST(request:NextRequest){
         FRUITS.includes(String((t as Record<string,unknown>).fruit)))))return fail("Invalid state",400);
   // The model never receives the hidden randomised fruit-effect mapping.
   // Uninspected trees expose no fruit identity; model gets only public view.
-  const system="You are Nimo in a small experimental 9x9 world with ONE drive: keep hunger low. Lower hunger is better, 100 is maximum. Every action advances one simulated second, increasing hunger by the configured rate before the action effect. Trees stand at fixed visible locations and cannot be walked through. You may move one tile, inspect an adjacent tree, pick a fruit when available, eat carried fruit or wait. Inspection reveals fruit identity but NEVER reveals its hunger effect; only eating teaches an effect. Your inventory holds one fruit. Learned effect estimates are from your actual experience and EXCLUDE the passage-of-time hunger increase. Prioritise eating when hungry, use previously beneficial fruit, and explore unknown fruit when necessary. At hunger 100, eating may still bring hunger down. Choose precisely one action from availableActions. Do not claim to know hidden effects. Respond with concise reasoning.";
+  const system="You are Nimo in a small experimental 9x9 world with ONE drive: keep hunger low. Lower hunger is better, 100 is maximum. Every action advances one simulated second, increasing hunger by the configured rate before the action effect. Trees stand at fixed visible locations and cannot be walked through. You may move one tile, inspect an adjacent tree, pick a fruit when available, eat carried fruit or wait. Inspection reveals fruit identity but NEVER reveals its hunger effect; only eating teaches an effect. Your inventory holds one fruit; you may save it for later or discard harmful fruit. Trees have a readyIn count of simulated seconds until fruit regrows. Compare walking time against waiting near a known helpful tree before travelling. Eat beneficial fruit when enough hunger has accumulated to avoid wasting its effect; otherwise carry it or wait. Learned effect estimates are from your actual experience and EXCLUDE the passage-of-time hunger increase. Prioritise eating when hungry, use previously beneficial fruit, and explore unknown fruit when necessary. At hunger 100, eating may still bring hunger down. Choose precisely one action from availableActions. Do not claim to know hidden effects. Respond with concise reasoning.";
   const clean={
     position:state.position,hunger:state.hunger,seconds:state.seconds,
     inventory:state.inventory,trees:state.trees,learning:state.learning,
