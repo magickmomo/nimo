@@ -179,6 +179,7 @@ export default function Lab005(){
   const control=session?metrics005(session.control):null;
   return <main className="nimo-lab">
     <nav className="lab-nav"><a href="/world/lab">Nimo 004 lab</a><span>Independent, browser-run experiment · no D1 or Worker access</span></nav>
+    <p><a href="/world/lab/006">Open Nimo 006 — Action Evaluation Experiment</a></p>
     <header className="lab-header">
       <p className="lab-eyebrow">NIMO 005 · CONTROLLED EXPERIMENT</p>
       <h1>Discovery and learning</h1>
