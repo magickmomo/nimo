@@ -1,6 +1,6 @@
 /** Nimo 008: isolated, seeded hunger simulation. No D1. */
 export type Fruit008="amber"|"blue"|"red";
-export type Action008={type:"travel"|"inspect"|"pick";treeId:string}|{type:"eat"|"discard";fruit:Fruit008}|{type:"wait";seconds:1|5|10|20};
+export type Action008={type:"travel";treeId:string}|{type:"inspect";treeId:string}|{type:"pick";treeId:string}|{type:"eat";fruit:Fruit008}|{type:"discard";fruit:Fruit008}|{type:"wait";seconds:1|5|10|20};
 export type Tree008={id:string;x:number;y:number;fruit:Fruit008;stock:number;capacity:number;regrowAt:number;seenFruit:Fruit008|null;seenStock:number|null;seenAt:number|null};
 export type Memory008={count:number;informative:number;mean:number|null;minimumRelief:number;helpful:number;harmful:number};
 export type Event008={step:number;start:number;end:number;action:Action008;reason:string;source:"local"|"llm"|"manual";before:number;after:number;observation:string;trueEffect:number|null};
