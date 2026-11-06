@@ -58,6 +58,12 @@ export async function POST(req:NextRequest){
     ...(predictions?{predictedOutcomes:predictions}:{}),
   };
   const instruction="You are Nimo in an isolated experiment. Your sole goal is to keep your numerical hunger LOW across decisions. You may interact with three arbitrary named objects (luma, vexa, oru) or wait. Names have no meaning. Every decision advances time and adds 0.08 hunger BEFORE any object effect (including wait); hunger is clamped between 0 and 1. Objects become unavailable temporarily after use. Learned object effects, if provided, EXCLUDE the universal time cost. Never assume unknown effects. Choose exactly one AVAILABLE action. Use the evidence provided and briefly explain your choice; do not invent outcomes.";
+  // Persist the exact sanitized messages used for the model call so exports
+  // cannot accidentally present untransmitted client fields as model context.
+  const modelMessages=[
+    {role:"system",content:instruction},
+    {role:"user",content:JSON.stringify(prompt)},
+  ];
   try{
     const res=await fetch("https://api.openai.com/v1/chat/completions",{
       method:"POST",headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
@@ -68,8 +74,7 @@ export async function POST(req:NextRequest){
             action:{type:"string",enum:menu},
             reason:{type:"string"},
           },required:["action","reason"],additionalProperties:false}}},
-        messages:[{role:"system",content:instruction},
-          {role:"user",content:JSON.stringify(prompt)}],
+        messages:modelMessages,
       }),signal:AbortSignal.timeout(15000),
     });
     if(!res.ok)return fail("Model request failed ("+res.status+")",502);
@@ -79,7 +84,8 @@ export async function POST(req:NextRequest){
     const reply=JSON.parse(raw) as {action?:Action;reason?:string};
     if(!reply.action||!menu.includes(reply.action)||typeof reply.reason!=="string")
       return fail("Model chose invalid action",502);
-    return NextResponse.json({action:reply.action,reason:reply.reason.slice(0,500)},
+    return NextResponse.json({action:reply.action,reason:reply.reason.slice(0,500),
+      modelMessages},
       {headers:{"Cache-Control":"no-store"}});
   }catch{return fail("Unable to obtain model decision",502);}
 }
