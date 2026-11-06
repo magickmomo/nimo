@@ -65,3 +65,14 @@ test("application action does not update frozen discovery knowledge",()=>{
   assert.equal(after.step,1);
   assert.equal(after.hunger,0.33);
 });
+
+test("audit log retains the identical sanitized message array sent to the model",()=>{
+  const route=readFileSync(new URL("../app/api/world/lab/006/decide/route.ts",import.meta.url),"utf8");
+  const page=readFileSync(new URL("../app/world/lab/006/page.tsx",import.meta.url),"utf8");
+  assert.match(route,/messages:modelMessages/);
+  assert.match(route,/return NextResponse\.json\(\{action:reply\.action,reason:reply\.reason\.slice\(0,500\),\s*modelMessages\}/);
+  assert.match(route,/\{role:"user",content:JSON\.stringify\(prompt\)\}/);
+  assert.match(page,/modelMessages:decision\.modelMessages/);
+  assert.match(page,/JSON\.stringify\(trace\.modelMessages,null,2\)/);
+  assert.doesNotMatch(page,/JSON\.stringify\(trace\?\.context\?\?event\.context/);
+});
