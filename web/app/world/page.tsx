@@ -57,11 +57,41 @@ export default function World() {
     }
   }, []);
 
+  // Historical state changes far less often than the clock and position.
+  // Keep the live display responsive with a tiny endpoint, not a full D1
+  // history scan every two seconds. Invisible tabs never poll D1.
+  const refreshLive = useCallback(async () => {
+    if (document.visibilityState !== "visible") return;
+    try {
+      const res = await fetch("/api/world/live", { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Cannot refresh live world");
+      setData(previous => previous ? { ...previous, ...body } : previous);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to connect");
+    }
+  }, []);
+
   useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => { void refresh(); setClock(Date.now()); }, data?.autonomousEnabled === false ? 10000 : 2000);
-    return () => window.clearInterval(interval);
-  }, [refresh, data?.journey?.status]);
+    if (document.visibilityState === "visible") void refresh();
+    const refreshOnVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", refreshOnVisible);
+    const liveInterval = window.setInterval(() => { void refreshLive(); }, 10000);
+    const fullInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 60000);
+    // Clock-only updates don't touch Cloudflare at all.
+    const clockInterval = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshOnVisible);
+      window.clearInterval(liveInterval);
+      window.clearInterval(fullInterval);
+      window.clearInterval(clockInterval);
+    };
+  }, [refresh, refreshLive]);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
