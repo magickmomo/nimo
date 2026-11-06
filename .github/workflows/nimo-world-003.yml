@@ -34,6 +34,8 @@ jobs:
           db.execute("INSERT OR IGNORE INTO world_rewards(source_key,action,points,detail) VALUES ('one','inspect',12,'first')")
           db.execute("INSERT OR IGNORE INTO world_rewards(source_key,action,points,detail) VALUES ('one','inspect',12,'duplicate')")
           assert db.execute("SELECT COUNT(*),SUM(points) FROM world_rewards").fetchone() == (1,12)
+          # Earlier migration fixtures do not create the original events table.
+          db.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT, action TEXT)")
           # Verify 009 counts stay accurate after insert and idempotent backfill.
           db.executescript(Path("world-worker/migrations/009_d1_read_budget.sql").read_text())
           db.execute("INSERT INTO object_observations(object_id,properties_json,comparison) VALUES (?,?,?)",("tree_003","{}","first"))
