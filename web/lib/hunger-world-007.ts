@@ -6,7 +6,7 @@ export type Direction007="north"|"south"|"east"|"west";
 export type Tree007={id:string;x:number;y:number;fruit:Fruit007;readyAt:number};
 export type Effects007=Record<Fruit007,number>;
 export type Learning007={count:number;uncensored:number;mean:number|null;minimumRelief:number;helpful:number;harmful:number};
-export type Action007={type:"move";direction:Direction007}|{type:"inspect"|"pick";treeId:string}|{type:"eat"|"wait"};
+export type Action007={type:"move";direction:Direction007}|{type:"inspect"|"pick";treeId:string}|{type:"eat"|"wait"|"discard"};
 export type Event007={step:number;action:Action007;source:"local"|"llm"|"manual";reason:string;before:number;after:number;effect:number|null;result:string};
 export type State007={x:number;y:number;hunger:number;seconds:number;step:number;inventory:Fruit007|null;
  trees:Tree007[];inspected:string[];learning:Partial<Record<Fruit007,Learning007>>;events:Event007[]};
@@ -46,14 +46,15 @@ export function actions007(s:State007):Action007[]{
     if(s.inspected.includes(t.id)&&s.inventory===null&&t.readyAt<=s.seconds)
       out.push({type:"pick",treeId:t.id});
   }
-  if(s.inventory!==null)out.push({type:"eat"});
+  if(s.inventory!==null)out.push({type:"eat"},{type:"discard"});
   out.push({type:"wait"});
   return out;
 }
 export function view007(s:State007){
   return {position:{x:s.x,y:s.y},hunger:s.hunger,seconds:s.seconds,inventory:s.inventory,
     trees:s.trees.map(t=>({id:t.id,x:t.x,y:t.y,fruit:s.inspected.includes(t.id)?t.fruit:null,
-      ready:t.readyAt<=s.seconds})),learning:structuredClone(s.learning),availableActions:actions007(s)};
+      ready:t.readyAt<=s.seconds,readyIn:Math.max(0,t.readyAt-s.seconds)})),
+    learning:structuredClone(s.learning),availableActions:actions007(s)};
 }
 export function apply007(s:State007,a:Action007,effects:Effects007,rate=2,
   source:Event007["source"]="local",reason=""):State007{
@@ -96,7 +97,9 @@ export function apply007(s:State007,a:Action007,effects:Effects007,rate=2,
       helpful:(old?.helpful??0)+(difference<0?1:0),
       harmful:(old?.harmful??0)+(difference>0?1:0),
     };
-    result="Ate "+fruit+" fruit: hunger changed "+round(rate+effect)+" points including time.";
+    result="Ate "+fruit+" fruit. Hunger visibly changed from "+before+"% to "+after+"%.";
+  }else if(a.type==="discard"){
+    result="Discarded carried "+s.inventory+" fruit.";next.inventory=null;
   }else result="Waited one simulated second.";
   next.hunger=round(clamp(before+rate+effect));
   next.events.push({step:next.step,action:a,source,reason,before,after:next.hunger,effect:fruitEffect,result});
@@ -143,7 +146,7 @@ export function localDecision007(s:State007,rate=2):{action:Action007;reason:str
   if(s.inventory!==null){
     const learned=s.learning[s.inventory];
     if((learned?.harmful??0)>0&&relief(s.inventory)===0)
-      return wait("Carrying a known harmful fruit; no safe discard action exists yet.");
+      return {action:{type:"discard"},reason:"Discard fruit with previously observed harmful effects."};
     // Preserve fruit until it would provide its expected benefit. For an
     // untested fruit, leave room for a non-censored reading whenever possible.
     const target=relief(s.inventory)>0?
@@ -162,7 +165,9 @@ export function localDecision007(s:State007,rate=2):{action:Action007;reason:str
     const ranked=good.map(t=>{
       const path=routeSteps007(s,t);
       const waitForRipe=Math.max(0,t.readyAt-s.seconds);
-      return {t,path,arrival:Math.max(path.length,waitForRipe)};
+      // Include travel effort: an adjacent tree regrowing shortly beats a
+      // distant ripe tree when both can feed Nimo safely.
+      return {t,path,arrival:Math.max(path.length,waitForRipe)+2*path.length};
     }).filter(x=>Number.isFinite(x.arrival))
       .sort((a,b)=>a.arrival-b.arrival||a.path.length-b.path.length||a.t.id.localeCompare(b.t.id));
     if(ranked.length){
