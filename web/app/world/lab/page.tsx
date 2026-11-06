@@ -1,6 +1,6 @@
 "use client";
 
-import {useState} from "react";
+import {useRef,useState} from "react";
 import {availableLabActions,createLab,labDecisionContext,nextTrial,performLabAction,
   type LabAction,type LabState} from "../../../lib/learning-lab";
 import "./lab.css";
@@ -14,6 +14,8 @@ export default function LearningLab(){
   const [memoryEnabled,setMemoryEnabled]=useState(true);
   const [ownerToken,setOwnerToken]=useState("");
   const [busy,setBusy]=useState(false);
+  const trialGeneration=useRef(0);
+  const requestInFlight=useRef(false);
   const [error,setError]=useState("");
   const [decision,setDecision]=useState<{action:string;reason:string}|null>(null);
   const [runLog,setRunLog]=useState<{step:number;action:LabAction;reason:string;mode:string;source:string;context:ReturnType<typeof labDecisionContext>}[]>([]);
@@ -28,12 +30,16 @@ export default function LearningLab(){
     }catch(e){setError(e instanceof Error?e.message:"Could not execute action");}
   }
   function resetTrial(retainMemory:boolean){
+    if(requestInFlight.current)return;
+    trialGeneration.current++;
     setState(s=>nextTrial(s,0.65,retainMemory&&memoryEnabled));
     setDecision(null);
     setError("");
     setRunLog([]);
   }
   function toggleMemory(enabled:boolean){
+    if(requestInFlight.current)return;
+    trialGeneration.current++;
     setMemoryEnabled(enabled);
     setState(createLab(0.65));
     setDecision(null);
@@ -86,7 +92,9 @@ export default function LearningLab(){
     window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   async function askModel(){
-    if(busy)return;
+    if(requestInFlight.current)return;
+    requestInFlight.current=true;
+    const generation=trialGeneration.current;
     setBusy(true);setError("");
     try{
       const res=await fetch("/api/world/lab/decide",{
@@ -95,10 +103,11 @@ export default function LearningLab(){
       });
       const body=await res.json() as {error?:string;action?:LabAction;reason?:string};
       if(!res.ok || !body.action || !body.reason)throw new Error(body.error||"No valid lab action");
+      if(generation!==trialGeneration.current)return; // Ignore stale decisions from an earlier trial.
       if(!available.includes(body.action))throw new Error("Decision no longer available; retry");
       act(body.action,body.reason,"llm",labDecisionContext(state,memoryEnabled));
-    }catch(e){setError(e instanceof Error?e.message:"Model request failed");}
-    finally{setBusy(false);}
+    }catch(e){if(generation===trialGeneration.current)setError(e instanceof Error?e.message:"Model request failed");}
+    finally{requestInFlight.current=false;setBusy(false);}
   }
   const last=state.events.at(-1);
   return <main className="nimo-lab">
@@ -126,7 +135,7 @@ export default function LearningLab(){
       </div>
       <div className="lab-panel">
         <h2>Experiment controls</h2>
-        <label className="lab-toggle"><input type="checkbox" checked={memoryEnabled} onChange={e=>toggleMemory(e.target.checked)}/> Experience memory enabled</label>
+        <label className="lab-toggle"><input type="checkbox" checked={memoryEnabled} disabled={busy} onChange={e=>toggleMemory(e.target.checked)}/> Experience memory enabled</label>
         <p className="lab-muted">Switching conditions resets the trial. All runs begin at 65% hunger, with three fruit and no remembered outcomes.</p>
         <div className="lab-actions">
           <button onClick={()=>resetTrial(true)} type="button" disabled={busy}>New trial · retain learning</button>
