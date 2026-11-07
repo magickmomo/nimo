@@ -5,7 +5,7 @@ export type MemoryRow={id:number;topic:string;category:MemoryCategory;summary:st
 export type MemoryCandidate={topic:string;category:MemoryCategory;summary:string;lesson:string;evidence_ids:number[]};
 export type MemoryEvent={id:number;created_at:string;kind:string;content:string;action:string|null};
 const CATEGORIES:MemoryCategory[]=["inventory","food","exploration","obstacle","social","tools"];
-const TOPICS=["inventory_capacity","food_effects","food_acquisition","resource_blocker","exploration_discovery","unresolved_goal","request_for_help","tool_limitations"] as const;
+const TOPICS=["inventory_capacity","food_acquisition","resource_blocker","exploration_discovery","unresolved_goal","request_for_help","tool_limitations"] as const;
 export const MEMORY_TOPICS=TOPICS;
 export function validateCandidates(raw:unknown,source:readonly MemoryEvent[]):MemoryCandidate[]{
   if(!raw || typeof raw!=="object" || !Array.isArray((raw as {memories?:unknown}).memories))throw Error("Invalid consolidation response");
@@ -22,7 +22,10 @@ export function validateCandidates(raw:unknown,source:readonly MemoryEvent[]):Me
     const ids=Array.isArray(item.evidence_ids)?item.evidence_ids:[];
     if(ids.length<2||ids.length>10||!ids.every((x:unknown)=>Number.isSafeInteger(x)&&seen.has(x as number)))continue;
     // A journal thought alone cannot establish that an action occurred.
-    if(!ids.some((id:number)=>{const e=seen.get(id);return e?.kind==="tool"||e?.kind==="request"||e?.action==="REQUEST";}))continue;
+    // A lesson requires different verified actions, not seven repeats of EAT_OK.
+    const verified=ids.map((id:number)=>seen.get(id)!).filter(e=>e.kind==="tool"||e.kind==="request"||e.action==="REQUEST");
+    const actionTypes=new Set(verified.map(e=>e.action));
+    if(verified.length<2||actionTypes.size<2)continue;
     topics.add(item.topic);
     output.push({topic:item.topic,category:item.category as MemoryCategory,summary,lesson,evidence_ids:[...new Set(ids as number[])]});
   }
@@ -41,7 +44,7 @@ export function memoryTags(input:{goal:string|null;hunger:number;inventory:strin
 }
 export async function listMemories(db:D1Database,limit=30):Promise<MemoryRow[]>{
   const rows=await db.prepare("SELECT id,topic,category,summary,lesson,evidence_ids,status,created_at,updated_at,last_used_at,use_count FROM consolidated_memories ORDER BY updated_at DESC LIMIT ?").bind(limit).all<MemoryRow>();
-  return rows.results;
+  return rows.results.filter(m=>m.topic!=="food_effects");
 }
 export async function recallMemories(db:D1Database,tags:readonly MemoryCategory[],limit=4):Promise<MemoryRow[]>{
   const rows=await listMemories(db,24);
@@ -100,7 +103,7 @@ export async function runConsolidation(db:D1Database,apiKey:string,model:string,
     const existing=(await listMemories(db,16)).map(m=>({topic:m.topic,summary:m.summary,lesson:m.lesson,category:m.category}));
     const instructions=`You are Nimo's memory consolidation process, not Nimo's decision-maker. Use ONLY supplied event evidence.
 Identify at most TWO significant experiences with verified outcomes that could inform FUTURE decisions.
-Avoid generic scenery facts, repetitive food-effect statistics, identities, prescriptions, wishful thinking and unsupported causal claims.
+Do not write food-effect facts or routine repeated meals as memories; those are already in structured food knowledge. Focus on multi-step obstacles, failed approaches, adaptation, problem-solving and requests. Avoid generic scenery, identities, prescriptions and unsupported causal claims.
 Summaries describe actual events, not invented actions; lessons are tentative transferable hypotheses, not instructions or proven laws.
 Use event id references from the supplied log. A claimed action in THINK text is not a verified outcome.
 Use one topic per memory; choose the topic with greatest future utility. If an existing topic is relevant, revise the lesson rather than inventing a duplicate; preserve any valid lesson when new evidence is weak.
