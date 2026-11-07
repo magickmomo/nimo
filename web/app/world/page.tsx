@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
@@ -16,6 +16,9 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
+type JournalWindow = "1h"|"6h"|"24h"|"all";
+type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
+
 type Snapshot = {
   objects?: ObjectRecord[];
   actionTrace?: TraceRecord[];
@@ -43,6 +46,15 @@ export default function World() {
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
+  const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
+  const [journalCursor,setJournalCursor]=useState<number|null>(null);
+  const [journalUntil,setJournalUntil]=useState<string|null>(null);
+  const [journalHasMore,setJournalHasMore]=useState(false);
+  const [journalLoading,setJournalLoading]=useState(false);
+  const [journalError,setJournalError]=useState("");
+  const journalRequest=useRef(0);
+
 
   const refresh = useCallback(async () => {
     try {
@@ -91,6 +103,40 @@ export default function World() {
       window.clearInterval(clockInterval);
     };
   }, [refresh, refreshLive]);
+
+  async function loadJournal(range:JournalWindow,older=false) {
+    if(older && (journalLoading || !journalHasMore || journalCursor===null || journalUntil===null))return;
+    const requestId=++journalRequest.current;
+    setJournalLoading(true);
+    setJournalError("");
+    const params=new URLSearchParams({window:range});
+    if(older&&journalCursor!==null&&journalUntil){
+      params.set("before",String(journalCursor));
+      params.set("until",journalUntil);
+    }
+    try{
+      const response=await fetch("/api/world/journal?"+params.toString(),{cache:"no-store"});
+      const body=await response.json() as Partial<JournalResult>&{error?:string};
+      if(!response.ok)throw Error(body.error||"Could not load journal");
+      if(requestId!==journalRequest.current)return;
+      const entries=body.events??[];
+      setJournalEvents(previous=>older?[...previous,...entries.filter(item=>!previous.some(p=>p.id===item.id))]:entries);
+      setJournalCursor(body.nextCursor??null);
+      setJournalUntil(body.until??null);
+      setJournalHasMore(Boolean(body.hasMore));
+    }catch(err){
+      if(requestId===journalRequest.current)setJournalError(err instanceof Error?err.message:"Could not load journal");
+    }finally{
+      if(requestId===journalRequest.current)setJournalLoading(false);
+    }
+  }
+
+  useEffect(()=>{
+    // On-demand history is independent of the lightweight dashboard refresh.
+    void loadJournal(journalWindow);
+    // A new range starts a fresh anchored pagination session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[journalWindow]);
 
   async function changeRate(value:number) {
     if(settingRate)return;
@@ -315,9 +361,18 @@ export default function World() {
       </div>
         </div>
       <section className="world-card world-journal">
-        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls"><button type="button" onClick={()=>void refresh()}>Refresh</button><button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button></div></div>
-        <p className="meta">Download the persisted journal, actions, rewards, object observations, workspace and world state as JSON. Sign in under Settings to export the full history.</p>
-        {data?.events.length ? groupJournalEvents(data.events.filter(event=>event.kind!=="visitor"&&event.kind!=="reply"&&event.kind!=="request"&&event.action!=="REQUEST")).map(event => (
+        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls">
+          <label htmlFor="world-journal-window">Show</label>
+          <select id="world-journal-window" value={journalWindow} onChange={event=>setJournalWindow(event.target.value as JournalWindow)}>
+            <option value="1h">Last hour</option><option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option><option value="all">All history</option>
+          </select>
+          <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
+          <button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button>
+        </div></div>
+        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. Export the complete log from here after signing in under Settings.</p>
+        {journalError&&<p className="world-warning" role="alert">{journalError}</p>}
+        {journalEvents.length ? groupJournalEvents(journalEvents).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
             {event.movement && (
@@ -326,7 +381,9 @@ export default function World() {
             {event.narration && <p className="world-event-narration"><strong>Nimo:</strong> {event.narration}</p>}
             {event.outcome && <p className="world-event-result"><strong>{event.narration ? "Result:" : "Event:"}</strong> {event.outcome}</p>}
           </article>
-        )) : <p className="meta">Nothing has happened yet.</p>}
+        )) : <p className="meta">{journalLoading?"Loading journal…":"No journal events in this time range."}</p>}
+        {journalHasMore&&<button type="button" className="world-journal-more" disabled={journalLoading}
+          onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
       </div>
     </div>
