@@ -16,7 +16,7 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
-type MemoryRecord={id:number;topic:string;category:string;summary:string;lesson:string;evidence_ids:string;status:string;updated_at:string};
+type MemoryRecord={id:number;topic:string;category:string;summary:string;lesson:string;evidence_ids:string;status:string;updated_at:string;evidence?:{id:number;created_at:string;kind:string;action:string|null;content:string}[]};
 type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
@@ -387,7 +387,13 @@ export default function World() {
           <details key={item.id} className="world-memory-entry">
             <summary><strong>{item.summary}</strong><small>{item.category} · {item.status}</small></summary>
             <p>{item.lesson}</p>
-            <p className="meta">Journal evidence: {(() => { try{return (JSON.parse(item.evidence_ids) as number[]).join(", ")}catch{return "Unavailable"} })()}</p>
+            <div className="world-memory-evidence">
+              <strong>Evidence from Nimo's journal</strong>
+              {item.evidence?.length ? <ul>{item.evidence.map(event=><li key={event.id}>
+                <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+                <span>{event.action||event.kind} · {event.content}</span>
+              </li>)}</ul> : <p className="meta">Recorded event references: {item.evidence_ids}</p>}
+            </div>
           </details>
         ))}</div> : <p className="meta">No consolidated memories yet. Use Consolidate now to review recent journal outcomes.</p>}
       </section>
