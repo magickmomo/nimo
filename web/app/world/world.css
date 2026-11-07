@@ -170,3 +170,17 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-journal-export-login label{font-size:12px;font-weight:600}
 .world-journal-export-login input{padding:8px 10px;border:1px solid #bbcfc2;
   border-radius:8px;min-width:190px;flex:1}
+
+/* Phase 1: one live need, with secondary research and operator panels collapsed. */
+.world-status-strip{grid-template-columns:minmax(0,1fr);border-radius:22px;padding:8px 15px}
+.world-status-item{border-right:0;padding:8px}
+.world-status-meta{grid-template-columns:repeat(3,minmax(0,1fr))}
+.world-secondary-panel{padding:16px 20px}
+.world-secondary-panel>summary{cursor:pointer;font-size:15px;font-weight:700;color:#294440;list-style-position:inside}
+.world-secondary-panel[open]>summary{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #e3ebe6}
+.world-secondary-panel>summary:focus-visible{outline:2px solid #346f61;outline-offset:4px;border-radius:4px}
+.world-secondary-panel .world-observation-list{max-height:180px}
+.world-vending-items ul{padding-left:18px}
+.world-vending-items li{margin-bottom:6px}
+@media(max-width:780px){.world-status-meta{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.world-status-meta{grid-template-columns:1fr}}
