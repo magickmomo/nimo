@@ -107,6 +107,45 @@ async function events(db: D1Database, count = 60) {
     .bind(count).all<EventRow>();
   return r.results;
 }
+// Owner-only historical export. Snapshot polling stays small; this is a deliberate,
+// on-demand read of the complete retained ledgers (up to 10,000 rows per table).
+async function exportLedger(db:D1Database, model:string) {
+  const MAX_ROWS=10000;
+  const ledgers=[
+    ["events","SELECT id,created_at,kind,content,action FROM events ORDER BY id ASC LIMIT ?"],
+    ["actionTrace","SELECT id,started_at,finished_at,kind,status,detail,result,metadata FROM action_trace ORDER BY id ASC LIMIT ?"],
+    ["rewards","SELECT id,created_at,action,points,detail FROM world_rewards ORDER BY id ASC LIMIT ?"],
+    ["objectObservations","SELECT id,object_id,observed_at,properties_json,comparison,changed_properties FROM object_observations ORDER BY id ASC LIMIT ?"],
+  ] as const;
+  const tables=await Promise.all(ledgers.map(async ([name,sql])=>{
+    const result=await db.prepare(sql).bind(MAX_ROWS+1).all<Record<string,unknown>>();
+    const truncated=result.results.length>MAX_ROWS;
+    return {name,rows:result.results.slice(0,MAX_ROWS),truncated};
+  }));
+  const [world,position,journey,control,workspace,memory,objects]=await Promise.all([
+    getWorld(db),getPosition(db),journeySnapshot(db),autonomousEnabled(db),
+    documents(db),environmentMemory(db),objectMemory(db),
+  ]);
+  const result:Record<string,unknown>={
+    format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
+    world,position,journey,autonomousEnabled:control,
+    documents:workspace,environmentMemory:memory,objects,
+    truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
+  };
+  for(const table of tables) result[table.name]=table.rows.map(row=>{
+    if(table.name==="actionTrace" && typeof row.metadata==="string") {
+      try {return {...row,metadata:JSON.parse(row.metadata)}}catch{return row}
+    }
+    if(table.name==="objectObservations") {
+      const convert=(key:"properties_json"|"changed_properties")=>{
+        try {return JSON.parse(String(row[key]))}catch{return row[key]}
+      };
+      return {...row,properties:convert("properties_json"),changedProperties:convert("changed_properties")};
+    }
+    return row;
+  });
+  return result;
+}
 // A visitor message remains pending until a verified reply is journalled.
 async function pendingVisitorMessage(db: D1Database): Promise<PendingVisitorMessage | null> {
   return db.prepare(`SELECT v.id,v.created_at,v.content FROM events v
@@ -185,15 +224,9 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: env.OPENAI_MODEL || "gpt-4.1-mini",
-      temperature: 0.7,
-      max_tokens: 1100,
-      response_format: decisionResponseFormat(menu,pendingMessage !== null),
-      messages: [
+  const model = env.OPENAI_MODEL || "gpt-6.1-sol";
+  const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  const messages = [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify({ state:{...state,tools:menu.tools}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
@@ -204,14 +237,37 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
           .map(({observations,...item})=>({ ...item,
           recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
-      ],
-    }),
-    signal: AbortSignal.timeout(25000),
+  ];
+  const format = decisionResponseFormat(menu, pendingMessage !== null);
+  const payload = reasoningModel
+    ? {
+        model,
+        input: messages,
+        reasoning: { effort: "low" },
+        max_output_tokens: 4000,
+        text: { format: { ...format.json_schema, type: "json_schema" } },
+      }
+    : { model, temperature: 0.7, max_tokens: 1100, response_format: format, messages };
+  const res = await fetch("https://api.openai.com/v1/" + (reasoningModel ? "responses" : "chat/completions"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60000),
   });
-  if (!res.ok) throw new Error(`Model returned HTTP ${res.status}`);
-  const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-  const raw = data.choices?.[0]?.message?.content;
-  if (!raw) throw new Error("Empty AI decision");
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+    throw new Error(`Model ${model} returned HTTP ${res.status}: ${(detail?.error?.message || "unknown model error").slice(0, 250)}`);
+  }
+  const data = await res.json() as {
+    choices?: { message?: { content?: string } }[];
+    output?: { content?: { type?: string; text?: string }[] }[];
+    incomplete_details?: { reason?: string };
+  };
+  const raw = reasoningModel
+    ? data.output?.flatMap(o => o.content || []).filter(item => item.type === "output_text")
+        .map(item => item.text || "").join("")
+    : data.choices?.[0]?.message?.content;
+  if (!raw) throw new Error("Empty AI decision" + (data.incomplete_details?.reason ? ": " + data.incomplete_details.reason : ""));
   let parsed: unknown;
   try { parsed = JSON.parse(raw); }
   catch (error) {
@@ -452,6 +508,9 @@ export default {
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
         return json({world,position,journey,autonomousEnabled:enabled});
+      }
+      if (path === "/export" && request.method === "GET") {
+        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
       }
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
