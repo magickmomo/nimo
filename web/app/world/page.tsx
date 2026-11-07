@@ -171,11 +171,14 @@ export default function World() {
       const response=await fetch("/api/world/memories/consolidate",{
         method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
       });
-      const result=await response.json() as {status?:string;saved?:number;processed?:number;error?:string};
+      const result=await response.json() as {status?:string;saved?:number;processed?:number;eligible?:number;reason?:string;error?:string};
       if(!response.ok)throw Error(result.error||"Consolidation failed");
       setMemoryMessage(result.status==="ok"
         ?`Reviewed ${result.processed??0} events and saved ${result.saved??0} memory updates.`
-        :result.status==="no_new_evidence"?"No new significant events to review.":"Consolidation is already running.");
+        :result.status==="no_new_evidence"
+          ?result.reason==="empty_window"?"No matching journal events found in the selected period."
+            :`Reviewed ${result.processed??0} candidate events; fewer than two eligible verified outcomes. Repeated food effects alone do not qualify as new memories.`
+          :"Consolidation is already running.");
       await refreshMemories();
     }catch(error){setMemoryError(error instanceof Error?error.message:"Consolidation failed");}
     finally{setMemoryBusy(false);}
