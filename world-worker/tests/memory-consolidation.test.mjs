@@ -8,7 +8,7 @@ const worker=read("../src/index.ts");
 const schema=read("../schema.sql");
 const ui=read("../../web/app/world/page.tsx");
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {validateCandidates,memoryTags}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+const {validateCandidates,memoryTags,consolidationBounds}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 const events=[
   {id:1,created_at:"2026-11-07",kind:"thought",action:"THINK",content:"I might pick amber"},
   {id:2,created_at:"2026-11-07",kind:"tool",action:"DISCARD_OK",content:"Discarded a blue fruit"},
@@ -62,4 +62,26 @@ test("core-belief accumulation is retired without deleting prior beliefs",()=>{
   assert.doesNotMatch(worker,/beliefs\.push\(/);
   assert.match(worker,/const beliefs = state\.beliefs/);
   assert.match(worker,/beliefs:\s*\[\]/);
+});
+
+test("consolidation windows calculate strict rolling time boundaries",()=>{
+  const now=Date.parse("2026-11-07T23:00:00.000Z");
+  assert.equal(consolidationBounds({window:"6h"},now).from,"2026-11-07T17:00:00.000Z");
+  assert.equal(consolidationBounds({window:"24h"},now).from,"2026-11-06T23:00:00.000Z");
+  assert.equal(consolidationBounds({window:"7d"},now).from,"2026-10-31T23:00:00.000Z");
+  assert.equal(consolidationBounds({window:"since"},now).from,null);
+  assert.equal(consolidationBounds({window:"all"},now).from,null);
+  assert.equal(consolidationBounds({window:"custom",from:"2026-11-07T18:00:00Z",to:"2026-11-07T20:00:00Z"},now).to,"2026-11-07T20:00:00.000Z");
+  assert.throws(()=>consolidationBounds({window:"custom",from:"2026-11-07T21:00:00Z",to:"2026-11-07T20:00:00Z"},now));
+  assert.throws(()=>consolidationBounds({window:"wrong"},now));
+});
+test("window controls pass through UI and server boundaries",()=>{
+  const route=read("../../web/app/api/world/memories/consolidate/route.ts");
+  assert.match(ui,/<option value="6h">Last 6 hours<\/option>/);
+  assert.match(ui,/window:memoryWindow/);
+  assert.match(route,/JSON.stringify\(body\)/);
+  assert.match(worker,/window:body.window/);
+  assert.match(source,/created_at>=\?/);
+  assert.match(source,/created_at<=\?/);
+  assert.match(source,/JSON.stringify\(previous\)===JSON.stringify\(evidence\)/);
 });
