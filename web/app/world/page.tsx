@@ -285,7 +285,7 @@ export default function World() {
           </li>)}</ul>
         </div>}
       </section>
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} sleeping={data?.autonomousEnabled === false}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
