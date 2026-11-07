@@ -123,3 +123,33 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 /* Keep live-journal actions aligned on narrow screens. */
 .world-journal-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .world-journal-controls button:disabled{opacity:.55;cursor:not-allowed}
+
+/* World 001 survival controls and private conversations. */
+.world-status-item.is-inactive{opacity:.32;filter:grayscale(1)}
+.world-status-item.is-inactive .world-status-fill,
+.world-status-item.is-inactive .world-status-dot{background:#a0aaa7!important}
+.world-topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.world-messages-link{display:inline-flex;align-items:center;background:#294c40;color:#fff!important;
+  border-radius:10px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none}
+.world-food-controls{margin:14px 0}
+.world-hunger-rate{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.world-hunger-rate label{font-size:13px;font-weight:600}
+.world-hunger-rate select{min-width:85px;border:1px solid #cbd7d2;border-radius:8px;padding:8px;background:#fff}
+.world-inventory{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:13px}
+.world-fruits{display:flex;gap:7px;flex-wrap:wrap}
+.world-fruit{display:inline-flex;border:1px solid #c6d5ce;padding:5px 10px;border-radius:999px;
+  background:#eff3f0;font-size:12px;text-transform:capitalize}
+.world-fruit.amber{background:#f8e8c5;border-color:#dbb771}
+.world-fruit.blue{background:#e1ebf8;border-color:#9fbde3}
+.world-fruit.red{background:#f7dedb;border-color:#d7a09d}
+.world-messages{max-width:720px}
+.world-message-thread{max-height:min(65vh,740px);overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.world-message{border-radius:12px;background:#f2f5f3;border:1px solid #e3ebe6;
+  padding:12px 15px;max-width:88%;overflow-wrap:anywhere}
+.world-message.from-owner{background:#e9f2ee;border-color:#c3d8cb;align-self:flex-end}
+.world-message.from-nimo{align-self:flex-start}
+.world-message.is-request{align-self:flex-start;border-left:3px solid #bd9460;background:#faf5eb}
+.world-message-meta{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:#60716b}
+.world-message p{margin:8px 0 0;white-space:pre-wrap;line-height:1.5}
+.world-message-actions{display:flex;justify-content:flex-end;gap:10px}
+.world-message-compose textarea{width:100%;margin:8px 0 12px}
