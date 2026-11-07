@@ -4,6 +4,7 @@ import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards,
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
+import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
@@ -166,6 +167,7 @@ async function exportLedger(db:D1Database, model:string) {
     world,position,journey,autonomousEnabled:control,
     documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
+    experienceEvaluations:await recentExperiences(db,100),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
     if(table.name==="actionTrace" && typeof row.metadata==="string") {
@@ -430,6 +432,7 @@ async function tick(env: Env) {
   if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
   // Tool execution is authoritative; journal records verified results, never claims.
   let toolOutcome: string | null = null;
+  let verifiedExperience:VerifiedOutcome|null=null;
   const decisionKey = `decision:${state.tickCount+1}`;
   if (d.toolCall) {
     const call = d.toolCall;
@@ -439,6 +442,7 @@ async function tick(env: Env) {
           result=>`Saved revision ${result.revision}`);
         toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
         await log(env.DB, "tool", toolOutcome, "WRITE_OK");
+        verifiedExperience={type:"writing",subject:saved.path,revision:saved.revision};
         await recordReward(env.DB,decisionKey,"write_document",
           saved.revision===1?REWARD_POINTS.firstDocument:REWARD_POINTS.revisedDocument,
           `${saved.path} revision ${saved.revision}`);
@@ -460,6 +464,7 @@ async function tick(env: Env) {
         toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
           (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "");
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
+        verifiedExperience={type:"inspection",subject:found.objectId,comparison:found.comparison,fruitRevealed:fruit!==null};
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
       } else if (call.name === "pick_fruit") {
@@ -468,6 +473,7 @@ async function tick(env: Env) {
           ()=>pickFruit(env.DB,call.treeId,position),v=>`Picked ${v.fruit} from ${v.treeId}`);
         toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 3).`;
         await log(env.DB,"tool",toolOutcome,"PICK_OK");
+        verifiedExperience={type:"picking",subject:picked.treeId,fruit:picked.fruit,inventoryBefore:food.inventory.length,inventoryAfter:food.inventory.length+1};
       } else if (call.name === "eat_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
         const eaten=await traced(env.DB,"inspect",`Eat ${call.fruit} fruit`,
@@ -477,6 +483,7 @@ async function tick(env: Env) {
         toolOutcome=`EAT OK: ${eaten.fruit}; observed hunger ${eaten.before}% to ${eaten.after}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
         await log(env.DB,"tool",toolOutcome,"EAT_OK");
+        verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
       } else if (call.name === "discard_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
         await discardFruit(env.DB,call.fruit);
@@ -490,6 +497,7 @@ async function tick(env: Env) {
           result=>`Saved personal label and note for ${result.objectId}`);
         toolOutcome = `OBJECT NOTE OK: ${saved.objectId}. Label: ${saved.label}. Note: ${saved.note}`;
         await log(env.DB,"tool",toolOutcome,"OBJECT_NOTE_OK");
+        verifiedExperience={type:"object_note",subject:saved.objectId,first:!beforeNote};
         await recordReward(env.DB,decisionKey,"remember_object",
           beforeNote?REWARD_POINTS.revisedObjectNote:REWARD_POINTS.firstObjectNote,
           `${saved.objectId}: ${beforeNote?"revised":"first"} note`);
@@ -498,7 +506,14 @@ async function tick(env: Env) {
       toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
       await recordReward(env.DB,decisionKey,call.name,REWARD_POINTS.failedAction,toolOutcome);
       await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : "WRITE_ERROR");
+      verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
+  }
+  // Never allow experimental telemetry to interrupt Nimo's normal actions.
+  // Records are persisted only AFTER verified outcomes, with idempotent keys.
+  if(verifiedExperience) {
+    try { await recordExperience(env.DB,decisionKey,verifiedExperience); }
+    catch(e) { console.warn("Experience telemetry unavailable",e); }
   }
   if (!d.toolCall) {
     await recordReward(env.DB,decisionKey,d.action.toLowerCase(),
@@ -589,6 +604,9 @@ export default {
           parsed>Date.now()+60000 || parsed<Date.now()-90*86400000)
           return json({error:"Invalid journal anchor"},400);
         return json(await journalPage(env.DB,window,before,until));
+      }
+      if (path === "/experience" && request.method === "GET") {
+        return json({evaluations:await recentExperiences(env.DB,60),mode:"observation_only"});
       }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
