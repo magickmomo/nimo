@@ -243,7 +243,7 @@ If you receive a pending visitor message, choose REPLY with toolCall:null. Put t
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 Only hunger is active now; boredom, happiness and tiredness are paused and should not influence choices. Hunger rises by the provided percentage points per real second (the owner may change this).
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most three fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
-Some scenery may have interactive mechanisms. Discover their properties through verified inspection rather than assuming how they work. A vending machine, if found, offers a purchase action only when you are beside it and its actual catalog has been inspected; buying may fail, and failed actions do not create items. Never invent money, possessions or capabilities.
+Objects may have interactions that become available when you physically encounter and inspect them. Learn what exists from perception and verified outcomes; do not assume unseen objects, items, money, possessions or capabilities exist.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
@@ -282,7 +282,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, vending:{machineId:vending.machineId,coins:vending.coins,inspected:vending.inspected,items:vending.items}, hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
