@@ -356,10 +356,17 @@ async function tick(env: Env) {
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
-  try { d = await traced(env.DB,"decide",pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    ()=>decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu),
-    result=>`Selected ${result.action}${result.toolCall ? " / "+result.toolCall.name : ""}`); }
-  catch (error) {
+  // Record the exact model used for each new decision so exported histories
+  // can distinguish model changes. Earlier records cannot be retroactively tagged.
+  const modelTrace=await startTrace(env.DB,"decide",
+    pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
+    {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
+  try {
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu);
+    await finishTrace(env.DB,modelTrace,"completed",
+      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
+  }catch(error) {
+    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error));
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     return { status: "model_error" };
   }
