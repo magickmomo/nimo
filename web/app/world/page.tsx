@@ -383,15 +383,22 @@ export default function World() {
       </details>
       </div>
       <section className="world-card world-journal">
-        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls">
-          <label htmlFor="world-journal-window">Show</label>
-          <select id="world-journal-window" value={journalWindow} onChange={event=>setJournalWindow(event.target.value as JournalWindow)}>
-            <option value="1h">Last hour</option><option value="6h">Last 6 hours</option>
-            <option value="24h">Last 24 hours</option><option value="all">All history</option>
-          </select>
-          <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
-          <button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button>
-        </div></div>
+        <div className="world-journal-head">
+          <h2>Journal</h2>
+          <div className="world-journal-controls">
+            <div className="world-journal-filter">
+              <label htmlFor="world-journal-window">History</label>
+              <select id="world-journal-window" value={journalWindow} onChange={event=>setJournalWindow(event.target.value as JournalWindow)}>
+                <option value="1h">Last hour</option><option value="6h">Last 6 hours</option>
+                <option value="24h">Last 24 hours</option><option value="all">All history</option>
+              </select>
+            </div>
+            <div className="world-journal-buttons">
+              <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
+              <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>
+            </div>
+          </div>
+        </div>
         <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. The complete export requires owner access.</p>
         {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
         {exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
