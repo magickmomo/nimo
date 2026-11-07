@@ -7,6 +7,8 @@ export type ActionMenu = {
   tools: string[];
   inspectDirections: Direction[];
   noteObjectIds: string[];
+  pickTreeIds: string[];
+  heldFruit: ("amber"|"blue"|"red")[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -18,8 +20,10 @@ export function buildActionMenu(
   seenObjectIds: readonly string[],
   objects: readonly MemObject[],
   hasPendingVisitor = false,
+  food: {trees:{id:string;last_seen_stock:number|null}[];inventory:{fruit:"amber"|"blue"|"red"}[];capacity:number}={trees:[],inventory:[],capacity:3},
+  adjacentTreeIds: readonly string[] = [],
 ):ActionMenu {
-  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[]};
+  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[]};
   const inspectDirections = directions
     .filter(d=>d.canInspect && d.objectId && !priority.blockedInspectIds.includes(d.objectId) && dir(d.direction))
     .map(d=>d.direction);
@@ -30,7 +34,11 @@ export function buildActionMenu(
   const tools = ["write_document","travel_to"];
   if(inspectDirections.length) tools.push("inspect");
   if(noteObjectIds.length) tools.push("remember_object");
-  return {tools,inspectDirections,noteObjectIds};
+  const pickTreeIds=food.inventory.length<food.capacity ? adjacentTreeIds.filter(id=>food.trees.some(t=>t.id===id && (t.last_seen_stock??0)>0)) : [];
+  const heldFruit=[...new Set(food.inventory.map(item=>item.fruit))];
+  if(pickTreeIds.length)tools.push("pick_fruit");
+  if(heldFruit.length)tools.push("eat_fruit","discard_fruit");
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -56,6 +64,11 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       name:{type:"string",enum:["inspect"]},
       direction:{type:"string",enum:menu.inspectDirections},
     }));
+    if(menu.pickTreeIds.length)variants.push(obj({name:{type:"string",enum:["pick_fruit"]},treeId:{type:"string",enum:menu.pickTreeIds}}));
+    if(menu.heldFruit.length){
+      variants.push(obj({name:{type:"string",enum:["eat_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
+      variants.push(obj({name:{type:"string",enum:["discard_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
+    }
     if(menu.noteObjectIds.length)variants.push(obj({
       name:{type:"string",enum:["remember_object"]},
       objectId:{type:"string",enum:menu.noteObjectIds},
