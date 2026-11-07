@@ -47,7 +47,21 @@ export function localDecision008(s:State008,rate=1):{action:Action008;reason:str
  const unknown=s.trees.filter(t=>!t.seenFruit).sort((a,b)=>travelCost008(s,a)-travelCost008(s,b));
  if(unknown.length){const t=unknown[0];return{action:travelCost008(s,t)===0?
   {type:"inspect",treeId:t.id}:{type:"travel",treeId:t.id},reason:"Discover a food source."};}
- const nearby=s.trees.filter(t=>travelCost008(s,t)===0&&t.seenFruit&&relief(s.memory[t.seenFruit])>0);
- if(nearby.length)return{action:{type:"inspect",treeId:nearby[0].id},reason:"Check for regrowth at a useful tree."};
- return wait(5,"Wait briefly for possible regrowth, then reassess.");
+ // All known supplies appeared depleted when last observed. That is historical
+ // evidence, not a permanent fact: visit the most promising known food source
+ // and inspect it again. Never read its hidden current stock or regrowth timer.
+ // Nearby checks are preferred; otherwise travel to the shortest reachable tree.
+ const recovery=knownGood.map(t=>({tree:t,distance:travelCost008(s,t),
+  age:s.seconds-(t.seenAt??s.seconds)}))
+  .filter(x=>Number.isFinite(x.distance))
+  .sort((a,b)=>a.distance-b.distance||b.age-a.age||a.tree.id.localeCompare(b.tree.id));
+ if(recovery.length){
+  const candidate=recovery[0];
+  if(candidate.distance===0)
+   return {action:{type:"inspect",treeId:candidate.tree.id},
+    reason:"Recheck previously depleted beneficial tree; last observation may be stale."};
+  return {action:{type:"travel",treeId:candidate.tree.id},
+   reason:"Revisit beneficial tree because previously empty stock may have replenished."};
+ }
+ return wait(5,"No reachable known helpful fruit; wait briefly and reassess.");
 }
