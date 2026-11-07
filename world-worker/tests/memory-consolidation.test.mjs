@@ -33,8 +33,8 @@ test("routine food-effect repetitions are rejected as memories",()=>{
   assert.doesNotMatch(source,/\\"food_effects\\",\\"food_acquisition\\"/);
 });
 test("historical obstacle source is bounded and does not repeatedly spend tokens",()=>{
-  assert.ok(source.includes("WHERE action IN ('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST')"));
-  assert.match(source,/newEvidence.length<2/);
+  assert.ok(source.includes("AND action IN ('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST')"));
+  assert.match(source,/verified.length<2/);
 });
 test("memory tags use present needs and inventory rather than raw historical repetition",()=>{
   assert.ok(memoryTags({goal:"Find useful food",hunger:.85,inventory:["blue","blue","blue"],actions:[]}).includes("inventory"));
