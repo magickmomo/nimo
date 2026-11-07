@@ -15,6 +15,7 @@ export default function WorldSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [signedIn,setSignedIn]=useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -29,7 +30,20 @@ export default function WorldSettings() {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); void fetch("/api/world/session",{cache:"no-store"}).then(r=>r.json()).then(d=>setSignedIn(Boolean(d.authenticated))).catch(()=>{}); }, [refresh]);
+
+  async function signIn() {
+    if(!ownerToken)return;
+    setBusy(true);setError("");
+    try{
+      const response=await fetch("/api/world/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:ownerToken})});
+      const body=await response.json() as {error?:string};
+      if(!response.ok)throw Error(body.error||"Unable to sign in");
+      setSignedIn(true);setNotice("This browser is signed in for Messages, hunger settings and exports. No token is needed when messaging.");
+    }catch(err){setError(err instanceof Error?err.message:"Sign-in failed");}
+    finally{setBusy(false);}
+  }
+
 
   async function setAwake(enabled: boolean) {
     if (!ownerToken || busy) return;
@@ -61,6 +75,13 @@ export default function WorldSettings() {
       <p className="eyebrow">World 001 · owner controls</p>
       <h1>World settings</h1>
       <p className="lead">Pause both autonomous decisions and ongoing journeys. Nimo keeps his position, identity, memories, beliefs and journal.</p>
+      <div className="world-card">
+        <h2>Owner sign-in</h2>
+        <p>Sign in once on this device to send Nimo messages without entering a token each time, export his history and adjust the hunger rate.</p>
+        <p><strong>Status: </strong>{signedIn?"Signed in":"Not signed in"}</p>
+        <button type="button" disabled={!ownerToken||busy} onClick={()=>void signIn()}>Sign in on this device</button>
+        <p className="meta">Use the existing owner token in the control field below. The session uses a secure HttpOnly cookie.</p>
+      </div>
       <div className="world-card">
         <h2>Autonomous loop</h2>
         {snapshot?.journey && snapshot.journey.status !== "idle" && <p className="meta">Journey: {snapshot.journey.status} · {snapshot.journey.stepIndex} of {Math.max(0,snapshot.journey.path.length-1)} steps completed.</p>}
