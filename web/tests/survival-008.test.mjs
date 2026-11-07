@@ -154,3 +154,13 @@ test("seed 1 recovery regression: policy does not wait forever after supplies ru
  assert(steps.some(x=>x.action.type==="eat"&&x.time>=100),
   "Policy never recovers food after early supplies are depleted");
 });
+
+test("GPT-6.1 reasoning uses Responses structured-output payload instead of legacy sampling parameters",()=>{
+ const route=src("../app/api/world/lab/008/decide/route.ts");
+ assert.match(route,/reasoningModel\?"responses":"chat\/completions"/);
+ assert.match(route,/reasoning:\{effort:"low"\}/);
+ assert.match(route,/max_output_tokens:1200/);
+ assert.match(route,/text:\{format:\{type:"json_schema"/);
+ assert.match(route,/data\.output\?\.flatMap/);
+ assert.match(route,/Model "\+model\+" returned/);
+});
