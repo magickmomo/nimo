@@ -43,6 +43,9 @@ export default function World() {
   const [error, setError] = useState("");
   const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportLoginRequired,setExportLoginRequired]=useState(false);
+  const [exportToken,setExportToken]=useState("");
+  const [exportError,setExportError]=useState("");
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -155,18 +158,22 @@ export default function World() {
   }
 
   async function exportWorld() {
-    if (exporting) return;
+    if(exporting)return;
     setExporting(true);
-    setError("");
-    try {
-      const response=await fetch("/api/world/export",{
-        cache:"no-store",
-      });
-      if(!response.ok) {
-        const body=await response.json() as {error?:string};
-        throw new Error(body.error || "Could not export world history");
+    setExportError("");
+    try{
+      const response=await fetch("/api/world/export",{cache:"no-store"});
+      if(response.status===401){
+        setExportLoginRequired(true);
+        setExportError("Please sign in once with your owner token to download the world log.");
+        return;
+      }
+      if(!response.ok){
+        const body=await response.json().catch(()=>({})) as {error?:string};
+        throw Error(body.error||`Export failed (HTTP ${response.status})`);
       }
       const blob=await response.blob();
+      if(!blob.size)throw Error("The export returned an empty file.");
       const url=URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
@@ -174,12 +181,37 @@ export default function World() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
-    }catch(err) {
-      setError(err instanceof Error?err.message:"World export failed");
-    }finally {
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setExportLoginRequired(false);
+    }catch(err){
+      setExportError(err instanceof Error?err.message:"World export failed");
+    }finally{
       setExporting(false);
     }
+  }
+
+  async function signInForExport(event:React.FormEvent) {
+    event.preventDefault();
+    if(!exportToken.trim()||exporting)return;
+    setExporting(true);
+    setExportError("");
+    try{
+      const response=await fetch("/api/world/session",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({token:exportToken}),
+      });
+      const body=await response.json() as {error?:string};
+      if(!response.ok)throw Error(body.error||"Owner sign-in failed");
+      setExportToken("");
+      setExportLoginRequired(false);
+    }catch(err){
+      setExportError(err instanceof Error?err.message:"Owner sign-in failed");
+      setExporting(false);
+      return;
+    }
+    setExporting(false);
+    // The session cookie is set in the completed sign-in response.
+    await exportWorld();
   }
 
   const state = data?.world.state;
@@ -370,7 +402,15 @@ export default function World() {
           <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
           <button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button>
         </div></div>
-        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. Export the complete log from here after signing in under Settings.</p>
+        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. The complete export requires owner access.</p>
+        {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
+        {exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
+          <label htmlFor="world-export-token">Owner access token</label>
+          <input id="world-export-token" type="password" value={exportToken}
+            autoComplete="off" onChange={event=>setExportToken(event.target.value)}
+            placeholder="Enter your token once" required />
+          <button disabled={!exportToken.trim()||exporting} type="submit">{exporting?"Signing in…":"Sign in and export"}</button>
+        </form>}
         {journalError&&<p className="world-warning" role="alert">{journalError}</p>}
         {journalEvents.length ? groupJournalEvents(journalEvents).map(event => (
           <article key={event.id} className="world-event">
