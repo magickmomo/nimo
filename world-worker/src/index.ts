@@ -117,6 +117,31 @@ async function publicEvents(db:D1Database,count=60) {
     ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
   return result.results;
 }
+/** On-demand journal pagination. Keep private conversation events in Messages.
+ * Stable keyset cursor avoids slow OFFSET scans and prevents duplicate rows.
+ * The cutoff is anchored to the first page so paging doesn't drift.
+ */
+async function journalPage(db:D1Database,window:string,before:number|null,until:string) {
+  const seconds:Record<string,number>={"1h":3600,"6h":21600,"24h":86400,"all":0};
+  if(!(window in seconds))throw new Error("Invalid journal window");
+  const limit=60;
+  const since=seconds[window] ? new Date(Date.parse(until)-seconds[window]*1000).toISOString() : null;
+  const predicates=[
+    "kind NOT IN ('visitor','reply','request')",
+    "(action IS NULL OR action <> 'REQUEST')",
+    "created_at <= ?",
+  ];
+  const bindings:(string|number)[]=[until];
+  if(since){predicates.push("created_at >= ?");bindings.push(since);}
+  if(before!==null){predicates.push("id < ?");bindings.push(before);}
+  const rows=await db.prepare(
+    `SELECT id,created_at,kind,content,action FROM events
+      WHERE ${predicates.join(" AND ")} ORDER BY id DESC LIMIT ?`
+  ).bind(...bindings,limit+1).all<EventRow>();
+  const entries=rows.results.slice(0,limit);
+  return {events:entries,hasMore:rows.results.length>limit,
+    nextCursor:entries.length?entries[entries.length-1].id:null,until,window};
+}
 // Owner-only historical export. Snapshot polling stays small; this is a deliberate,
 // on-demand read of the complete retained ledgers (up to 10,000 rows per table).
 async function exportLedger(db:D1Database, model:string) {
@@ -549,6 +574,22 @@ export default {
       const path = new URL(request.url).pathname;
       // Lightweight status poll. Historical journal, documents and observations
       // are deliberately excluded so the dashboard can update without D1 scans.
+      if (path === "/journal" && request.method === "GET") {
+        const params=new URL(request.url).searchParams;
+        const window=params.get("window")??"1h";
+        if(!["1h","6h","24h","all"].includes(window))
+          return json({error:"Invalid time range"},400);
+        const rawBefore=params.get("before");
+        const before=rawBefore===null?null:Number(rawBefore);
+        if(rawBefore!==null && (!Number.isSafeInteger(before)||before===null||before<=0))
+          return json({error:"Invalid journal cursor"},400);
+        const until=params.get("until")??new Date().toISOString();
+        const parsed=Date.parse(until);
+        if(!Number.isFinite(parsed)||until!==new Date(parsed).toISOString()||
+          parsed>Date.now()+60000 || parsed<Date.now()-90*86400000)
+          return json({error:"Invalid journal anchor"},400);
+        return json(await journalPage(env.DB,window,before,until));
+      }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
           "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply','request') OR action='REQUEST' ORDER BY id DESC LIMIT 250"
