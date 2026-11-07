@@ -55,6 +55,10 @@ export default function World() {
   const [memoryBusy,setMemoryBusy]=useState(false);
   const [memoryMessage,setMemoryMessage]=useState("");
   const [memoryError,setMemoryError]=useState("");
+  const [memoryWindow,setMemoryWindow]=useState<"since"|"6h"|"24h"|"7d"|"all"|"custom">("since");
+  const [memoryMode,setMemoryMode]=useState<"incremental"|"rebuild">("incremental");
+  const [memoryFrom,setMemoryFrom]=useState("");
+  const [memoryTo,setMemoryTo]=useState("");
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
   const [journalCursor,setJournalCursor]=useState<number|null>(null);
@@ -161,7 +165,12 @@ export default function World() {
     if(memoryBusy)return;
     setMemoryBusy(true);setMemoryError("");setMemoryMessage("");
     try{
-      const response=await fetch("/api/world/memories/consolidate",{method:"POST"});
+      if(memoryWindow==="custom"&&(!memoryFrom||!memoryTo))throw Error("Choose both dates");
+      const body={window:memoryWindow,mode:memoryMode,
+        ...(memoryWindow==="custom"?{from:new Date(memoryFrom).toISOString(),to:new Date(memoryTo).toISOString()}:{})};
+      const response=await fetch("/api/world/memories/consolidate",{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+      });
       const result=await response.json() as {status?:string;saved?:number;processed?:number;error?:string};
       if(!response.ok)throw Error(result.error||"Consolidation failed");
       setMemoryMessage(result.status==="ok"
@@ -381,6 +390,29 @@ export default function World() {
           </button>
         </div>
         <p className="meta">Tentative lessons from verified experiences, with links to journal evidence. New memories are not automatically treated as facts.</p>
+        <div className="world-memory-controls">
+          <label htmlFor="memory-window">Review journal entries from</label>
+          <select id="memory-window" value={memoryWindow} disabled={memoryBusy}
+            onChange={event=>setMemoryWindow(event.target.value as typeof memoryWindow)}>
+            <option value="since">Since last consolidation</option>
+            <option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="all">All history (sampled)</option>
+            <option value="custom">Custom date range</option>
+          </select>
+          {memoryWindow==="custom"&&<div className="world-memory-dates">
+            <label>From <input type="datetime-local" value={memoryFrom} disabled={memoryBusy} onChange={e=>setMemoryFrom(e.target.value)}/></label>
+            <label>To <input type="datetime-local" value={memoryTo} disabled={memoryBusy} onChange={e=>setMemoryTo(e.target.value)}/></label>
+          </div>}
+          <label htmlFor="memory-mode">Consolidation mode</label>
+          <select id="memory-mode" value={memoryMode} disabled={memoryBusy}
+            onChange={event=>setMemoryMode(event.target.value as typeof memoryMode)}>
+            <option value="incremental">Update from new evidence (default)</option>
+            <option value="rebuild">Re-evaluate selected evidence</option>
+          </select>
+          <p className="meta">Re-evaluation can review older events, but never deletes saved memories. Results remain evidence-validated.</p>
+        </div>
         {memoryError&&<p className="world-warning" role="alert">{memoryError}</p>}
         {memoryMessage&&<p className="meta" role="status">{memoryMessage}</p>}
         {memories.length ? <div className="world-memory-list">{memories.slice(0,8).map(item=>(
