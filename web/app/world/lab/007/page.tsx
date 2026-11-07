@@ -137,7 +137,7 @@ export default function Nimo007(){
   }
   const squares=Array.from({length:SIZE007*SIZE007},(_,i)=>({x:i%SIZE007,y:Math.floor(i/SIZE007)}));
   return <main className="nimo-lab nimo-hunger-lab">
-    <nav className="lab-nav"><a href="/world/lab/006">Previous lab · 006</a>
+    <nav className="lab-nav"><a href="/world/lab/008">Next lab · 008 Survival Planning</a><a href="/world/lab/006">Previous lab · 006</a>
       <span>Sandbox 007 · no D1, no live world writes</span></nav>
     <header className="lab-header">
       <p className="lab-eyebrow">NIMO 007 · HUNGER WORLD</p>
