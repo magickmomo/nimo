@@ -4,6 +4,21 @@ export type MemoryRow={id:number;topic:string;category:MemoryCategory;summary:st
   evidence_ids:string;status:"tentative"|"supported";created_at:string;updated_at:string;last_used_at:string|null;use_count:number};
 export type MemoryCandidate={topic:string;category:MemoryCategory;summary:string;lesson:string;evidence_ids:number[]};
 export type MemoryEvent={id:number;created_at:string;kind:string;content:string;action:string|null};
+export type ConsolidationWindow="since"|"6h"|"24h"|"7d"|"all"|"custom";
+export type ConsolidationOptions={window?:ConsolidationWindow;mode?:"incremental"|"rebuild";from?:string;to?:string};
+export function consolidationBounds(options:ConsolidationOptions={},now=Date.now()){
+  const window=options.window??"since",mode=options.mode??"incremental";
+  if(!["since","6h","24h","7d","all","custom"].includes(window))throw Error("Invalid consolidation window");
+  if(!["incremental","rebuild"].includes(mode))throw Error("Invalid consolidation mode");
+  if(window==="custom"){
+    const from=Date.parse(options.from??""),to=Date.parse(options.to??"");
+    if(!Number.isFinite(from)||!Number.isFinite(to)||from>to||to>now||to-from>366*86400000)
+      throw Error("Choose a valid historical date range of up to 366 days");
+    return {window,mode,from:new Date(from).toISOString(),to:new Date(to).toISOString()};
+  }
+  const duration:Record<string,number>={"6h":6*3600000,"24h":24*3600000,"7d":7*86400000};
+  return {window,mode,from:duration[window]?new Date(now-duration[window]).toISOString():null,to:new Date(now).toISOString()};
+}
 const CATEGORIES:MemoryCategory[]=["inventory","food","exploration","obstacle","social","tools"];
 const TOPICS=["inventory_capacity","food_acquisition","resource_blocker","exploration_discovery","unresolved_goal","request_for_help","tool_limitations"] as const;
 export const MEMORY_TOPICS=TOPICS;
@@ -66,24 +81,30 @@ export async function saveMemories(db:D1Database,items:readonly MemoryCandidate[
   }
   await db.prepare("UPDATE memory_consolidation SET last_event_id=MAX(last_event_id,?),last_completed_at=? WHERE id=1").bind(throughEvent,now).run();
 }
-export async function consolidationSource(db:D1Database,initial=false):Promise<MemoryEvent[]>{
+export async function consolidationSource(db:D1Database,initial=false,options:ConsolidationOptions={}):Promise<MemoryEvent[]>{
   const cursor=await db.prepare("SELECT last_event_id FROM memory_consolidation WHERE id=1").first<{last_event_id:number}>();
   if(!cursor)throw Error("Memory migration is missing");
-  // On first run, sample history rather than replay unbounded logs or thousands of repeated thoughts.
-  const rows=await db.prepare(`SELECT id,created_at,kind,content,action FROM events WHERE id>?
-    AND (kind IN ('tool','request','visitor','reply') OR action IN ('REQUEST','THINK','TRAVEL_START','DISCARD_OK','PICK_OK','EAT_OK','PURCHASE_FAILED'))
-    ORDER BY id DESC LIMIT ?`).bind(cursor.last_event_id,initial?350:200).all<MemoryEvent>();
-  const ascending=rows.results.reverse();
+  const bounds=consolidationBounds(options);
+  const since=bounds.window==="since"&&bounds.mode==="incremental";
+  const minId=since?cursor.last_event_id:0;
+  // Explicit windows are strictly date-scoped; default mode processes only events after the cursor.
+  const events=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+    WHERE id>? AND (? IS NULL OR created_at>=?) AND created_at<=?
+    AND (kind IN ('tool','request','visitor','reply') OR action IN ('REQUEST','THINK','TRAVEL_START','DISCARD_OK','PICK_OK','EAT_OK','PURCHASE_FAILED','PRIORITY_BLOCK'))
+    ORDER BY id DESC LIMIT ?`).bind(minId,bounds.from,bounds.from,bounds.to,initial?350:200).all<MemoryEvent>();
+  const ascending=events.results.reverse();
   const thoughts=ascending.filter(e=>e.action==="THINK").slice(-10);
   const other=ascending.filter(e=>e.action!=="THINK").slice(-55);
-  // Sample notable historical obstacles even after the cursor advanced during
-  // the initial food-statistics consolidation. Do not replay the whole journal.
+  // Anchor related obstacle events, without crossing the requested time boundaries.
   const anchors=await db.prepare(`SELECT id FROM events
-    WHERE action IN ('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST')
-    ORDER BY id DESC LIMIT 8`).all<{id:number}>();
+    WHERE id>? AND (? IS NULL OR created_at>=?) AND created_at<=?
+    AND action IN ('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST')
+    ORDER BY id DESC LIMIT 8`).bind(minId,bounds.from,bounds.from,bounds.to).all<{id:number}>();
   const windows=await Promise.all(anchors.results.slice(0,4).map(async anchor=>
-    (await db.prepare("SELECT id,created_at,kind,content,action FROM events WHERE id BETWEEN ? AND ? ORDER BY id ASC LIMIT 32")
-      .bind(Math.max(0,anchor.id-14),anchor.id+17).all<MemoryEvent>()).results));
+    (await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+      WHERE id BETWEEN ? AND ? AND id>? AND (? IS NULL OR created_at>=?) AND created_at<=?
+      ORDER BY id ASC LIMIT 32`)
+      .bind(Math.max(0,anchor.id-14),anchor.id+17,minId,bounds.from,bounds.from,bounds.to).all<MemoryEvent>()).results));
   const selected=new Map<number,MemoryEvent>();
   for(const e of [...windows.flat(),...other,...thoughts]){
     if(e.action==="EAT_OK" && !windows.some(window=>window.some(w=>w.id===e.id)))continue;
@@ -91,18 +112,20 @@ export async function consolidationSource(db:D1Database,initial=false):Promise<M
   }
   return [...selected.values()].sort((a,b)=>a.id-b.id).slice(-150);
 }
-export async function runConsolidation(db:D1Database,apiKey:string,model:string,force=false){
+export async function runConsolidation(db:D1Database,apiKey:string,model:string,options:ConsolidationOptions={}){
   if(!apiKey)throw Error("AI key not configured");
   const gate=await db.prepare("SELECT last_event_id,last_started_at FROM memory_consolidation WHERE id=1")
     .first<{last_event_id:number;last_started_at:string|null}>();
   if(!gate)throw Error("Memory migration is missing");
   const now=Date.now();
   if(gate.last_started_at&&now-Date.parse(gate.last_started_at)<90000)return {status:"busy",saved:0,processed:0};
-  const source=await consolidationSource(db,gate.last_event_id===0);
+  const bounds=consolidationBounds(options,now);
+  const source=await consolidationSource(db,gate.last_event_id===0,options);
   // Historical obstacle windows are reference context, not permission to
   // repeatedly bill the model when no new evidence has arrived.
-  const newEvidence=source.filter(e=>e.id>gate.last_event_id && (e.kind==="tool"||e.kind==="request"||e.action==="REQUEST"));
-  if(newEvidence.length<2)return {status:"no_new_evidence",saved:0,processed:0};
+  const verified=source.filter(e=>(e.kind==="tool"||e.kind==="request"||e.action==="REQUEST") &&
+    (bounds.mode==="rebuild"||e.id>gate.last_event_id));
+  if(verified.length<2)return {status:"no_new_evidence",saved:0,processed:0};
   const cutoff=Math.max(...source.map(e=>e.id));
   const claim=await db.prepare("UPDATE memory_consolidation SET last_started_at=? WHERE id=1 AND last_event_id=? AND (last_started_at IS NULL OR last_started_at<?)")
     .bind(new Date(now).toISOString(),gate.last_event_id,new Date(now-90000).toISOString()).run();
