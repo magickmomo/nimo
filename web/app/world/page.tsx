@@ -28,6 +28,7 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   hungerRate?:number;
+  vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;description:string}[]};
   food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
@@ -224,10 +225,7 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness", inactive:true },
     { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger", inactive:false },
-    { label: "Happiness", value: state.emotions.happiness, tone: "happiness", inactive:true },
-    { label: "Boredom", value: state.emotions.boredom, tone: "boredom", inactive:true },
   ] : [];
   return (
     <div className="world-page world-dashboard">
@@ -266,21 +264,11 @@ export default function World() {
             <div className="world-status-meta-item"><strong>Status</strong>
               <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
-            <div className="world-status-meta-item"><strong>Tools</strong>
-              <span>{data?.availableTools ? (data.availableTools.length ? data.availableTools.join(", ") : "None available") : "Checking environment…"}</span>
-            </div>
           </div>
         </>
       )}
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Survival</h2><span className="meta">Hunger only · other needs paused</span></div>
-        <div className="world-hunger-rate">
-          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
-          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
-            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
-            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
-          </select>
-        </div>
+        <div className="world-journal-head"><h2>Hunger &amp; inventory</h2><span className="meta">Only hunger is active</span></div>
         <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??3})</strong>
           <div className="world-fruits">
             {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
@@ -299,18 +287,18 @@ export default function World() {
       </section>
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
-      <section className="world-card world-action-monitor" aria-label="Live execution monitor">
+      <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
-          <h2>Active actions</h2>
-          <span className="meta">Worker execution · separate from journal</span>
+          <h2>Current action</h2>
+          <span className="meta">Live status</span>
         </div>
-        <p className="meta">Actual operations, recorded by the Worker. “Decide” means an LLM request; perception, lookup and comparison are code, not LLM thoughts.</p>
+        
         <div className="world-action-current">
           <strong>{data?.autonomousEnabled===false?"Sleeping":data?.journey?.status==="paused"?"Journey paused":runningActions.length?runningActions[0].detail:"Idle / between actions"}</strong>
           <span>{data?.journey?.status==="travelling"?"Walking along a persisted route":runningActions.length?runningActions[0].kind:"No operation running right now"}</span>
         </div>
-        <details className="world-action-details" open>
-          <summary>Recent operations ({recentActions.length})</summary>
+        <details className="world-action-details">
+          <summary>Technical action log ({recentActions.length})</summary>
           <ol className="world-action-list">
             {recentActions.slice(0,10).map(action=>(
               <li key={action.id}>
@@ -327,14 +315,15 @@ export default function World() {
           {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
         </details>
       </section>
-      <section className="world-card world-object-memory">
-        <div className="world-journal-head">
-          <h2>Object memory</h2>
-          <span className="meta">Select a tree, rock or shrub in the map</span>
-        </div>
+      <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
+        <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
         {selectedObject ? <>
           <h3>{selectedObject.label || selectedObject.kind} <small>({selectedObject.x+1}, {selectedObject.y+1})</small></h3>
           <p className="meta">Environment ID: <code>{selectedObject.id}</code> · {selectedObject.inspectionCount} recorded observations</p>
+          {selectedObject.id === data?.vending?.machineId && data.vending.inspected && <div className="world-vending-items">
+            <p><strong>Machine balance:</strong> {data.vending.coins} coins</p>
+            <ul>{data.vending.items.map(item=><li key={item.id}>{item.label} · {item.price} coins · {item.description}</li>)}</ul>
+          </div>}
           {selectedFood&&<p><strong>Last observed fruit:</strong> {selectedFood.seen_fruit??"Not inspected since fruit was introduced"}
             {selectedFood.seen_fruit&&` · ${selectedFood.last_seen_stock??"?"} fruit last seen`}
             {selectedFood.last_inspected_at&&<small> (observed {new Date(selectedFood.last_inspected_at).toLocaleString()}; stock may have changed)</small>}
@@ -354,12 +343,9 @@ export default function World() {
           </ol> : <p className="meta">Nimo has not recorded a structured inspection of this object yet.</p>}
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
-      </section>
-      <section className="world-card world-workspace">
-        <div className="world-journal-head">
-          <h2>Workspace</h2>
-          <span className="meta">{data?.documents?.length ?? 0} / 12 documents</span>
-        </div>
+      </details>
+      <details className="world-card world-workspace world-secondary-panel">
+        <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
         <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
         {data?.documents?.length ? (
           <>
@@ -380,28 +366,39 @@ export default function World() {
             ))}
           </>
         ) : <p className="meta">No documents yet. Nimo can create text files when awake.</p>}
-      </section>
-      <div className="world-grid">
-        <section className="world-card">
-          <h2>Core beliefs</h2>
-          {state?.beliefs.length ? (
-            <ul className="world-beliefs">{state.beliefs.map((b,i) =>
-              <li key={i}><strong>{b.text}</strong><small>Confidence {Math.round(b.confidence * 100)}% · Evidence: {b.evidence}</small></li>
-            )}</ul>
-          ) : <p className="meta">No beliefs formed from experience yet. The initial identity is deliberately minimal.</p>}
-        </section>
-      </div>
-        </div>
-      <section className="world-card world-journal">
-        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls">
-          <label htmlFor="world-journal-window">Show</label>
-          <select id="world-journal-window" value={journalWindow} onChange={event=>setJournalWindow(event.target.value as JournalWindow)}>
-            <option value="1h">Last hour</option><option value="6h">Last 6 hours</option>
-            <option value="24h">Last 24 hours</option><option value="all">All history</option>
+      </details>
+      <details className="world-card world-secondary-panel world-operator-settings">
+        <summary>Diagnostics &amp; controls</summary>
+        <p className="meta">Technical history remains in the owner export.</p>
+        <div className="world-hunger-rate">
+          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
+          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
+            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
+            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
           </select>
-          <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
-          <button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button>
-        </div></div>
+        </div>
+
+        <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
+        <p className="meta">Decision #{state?.tickCount ?? "—"} · Next decision in {seconds}s</p>
+      </details>
+      </div>
+      <section className="world-card world-journal">
+        <div className="world-journal-head">
+          <h2>Journal</h2>
+          <div className="world-journal-controls">
+            <div className="world-journal-filter">
+              <label htmlFor="world-journal-window">History</label>
+              <select id="world-journal-window" value={journalWindow} onChange={event=>setJournalWindow(event.target.value as JournalWindow)}>
+                <option value="1h">Last hour</option><option value="6h">Last 6 hours</option>
+                <option value="24h">Last 24 hours</option><option value="all">All history</option>
+              </select>
+            </div>
+            <div className="world-journal-buttons">
+              <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
+              <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>
+            </div>
+          </div>
+        </div>
         <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. The complete export requires owner access.</p>
         {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
         {exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>

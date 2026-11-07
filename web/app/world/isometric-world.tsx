@@ -19,6 +19,18 @@ function Scenery({ kind }: { kind: ObjectKind }) {
       <path d="M-15 -44 C-14 -58 -3 -61 7 -58" fill="none" stroke="#65a476" strokeWidth="5" strokeLinecap="round" opacity=".8" />
     </g>
   );
+  if (kind === "machine") return (
+    <g>
+      <ellipse cy="4" rx="17" ry="7" fill="#142b2c" opacity=".3"/>
+      <rect x="-16" y="-49" width="32" height="48" rx="3" fill="#546e7a" stroke="#273d48" strokeWidth="2"/>
+      <rect x="-11" y="-43" width="17" height="24" rx="1" fill="#213d4a" stroke="#9dd9c6" strokeWidth="1.5"/>
+      <rect x="9" y="-41" width="4" height="12" rx="1" fill="#e6d39c"/>
+      <rect x="-10" y="-14" width="20" height="6" rx="1" fill="#172d37"/>
+      <rect x="-8" y="-39" width="4" height="7" rx="1" fill="#d9c8a1"/>
+      <rect x="0" y="-39" width="4" height="7" rx="1" fill="#a8c49a"/>
+      <rect x="-8" y="-30" width="4" height="7" rx="1" fill="#d9b0b0"/>
+    </g>
+  );
   if (kind === "rock") return (
     <g>
       <ellipse cx="2" cy="2" rx="18" ry="7" fill="#30413a" opacity=".2" />
