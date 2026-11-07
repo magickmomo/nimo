@@ -16,10 +16,6 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
-type ExperienceRecord={
-  id:number;created_at:string;action:string;subject:string;
-  repetition:string;learning:string;surprise:string;progress:string;evidence:string;
-};
 type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
@@ -54,9 +50,6 @@ export default function World() {
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
-  const [experiences,setExperiences]=useState<ExperienceRecord[]>([]);
-  const [experienceError,setExperienceError]=useState("");
-  const [experienceLoading,setExperienceLoading]=useState(false);
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
   const [journalCursor,setJournalCursor]=useState<number|null>(null);
@@ -149,18 +142,6 @@ export default function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[journalWindow]);
 
-  async function refreshExperiences() {
-    setExperienceLoading(true);setExperienceError("");
-    try{
-      const response=await fetch("/api/world/experience",{cache:"no-store"});
-      const body=await response.json() as {evaluations?:ExperienceRecord[];error?:string};
-      if(!response.ok)throw Error(body.error||"Could not load experiences");
-      setExperiences(body.evaluations??[]);
-    }catch(err){setExperienceError(err instanceof Error?err.message:"Could not load experiences");}
-    finally{setExperienceLoading(false);}
-  }
-  useEffect(()=>{void refreshExperiences();},[]);
-
   async function changeRate(value:number) {
     if(settingRate)return;
     setSettingRate(true);
@@ -244,10 +225,7 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness", inactive:true },
     { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger", inactive:false },
-    { label: "Happiness", value: state.emotions.happiness, tone: "happiness", inactive:true },
-    { label: "Boredom", value: state.emotions.boredom, tone: "boredom", inactive:true },
   ] : [];
   return (
     <div className="world-page world-dashboard">
@@ -286,34 +264,11 @@ export default function World() {
             <div className="world-status-meta-item"><strong>Status</strong>
               <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
-            <div className="world-status-meta-item"><strong>Tools</strong>
-              <span>{data?.availableTools ? (data.availableTools.length ? data.availableTools.join(", ") : "None available") : "Checking environment…"}</span>
-            </div>
           </div>
         </>
       )}
-      <section className="world-card" aria-label="Vending machine experiment">
-        <div className="world-journal-head"><h2>Vending machine</h2>
-          <span className="meta">Currency: {data?.vending?.coins??0} coins</span></div>
-        <p className="meta">World object: vending_001. Nimo can independently discover it and decide whether to interact. No coin source is currently available.</p>
-        {data?.vending?.inspected ? (
-          <div className="world-file-list">
-            {data.vending.items.map(item=><div key={item.id}>
-              <strong>{item.label}</strong> · {item.price} coins
-              <p className="meta">{item.description}</p>
-            </div>)}
-          </div>
-        ) : <p className="meta">Its contents have not yet been inspected.</p>}
-      </section>
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Survival</h2><span className="meta">Hunger only · other needs paused</span></div>
-        <div className="world-hunger-rate">
-          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
-          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
-            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
-            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
-          </select>
-        </div>
+        <div className="world-journal-head"><h2>Hunger &amp; inventory</h2><span className="meta">Only hunger is active</span></div>
         <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??3})</strong>
           <div className="world-fruits">
             {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
@@ -332,18 +287,18 @@ export default function World() {
       </section>
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
-      <section className="world-card world-action-monitor" aria-label="Live execution monitor">
+      <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
-          <h2>Active actions</h2>
-          <span className="meta">Worker execution · separate from journal</span>
+          <h2>Current action</h2>
+          <span className="meta">Live status</span>
         </div>
-        <p className="meta">Actual operations, recorded by the Worker. “Decide” means an LLM request; perception, lookup and comparison are code, not LLM thoughts.</p>
+        
         <div className="world-action-current">
           <strong>{data?.autonomousEnabled===false?"Sleeping":data?.journey?.status==="paused"?"Journey paused":runningActions.length?runningActions[0].detail:"Idle / between actions"}</strong>
           <span>{data?.journey?.status==="travelling"?"Walking along a persisted route":runningActions.length?runningActions[0].kind:"No operation running right now"}</span>
         </div>
-        <details className="world-action-details" open>
-          <summary>Recent operations ({recentActions.length})</summary>
+        <details className="world-action-details">
+          <summary>Technical action log ({recentActions.length})</summary>
           <ol className="world-action-list">
             {recentActions.slice(0,10).map(action=>(
               <li key={action.id}>
@@ -360,14 +315,15 @@ export default function World() {
           {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
         </details>
       </section>
-      <section className="world-card world-object-memory">
-        <div className="world-journal-head">
-          <h2>Object memory</h2>
-          <span className="meta">Select a tree, rock or shrub in the map</span>
-        </div>
+      <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
+        <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
         {selectedObject ? <>
           <h3>{selectedObject.label || selectedObject.kind} <small>({selectedObject.x+1}, {selectedObject.y+1})</small></h3>
           <p className="meta">Environment ID: <code>{selectedObject.id}</code> · {selectedObject.inspectionCount} recorded observations</p>
+          {selectedObject.id === data?.vending?.machineId && data.vending.inspected && <div className="world-vending-items">
+            <p><strong>Machine balance:</strong> {data.vending.coins} coins</p>
+            <ul>{data.vending.items.map(item=><li key={item.id}>{item.label} · {item.price} coins · {item.description}</li>)}</ul>
+          </div>}
           {selectedFood&&<p><strong>Last observed fruit:</strong> {selectedFood.seen_fruit??"Not inspected since fruit was introduced"}
             {selectedFood.seen_fruit&&` · ${selectedFood.last_seen_stock??"?"} fruit last seen`}
             {selectedFood.last_inspected_at&&<small> (observed {new Date(selectedFood.last_inspected_at).toLocaleString()}; stock may have changed)</small>}
@@ -387,12 +343,9 @@ export default function World() {
           </ol> : <p className="meta">Nimo has not recorded a structured inspection of this object yet.</p>}
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
-      </section>
-      <section className="world-card world-workspace">
-        <div className="world-journal-head">
-          <h2>Workspace</h2>
-          <span className="meta">{data?.documents?.length ?? 0} / 12 documents</span>
-        </div>
+      </details>
+      <details className="world-card world-workspace world-secondary-panel">
+        <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
         <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
         {data?.documents?.length ? (
           <>
@@ -413,34 +366,22 @@ export default function World() {
             ))}
           </>
         ) : <p className="meta">No documents yet. Nimo can create text files when awake.</p>}
-      </section>
-      <div className="world-grid">
-        <section className="world-card">
-          <h2>Core beliefs</h2>
-          {state?.beliefs.length ? (
-            <ul className="world-beliefs">{state.beliefs.map((b,i) =>
-              <li key={i}><strong>{b.text}</strong><small>Confidence {Math.round(b.confidence * 100)}% · Evidence: {b.evidence}</small></li>
-            )}</ul>
-          ) : <p className="meta">No beliefs formed from experience yet. The initial identity is deliberately minimal.</p>}
-        </section>
+      </details>
+      <details className="world-card world-secondary-panel world-operator-settings">
+        <summary>Diagnostics &amp; controls</summary>
+        <p className="meta">Technical history remains in the owner export.</p>
+        <div className="world-hunger-rate">
+          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
+          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
+            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
+            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
+          </select>
+        </div>
+
+        <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
+        <p className="meta">Decision #{state?.tickCount ?? "—"} · Next decision in {seconds}s</p>
+      </details>
       </div>
-        </div>
-      <section className="world-card">
-        <div className="world-journal-head"><h2>Experience evaluation</h2>
-          <button type="button" disabled={experienceLoading}
-            onClick={()=>void refreshExperiences()}>{experienceLoading?"Loading…":"Refresh"}</button>
-        </div>
-        <p className="meta">Observation-only: verified outcomes, not rewards. These signals do not affect Nimo's goals, actions or boredom. Unknown means no reliable evidence was available.</p>
-        {experienceError&&<p role="alert" className="world-warning">{experienceError}</p>}
-        {experiences.length ? <div className="world-experience-list">
-          {experiences.slice(0,20).map(item=><article key={item.id} className="world-event">
-            <div><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
-              <strong>{item.action} · {item.subject}</strong></div>
-            <p className="meta">Repetition: {item.repetition} · Learning: {item.learning} · Surprise: {item.surprise} · Progress: {item.progress}</p>
-            <p>{item.evidence}</p>
-          </article>)}
-        </div> : <p className="meta">{experienceLoading?"Loading experiences…":"No evaluated experiences yet. New verified actions will appear after the database migration and Worker deployment."}</p>}
-      </section>
       <section className="world-card world-journal">
         <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls">
           <label htmlFor="world-journal-window">Show</label>
