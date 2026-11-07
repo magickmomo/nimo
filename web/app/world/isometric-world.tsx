@@ -48,15 +48,31 @@ function Scenery({ kind }: { kind: ObjectKind }) {
   );
 }
 
-function Character() {
+function Character({ sleeping=false }: { sleeping?:boolean }) {
   return (
-    <g>
+    <g className={sleeping ? "nimo-character is-sleeping" : "nimo-character"}>
       <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".3"/>
       <path d="M-10 -10 L-11 1 M10 -10 L11 1" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
       <rect x="-10" y="-31" width="20" height="14" rx="5" fill="#38354e"/>
-      <circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/>
-      <circle cx="5" cy="-24" r="2" fill="#f6e5a6"/>
+      {sleeping ? (
+        <g className="nimo-sleeping-eyes" stroke="#f6e5a6" strokeWidth="1.9" strokeLinecap="round" fill="none">
+          <path d="M-7 -24 Q-4 -21 -1 -24"/>
+          <path d="M2 -24 Q5 -21 8 -24"/>
+        </g>
+      ) : (
+        <>
+          <circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/>
+          <circle cx="5" cy="-24" r="2" fill="#f6e5a6"/>
+        </>
+      )}
+      {sleeping && (
+        <g className="nimo-sleep-symbols" aria-hidden="true" fill="#f6e5a6" stroke="#534762" strokeWidth=".55" fontWeight="800">
+          <text className="nimo-sleep-z nimo-sleep-z-one" x="13" y="-33" fontSize="10">z</text>
+          <text className="nimo-sleep-z nimo-sleep-z-two" x="21" y="-44" fontSize="13">z</text>
+          <text className="nimo-sleep-z nimo-sleep-z-three" x="31" y="-54" fontSize="16">Z</text>
+        </g>
+      )}
       <path d="M-6 -5 L-6 3 M6 -5 L6 3" stroke="#534762" strokeWidth="4" strokeLinecap="round"/>
     </g>
   );
@@ -70,9 +86,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, sleeping = false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; sleeping?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -116,7 +132,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         <span>9 × 9</span>
       </div>
       <svg className="nimo-map-canvas" viewBox="0 0 620 365" role="img"
-        aria-label={`Isometric nine by nine map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
+        aria-label={`Isometric nine by nine map showing Nimo ${sleeping ? "sleeping" : "awake"} near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
         <defs>
           <linearGradient id="nimo-ground" x1="0" y1="0" x2="0.8" y2="1">
             <stop offset="0" stopColor="#9bc17d"/><stop offset="1" stopColor="#719b63"/>
@@ -157,7 +173,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character/> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping}/> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <Scenery kind={sprite.kind}/>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
@@ -167,7 +183,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         })}
       </svg>
       <div className="nimo-map-footer">
-        <span><strong>Nimo</strong> · {moving ?
+        <span><strong>Nimo</strong> · {sleeping ? "Sleeping" : moving ?
           `${journey?.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
           `tile (${authoritative.x+1}, ${authoritative.y+1})`}</span>
         <span className="nimo-map-preview">{visited.length} visited · {seenTiles.length} remembered as seen · {inspected.length} inspected</span>
