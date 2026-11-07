@@ -16,6 +16,7 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
+type MemoryRecord={id:number;topic:string;category:string;summary:string;lesson:string;evidence_ids:string;status:string;updated_at:string;evidence?:{id:number;created_at:string;kind:string;action:string|null;content:string}[]};
 type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
@@ -50,6 +51,14 @@ export default function World() {
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [memories,setMemories]=useState<MemoryRecord[]>([]);
+  const [memoryBusy,setMemoryBusy]=useState(false);
+  const [memoryMessage,setMemoryMessage]=useState("");
+  const [memoryError,setMemoryError]=useState("");
+  const [memoryWindow,setMemoryWindow]=useState<"since"|"6h"|"24h"|"7d"|"all"|"custom">("since");
+  const [memoryMode,setMemoryMode]=useState<"incremental"|"rebuild">("incremental");
+  const [memoryFrom,setMemoryFrom]=useState("");
+  const [memoryTo,setMemoryTo]=useState("");
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
   const [journalCursor,setJournalCursor]=useState<number|null>(null);
@@ -142,6 +151,38 @@ export default function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[journalWindow]);
 
+  const refreshMemories=useCallback(async()=>{
+    try{
+      const response=await fetch("/api/world/memories",{cache:"no-store"});
+      const body=await response.json() as {memories?:MemoryRecord[];error?:string};
+      if(!response.ok)throw Error(body.error||"Could not load memories");
+      setMemories(body.memories??[]);
+      setMemoryError("");
+    }catch(error){setMemoryError(error instanceof Error?error.message:"Could not load memories");}
+  },[]);
+  useEffect(()=>{void refreshMemories()},[refreshMemories]);
+  async function consolidateMemory(){
+    if(memoryBusy)return;
+    setMemoryBusy(true);setMemoryError("");setMemoryMessage("");
+    try{
+      if(memoryWindow==="custom"&&(!memoryFrom||!memoryTo))throw Error("Choose both dates");
+      const body={window:memoryWindow,mode:memoryMode,
+        ...(memoryWindow==="custom"?{from:new Date(memoryFrom).toISOString(),to:new Date(memoryTo).toISOString()}:{})};
+      const response=await fetch("/api/world/memories/consolidate",{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+      });
+      const result=await response.json() as {status?:string;saved?:number;processed?:number;eligible?:number;reason?:string;error?:string};
+      if(!response.ok)throw Error(result.error||"Consolidation failed");
+      setMemoryMessage(result.status==="ok"
+        ?`Reviewed ${result.processed??0} events and saved ${result.saved??0} memory updates.`
+        :result.status==="no_new_evidence"
+          ?result.reason==="empty_window"?"No matching journal events found in the selected period."
+            :`Reviewed ${result.processed??0} candidate events; fewer than two eligible verified outcomes. Repeated food effects alone do not qualify as new memories.`
+          :"Consolidation is already running.");
+      await refreshMemories();
+    }catch(error){setMemoryError(error instanceof Error?error.message:"Consolidation failed");}
+    finally{setMemoryBusy(false);}
+  }
   async function changeRate(value:number) {
     if(settingRate)return;
     setSettingRate(true);
@@ -344,6 +385,53 @@ export default function World() {
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
       </details>
+      <section className="world-card world-memory-panel" aria-label="Consolidated memory">
+        <div className="world-memory-heading">
+          <h2>Memory</h2>
+          <button type="button" disabled={memoryBusy} onClick={()=>void consolidateMemory()}>
+            {memoryBusy?"Consolidating…":"Consolidate now"}
+          </button>
+        </div>
+        <p className="meta">Tentative lessons from verified experiences, with links to journal evidence. New memories are not automatically treated as facts.</p>
+        <div className="world-memory-controls">
+          <label htmlFor="memory-window">Review journal entries from</label>
+          <select id="memory-window" value={memoryWindow} disabled={memoryBusy}
+            onChange={event=>setMemoryWindow(event.target.value as typeof memoryWindow)}>
+            <option value="since">Since last consolidation</option>
+            <option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="all">All history (sampled)</option>
+            <option value="custom">Custom date range</option>
+          </select>
+          {memoryWindow==="custom"&&<div className="world-memory-dates">
+            <label>From <input type="datetime-local" value={memoryFrom} disabled={memoryBusy} onChange={e=>setMemoryFrom(e.target.value)}/></label>
+            <label>To <input type="datetime-local" value={memoryTo} disabled={memoryBusy} onChange={e=>setMemoryTo(e.target.value)}/></label>
+          </div>}
+          <label htmlFor="memory-mode">Consolidation mode</label>
+          <select id="memory-mode" value={memoryMode} disabled={memoryBusy}
+            onChange={event=>setMemoryMode(event.target.value as typeof memoryMode)}>
+            <option value="incremental">Update from new evidence (default)</option>
+            <option value="rebuild">Re-evaluate selected evidence</option>
+          </select>
+          <p className="meta">Re-evaluation can review older events, but never deletes saved memories. Results remain evidence-validated.</p>
+        </div>
+        {memoryError&&<p className="world-warning" role="alert">{memoryError}</p>}
+        {memoryMessage&&<p className="meta" role="status">{memoryMessage}</p>}
+        {memories.length ? <div className="world-memory-list">{memories.slice(0,8).map(item=>(
+          <details key={item.id} className="world-memory-entry">
+            <summary><strong>{item.summary}</strong><small>{item.category} · {item.status}</small></summary>
+            <p>{item.lesson}</p>
+            <div className="world-memory-evidence">
+              <strong>Evidence from Nimo's journal</strong>
+              {item.evidence?.length ? <ul>{item.evidence.map(event=><li key={event.id}>
+                <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+                <span>{event.action||event.kind} · {event.content}</span>
+              </li>)}</ul> : <p className="meta">Recorded event references: {item.evidence_ids}</p>}
+            </div>
+          </details>
+        ))}</div> : <p className="meta">No consolidated memories yet. Use Consolidate now to review recent journal outcomes.</p>}
+      </section>
       <details className="world-card world-workspace world-secondary-panel">
         <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
         <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>

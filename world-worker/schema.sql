@@ -230,3 +230,26 @@ CREATE TABLE IF NOT EXISTS vending_attempts (
   message TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS vending_attempts_latest ON vending_attempts(id DESC);
+
+-- Memory v1: bounded, evidence-linked memories. Existing journal and legacy beliefs are untouched.
+CREATE TABLE IF NOT EXISTS consolidated_memories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic TEXT NOT NULL UNIQUE,
+  category TEXT NOT NULL CHECK(category IN ('inventory','food','exploration','obstacle','social','tools')),
+  summary TEXT NOT NULL,
+  lesson TEXT NOT NULL,
+  evidence_ids TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'tentative' CHECK(status IN ('tentative','supported')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  last_used_at TEXT,
+  use_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS consolidated_memories_category ON consolidated_memories(category,updated_at DESC);
+CREATE TABLE IF NOT EXISTS memory_consolidation (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  last_event_id INTEGER NOT NULL DEFAULT 0,
+  last_started_at TEXT,
+  last_completed_at TEXT
+);
+INSERT OR IGNORE INTO memory_consolidation(id,last_event_id) VALUES(1,0);
