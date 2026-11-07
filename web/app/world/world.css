@@ -224,3 +224,10 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-memory-evidence ul{list-style:none;padding:0;margin:8px 0 0}
 .world-memory-evidence li{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid #edf0ee;overflow-wrap:anywhere;font-size:12px}
 .world-memory-evidence time{color:#6a8075;font-size:11px}
+
+/* Owner-selected memory consolidation range and mode. */
+.world-memory-controls{display:grid;gap:8px;max-width:460px;margin:12px 0 16px}
+.world-memory-controls>label{font-size:12px;font-weight:600}
+.world-memory-controls select,.world-memory-dates input{box-sizing:border-box;width:100%;padding:8px;border:1px solid #b9cbc2;border-radius:7px;background:#fff;color:#213d34;font:inherit}
+.world-memory-dates{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.world-memory-dates label{display:grid;gap:5px;font-size:12px}
