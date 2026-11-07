@@ -202,7 +202,7 @@ async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
   // Rare high-signal experiences remain available even after leaving the
   // rolling recent-history window. Avoid movement/inspection spam.
   const result = await db.prepare(`SELECT id,created_at,kind,content,action FROM events
-    WHERE kind IN ('visitor','reply','belief','identity')
+    WHERE kind IN ('visitor','reply','identity')
        OR action IN ('WRITE_OK','REQUEST')
     ORDER BY id DESC LIMIT 12`).all<EventRow>();
   return result.results;
@@ -621,7 +621,16 @@ export default {
         return json(await journalPage(env.DB,window,before,until));
       }
       if (path === "/memories" && request.method === "GET") {
-        return json({memories:await listMemories(env.DB,24),mode:"tentative_evidence_linked"});
+        const memories=await listMemories(env.DB,24);
+        const ids=[...new Set(memories.slice(0,12).flatMap(m=>{
+          try{return (JSON.parse(m.evidence_ids) as number[]).slice(-8)}catch{return []}
+        }))].filter(n=>Number.isSafeInteger(n)&&n>0).slice(0,80);
+        const evidence=ids.length?(await env.DB.prepare(
+          "SELECT id,created_at,action,kind,content FROM events WHERE id IN ("+ids.map(()=>"?").join(",")+")"
+        ).bind(...ids).all<EventRow>()).results:[];
+        return json({memories:memories.map(m=>({...m,evidence:evidence.filter(e=>{
+          try{return (JSON.parse(m.evidence_ids) as number[]).includes(e.id)}catch{return false}
+        }).map(e=>({...e,content:e.content.slice(0,350)}))})),mode:"tentative_evidence_linked"});
       }
       if (path === "/memories/consolidate" && request.method === "POST") {
         // Explicit owner action only in v1: no periodic LLM cost until validated.
