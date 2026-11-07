@@ -50,5 +50,5 @@ test("manual consolidation is owner gated; main decisions retrieve but never aut
 test("core-belief accumulation is retired without deleting prior beliefs",()=>{
   assert.doesNotMatch(worker,/beliefs\.push\(/);
   assert.match(worker,/const beliefs = state\.beliefs/);
-  assert.match(worker,/beliefs: \[\]/);
+  assert.match(worker,/beliefs:\\s*\\[\\]/);
 });
