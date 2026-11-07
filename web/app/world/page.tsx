@@ -25,7 +25,7 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   hungerRate?:number;
-  food?:{inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
+  food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
   environmentMemory?: {
@@ -138,6 +138,7 @@ export default function World() {
 
   const state = data?.world.state;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
+  const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
   const recentActions = data?.actionTrace ?? [];
   const runningActions = recentActions.filter(a=>a.status==="running" && (
     (a.kind==="travel" && (data?.journey?.status==="travelling" || data?.journey?.status==="paused")) ||
@@ -209,6 +210,14 @@ export default function World() {
           </div>
         </div>
         <p className="meta">Fruit effects must be learned by eating. Trees regenerate gradually, and Nimo can carry three fruit.</p>
+        {!!data?.food?.knowledge.length&&<div className="world-food-knowledge">
+          <strong>Learned food effects</strong>
+          <ul>{data.food.knowledge.map(entry=><li key={entry.fruit}>
+            <span className={"world-fruit "+entry.fruit}>{entry.fruit}</span>
+            <span>{entry.mean===null?"Not yet measured clearly":`Average observed change: ${entry.mean>0?"+":""}${entry.mean}%`}</span>
+            <small>{entry.count} eaten · {entry.minimum_relief}% minimum observed relief</small>
+          </li>)}</ul>
+        </div>}
       </section>
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
@@ -248,6 +257,10 @@ export default function World() {
         {selectedObject ? <>
           <h3>{selectedObject.label || selectedObject.kind} <small>({selectedObject.x+1}, {selectedObject.y+1})</small></h3>
           <p className="meta">Environment ID: <code>{selectedObject.id}</code> · {selectedObject.inspectionCount} recorded observations</p>
+          {selectedFood&&<p><strong>Last observed fruit:</strong> {selectedFood.seen_fruit??"Not inspected since fruit was introduced"}
+            {selectedFood.seen_fruit&&` · ${selectedFood.last_seen_stock??"?"} fruit last seen`}
+            {selectedFood.last_inspected_at&&<small> (observed {new Date(selectedFood.last_inspected_at).toLocaleString()}; stock may have changed)</small>}
+          </p>}
           <p><strong>Nimo's label:</strong> {selectedObject.label || "Not named yet"}</p>
           <p><strong>Nimo's note:</strong> {selectedObject.note || "No personal note yet"}</p>
           <p><strong>Last comparison:</strong> {selectedObject.latestComparison || "No post-migration inspection yet"}</p>
