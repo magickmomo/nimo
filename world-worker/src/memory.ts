@@ -99,8 +99,10 @@ export async function runConsolidation(db:D1Database,apiKey:string,model:string,
   const now=Date.now();
   if(gate.last_started_at&&now-Date.parse(gate.last_started_at)<90000)return {status:"busy",saved:0,processed:0};
   const source=await consolidationSource(db,gate.last_event_id===0);
-  // Do not call the model merely to restate stale records.
-  if(source.length<3)return {status:"no_new_evidence",saved:0,processed:0};
+  // Historical obstacle windows are reference context, not permission to
+  // repeatedly bill the model when no new evidence has arrived.
+  const newEvidence=source.filter(e=>e.id>gate.last_event_id && (e.kind==="tool"||e.kind==="request"||e.action==="REQUEST"));
+  if(newEvidence.length<2)return {status:"no_new_evidence",saved:0,processed:0};
   const cutoff=Math.max(...source.map(e=>e.id));
   const claim=await db.prepare("UPDATE memory_consolidation SET last_started_at=? WHERE id=1 AND last_event_id=? AND (last_started_at IS NULL OR last_started_at<?)")
     .bind(new Date(now).toISOString(),gate.last_event_id,new Date(now-90000).toISOString()).run();
