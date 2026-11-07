@@ -79,8 +79,13 @@ export default function WorldSettings() {
         <h2>Owner sign-in</h2>
         <p>Sign in once on this device to send Nimo messages without entering a token each time, export his history and adjust the hunger rate.</p>
         <p><strong>Status: </strong>{signedIn?"Signed in":"Not signed in"}</p>
+        <label htmlFor="world-owner-setting">Owner access token</label>
+        <input id="world-owner-setting" type="password" autoComplete="off"
+          value={ownerToken} onChange={e => setOwnerToken(e.target.value)}
+          placeholder="Same token used to message Nimo" />
+
         <button type="button" disabled={!ownerToken||busy} onClick={()=>void signIn()}>Sign in on this device</button>
-        <p className="meta">Use the existing owner token in the control field below. The session uses a secure HttpOnly cookie.</p>
+        <p className="meta">The same token also controls Sleep / Wake below. A signed HttpOnly cookie keeps it out of the chat form.</p>
       </div>
       <div className="world-card">
         <h2>Autonomous loop</h2>
@@ -92,10 +97,6 @@ export default function WorldSettings() {
           Cloudflare uses a minute-level cron with faster checks while awake. Sleep pauses walking and skips new OpenAI calls.
           A request already in progress may still be billed.
         </p>
-        <label htmlFor="world-owner-setting">Owner access token</label>
-        <input id="world-owner-setting" type="password" autoComplete="off"
-          value={ownerToken} onChange={e => setOwnerToken(e.target.value)}
-          placeholder="Same token used to message Nimo" />
         <div className="voice-controls">
           <button type="button" disabled={busy || !snapshot?.autonomousEnabled || !ownerToken}
             onClick={() => void setAwake(false)}>Put Nimo to sleep</button>
