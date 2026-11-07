@@ -204,3 +204,16 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-sleep-breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(1.2px)}}
 @keyframes nimo-z-float{0%{transform:translate(0,4px) scale(.75);opacity:0}22%{opacity:.9}75%{opacity:.75}100%{transform:translate(7px,-13px) scale(1.1);opacity:0}}
 @media(prefers-reduced-motion:reduce){.nimo-character.is-sleeping,.nimo-sleep-z{animation:none}.nimo-sleep-z{opacity:.85}.nimo-sleep-z-two{opacity:.7}.nimo-sleep-z-three{opacity:.55}}
+
+
+/* Memory v1: one compact layer; detailed evidence opens only when requested. */
+.world-memory-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px}
+.world-memory-heading h2{margin:0}
+.world-memory-heading button{background:#294c40;color:white;border:0;border-radius:8px;padding:9px 13px;font-size:12px}
+.world-memory-heading button:disabled{opacity:.6}
+.world-memory-list{display:flex;flex-direction:column;gap:9px}
+.world-memory-entry{border:1px solid #dce7e1;border-radius:10px;padding:12px 13px}
+.world-memory-entry summary{cursor:pointer;color:#24453d;line-height:1.5}
+.world-memory-entry summary small{display:block;font-size:11px;color:#6e8078;font-weight:400;text-transform:capitalize;margin-top:2px}
+.world-memory-entry p{font-size:13px;line-height:1.6;margin:9px 0 0}
+.world-memory-entry:focus-within{outline-color:#325e51}
