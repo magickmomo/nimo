@@ -16,6 +16,10 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
+type ExperienceRecord={
+  id:number;created_at:string;action:string;subject:string;
+  repetition:string;learning:string;surprise:string;progress:string;evidence:string;
+};
 type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
@@ -49,6 +53,9 @@ export default function World() {
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [experiences,setExperiences]=useState<ExperienceRecord[]>([]);
+  const [experienceError,setExperienceError]=useState("");
+  const [experienceLoading,setExperienceLoading]=useState(false);
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
   const [journalCursor,setJournalCursor]=useState<number|null>(null);
@@ -140,6 +147,18 @@ export default function World() {
     // A new range starts a fresh anchored pagination session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[journalWindow]);
+
+  async function refreshExperiences() {
+    setExperienceLoading(true);setExperienceError("");
+    try{
+      const response=await fetch("/api/world/experience",{cache:"no-store"});
+      const body=await response.json() as {evaluations?:ExperienceRecord[];error?:string};
+      if(!response.ok)throw Error(body.error||"Could not load experiences");
+      setExperiences(body.evaluations??[]);
+    }catch(err){setExperienceError(err instanceof Error?err.message:"Could not load experiences");}
+    finally{setExperienceLoading(false);}
+  }
+  useEffect(()=>{void refreshExperiences();},[]);
 
   async function changeRate(value:number) {
     if(settingRate)return;
@@ -392,6 +411,22 @@ export default function World() {
         </section>
       </div>
         </div>
+      <section className="world-card">
+        <div className="world-journal-head"><h2>Experience evaluation</h2>
+          <button type="button" disabled={experienceLoading}
+            onClick={()=>void refreshExperiences()}>{experienceLoading?"Loading…":"Refresh"}</button>
+        </div>
+        <p className="meta">Observation-only: verified outcomes, not rewards. These signals do not affect Nimo's goals, actions or boredom. Unknown means no reliable evidence was available.</p>
+        {experienceError&&<p role="alert" className="world-warning">{experienceError}</p>}
+        {experiences.length ? <div className="world-experience-list">
+          {experiences.slice(0,20).map(item=><article key={item.id} className="world-event">
+            <div><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
+              <strong>{item.action} · {item.subject}</strong></div>
+            <p className="meta">Repetition: {item.repetition} · Learning: {item.learning} · Surprise: {item.surprise} · Progress: {item.progress}</p>
+            <p>{item.evidence}</p>
+          </article>)}
+        </div> : <p className="meta">{experienceLoading?"Loading experiences…":"No evaluated experiences yet. New verified actions will appear after the database migration and Worker deployment."}</p>}
+      </section>
       <section className="world-card world-journal">
         <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls">
           <label htmlFor="world-journal-window">Show</label>
