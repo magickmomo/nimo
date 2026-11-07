@@ -120,3 +120,37 @@ test("LLM prompt has evidence modes with server-generated predictions and no pre
  assert.match(page,/evidence008\(current,rate,evidenceMode\)/);
  assert.match(page,/Learned memory \+ timestamped observations/);
 });
+
+test("local baseline travels back to a depleted known food tree instead of waiting elsewhere",()=>{
+ const original=initial008(1);
+ const atOther={...original,x:2,y:5,hunger:76,seconds:160,inventory:[],
+  memory:{amber:{count:2,informative:2,mean:-35,minimumRelief:35,helpful:2,harmful:0}},
+  trees:original.trees.map(t=>({
+   ...t,
+   seenFruit:t.fruit,
+   seenStock:0,
+   seenAt:t.id==="tree_a"?40:t.id==="tree_d"?50:60,
+  }))};
+ const decision=localDecision008(atOther,1);
+ assert.deepEqual(decision.action,{type:"travel",treeId:"tree_a"});
+ assert.match(decision.reason,/Revisit/);
+ const nearTree={...atOther,x:2,y:3};
+ const nearby=localDecision008(nearTree,1);
+ assert.deepEqual(nearby.action,{type:"inspect",treeId:"tree_a"});
+});
+test("seed 1 recovery regression: policy does not wait forever after supplies run out",()=>{
+ let s=initial008(1);
+ const steps=[];
+ for(let i=0;i<100;i++){
+  const {action,reason}=localDecision008(s,1);
+  assert(actions008(s).some(a=>key008(a)===key008(action)));
+  steps.push({action,time:s.seconds,hunger:s.hunger});
+  s=apply008(s,action,1,"local",reason);
+ }
+ assert(steps.some(x=>x.action.type==="travel"&&x.time>=100),
+  "Policy never travels to reevaluate food after early supplies run out");
+ assert(steps.some(x=>x.action.type==="inspect"&&x.time>=100),
+  "Policy never reinspects food after observation becomes stale");
+ assert(steps.some(x=>x.action.type==="eat"&&x.time>=100),
+  "Policy never recovers food after early supplies are depleted");
+});
