@@ -1,3 +1,4 @@
+import { recordExperience } from "./experience-evaluator";
 import { shortestPath, visibleTiles, displayPoint, type Point } from "../../web/lib/world-map";
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 import { sightInsertSql } from "./sight-sql";
@@ -120,6 +121,15 @@ export async function advanceJourney(db: D1Database, now = new Date()):
       VALUES('travel','completed',?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
       .bind(`Reach waypoint ${nextIndex} of ${route.length-1}`,
         `At (${displayPoint(next).x},${displayPoint(next).y})`).run();
+    // Observe real arrivals only after the atomic position/visit transaction.
+    // Failure to write telemetry must not disrupt a verified journey.
+    try {
+      const visit=await db.prepare("SELECT visit_count FROM world_visited WHERE x=? AND y=?")
+        .bind(next.x,next.y).first<{visit_count:number}>();
+      await recordExperience(db,`journey:${row.started_at}:step:${nextIndex}`,
+        {type:"travel",subject:`(${displayPoint(next).x},${displayPoint(next).y})`,
+          firstVisit:visit?.visit_count===1});
+    } catch(error) {console.warn("Experience travel telemetry unavailable",error);}
     currentIndex = nextIndex;
   }
   if (currentIndex === route.length-1) {

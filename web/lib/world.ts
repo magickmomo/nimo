@@ -42,30 +42,23 @@ export function clamp(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-/** Persisted drives range from 0 to 1. Hunger and boredom increase
- * when deprived; happiness and energy increase when well. Tiredness = 1 - energy. Existing D1 JSON is
- * normalised here so no destructive migration is required. */
+/** Only hunger is currently active. Other needs are retained unchanged so
+ * development can resume later without losing historical state. Hunger rates
+ * are percentage points per real elapsed second, e.g. 0.1 = 0.001 internally.
+ */
 export function updateEmotions(
-  emotions: Partial<WorldState["emotions"]>, seconds: number, hourUTC: number,
-  sleeping = false
-): WorldState["emotions"] {
-  const elapsed = Math.max(0, Math.min(86400, Number.isFinite(seconds) ? seconds : 0));
-  const initialEnergy = clamp(Number.isFinite(emotions.energy) ? emotions.energy! : 0.8);
-  const initialHunger = clamp(Number.isFinite(emotions.hunger) ? emotions.hunger! : 0.15);
-  const initialBoredom = clamp(Number.isFinite(emotions.boredom) ? emotions.boredom! : 0);
-  const initialHappiness = clamp(Number.isFinite(emotions.happiness) ? emotions.happiness! : 0.5);
-
-  // Energy is the authoritative stored value: tiredness is 1 - energy.
-  // Preserve the existing day/night rhythm and recover while sleeping.
-  const awakeHour = hourUTC >= 7 && hourUTC < 22;
-  const energyTarget = sleeping ? 0.95 : awakeHour ? 0.9 : 0.1;
-  const energy = clamp(energyTarget + (initialEnergy - energyTarget) * Math.pow(0.998, elapsed));
-  const hunger = clamp(initialHunger + (sleeping ? 0.000006 : 0.000025) * elapsed);
-  const boredom = clamp(initialBoredom + (sleeping ? -0.000025 : 0.00005) * elapsed);
-  const baselineHappiness = clamp(0.5 + (initialHappiness - 0.5) * Math.pow(0.9999, elapsed));
-  const happiness = clamp(baselineHappiness - Math.max(0, hunger - 0.65) * elapsed * 0.000002
-    - Math.max(0, (1 - energy) - 0.75) * elapsed * 0.000002);
-  return { energy, happiness, boredom, hunger };
+  emotions: Partial<WorldState["emotions"]>, seconds:number, _hourUTC:number,
+  sleeping=false, hungerPointsPerSecond=0.1
+):WorldState["emotions"] {
+  const elapsed=Math.max(0,Math.min(86400,Number.isFinite(seconds)?seconds:0));
+  const hunger=clamp((Number.isFinite(emotions.hunger)?emotions.hunger!:0.15)+
+    (sleeping?0:hungerPointsPerSecond*elapsed/100));
+  return {
+    energy:clamp(Number.isFinite(emotions.energy)?emotions.energy!:0.8),
+    happiness:clamp(Number.isFinite(emotions.happiness)?emotions.happiness!:0.5),
+    boredom:clamp(Number.isFinite(emotions.boredom)?emotions.boredom!:0),
+    hunger,
+  };
 }
 
 /** Hunger is a need (1 = starving); eating a suitable food satisfies it. */

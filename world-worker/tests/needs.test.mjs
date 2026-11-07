@@ -22,10 +22,14 @@ test("existing worlds gain hunger without losing old emotion values", () => {
   assert.equal(after.boredom,0.3);
   assert.equal(after.hunger,0.15);
 });
-test("hunger and boredom grow awake and remain bounded", () => {
+test("only hunger grows, at a configurable rate, while other drives stay paused", () => {
   const after = updateEmotions(INITIAL_STATE.emotions, 86400, 12);
   assert.ok(after.hunger > INITIAL_STATE.emotions.hunger);
-  assert.ok(after.boredom > INITIAL_STATE.emotions.boredom);
+  assert.equal(after.boredom,INITIAL_STATE.emotions.boredom);
+  assert.equal(after.energy,INITIAL_STATE.emotions.energy);
+  assert.equal(after.happiness,INITIAL_STATE.emotions.happiness);
+  assert.equal(updateEmotions(INITIAL_STATE.emotions, 100, 12, false, 0.5).hunger,0.65);
+  assert.equal(updateEmotions(INITIAL_STATE.emotions, 100, 12, false, 0).hunger,0.15);
   for(const value of Object.values(after)) assert.ok(value >= 0 && value <= 1);
 });
 test("eating removes hunger and rewards satisfaction without overflowing happiness", () => {

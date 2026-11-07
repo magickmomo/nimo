@@ -15,6 +15,7 @@ export default function WorldSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [signedIn,setSignedIn]=useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -29,7 +30,20 @@ export default function WorldSettings() {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refresh(); void fetch("/api/world/session",{cache:"no-store"}).then(r=>r.json()).then(d=>setSignedIn(Boolean(d.authenticated))).catch(()=>{}); }, [refresh]);
+
+  async function signIn() {
+    if(!ownerToken)return;
+    setBusy(true);setError("");
+    try{
+      const response=await fetch("/api/world/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:ownerToken})});
+      const body=await response.json() as {error?:string};
+      if(!response.ok)throw Error(body.error||"Unable to sign in");
+      setSignedIn(true);setNotice("This browser is signed in for Messages, hunger settings and exports. No token is needed when messaging.");
+    }catch(err){setError(err instanceof Error?err.message:"Sign-in failed");}
+    finally{setBusy(false);}
+  }
+
 
   async function setAwake(enabled: boolean) {
     if (!ownerToken || busy) return;
@@ -62,6 +76,18 @@ export default function WorldSettings() {
       <h1>World settings</h1>
       <p className="lead">Pause both autonomous decisions and ongoing journeys. Nimo keeps his position, identity, memories, beliefs and journal.</p>
       <div className="world-card">
+        <h2>Owner sign-in</h2>
+        <p>Sign in once on this device to send Nimo messages without entering a token each time, export his history and adjust the hunger rate.</p>
+        <p><strong>Status: </strong>{signedIn?"Signed in":"Not signed in"}</p>
+        <label htmlFor="world-owner-setting">Owner access token</label>
+        <input id="world-owner-setting" type="password" autoComplete="off"
+          value={ownerToken} onChange={e => setOwnerToken(e.target.value)}
+          placeholder="Same token used to message Nimo" />
+
+        <button type="button" disabled={!ownerToken||busy} onClick={()=>void signIn()}>Sign in on this device</button>
+        <p className="meta">The same token also controls Sleep / Wake below. A signed HttpOnly cookie keeps it out of the chat form.</p>
+      </div>
+      <div className="world-card">
         <h2>Autonomous loop</h2>
         {snapshot?.journey && snapshot.journey.status !== "idle" && <p className="meta">Journey: {snapshot.journey.status} · {snapshot.journey.stepIndex} of {Math.max(0,snapshot.journey.path.length-1)} steps completed.</p>}
         <p><strong>Current status: </strong>
@@ -71,10 +97,6 @@ export default function WorldSettings() {
           Cloudflare uses a minute-level cron with faster checks while awake. Sleep pauses walking and skips new OpenAI calls.
           A request already in progress may still be billed.
         </p>
-        <label htmlFor="world-owner-setting">Owner access token</label>
-        <input id="world-owner-setting" type="password" autoComplete="off"
-          value={ownerToken} onChange={e => setOwnerToken(e.target.value)}
-          placeholder="Same token used to message Nimo" />
         <div className="voice-controls">
           <button type="button" disabled={busy || !snapshot?.autonomousEnabled || !ownerToken}
             onClick={() => void setAwake(false)}>Put Nimo to sleep</button>

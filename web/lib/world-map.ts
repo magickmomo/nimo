@@ -3,12 +3,13 @@
 export const WORLD_SIZE = 9;
 export type Point = { x: number; y: number };
 export type Direction = "north" | "south" | "east" | "west";
-export type SceneryKind = "tree" | "rock" | "shrub";
+export type SceneryKind = "tree" | "rock" | "shrub" | "machine";
 export type WorldObject = Point & { id: string; kind: SceneryKind };
 export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"tree_001",x:1,y:1,kind:"tree"},{id:"tree_002",x:6,y:1,kind:"tree"},{id:"tree_003",x:7,y:6,kind:"tree"},
-  {id:"tree_004",x:1,y:7,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
+  {id:"tree_004",x:1,y:7,kind:"tree"},{id:"tree_005",x:4,y:1,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
   {id:"shrub_001",x:2,y:5,kind:"shrub"},{id:"shrub_002",x:5,y:7,kind:"shrub"},
+  {id:"vending_001",x:7,y:3,kind:"machine"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
 export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
@@ -86,6 +87,7 @@ export function inspectedDescription(kind: SceneryKind): string {
     tree: "A rooted tree with a broad green canopy and a narrow trunk. It occupies this tile and blocks walking.",
     rock: "A solid grey rock resting on the grass. It occupies this tile and blocks walking.",
     shrub: "A low cluster of leafy green bushes. It occupies this tile and blocks walking.",
+    machine: "A freestanding vending machine with a lit display and slots for items. It occupies this tile and blocks walking.",
   };
   return descriptions[kind];
 }

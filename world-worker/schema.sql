@@ -157,3 +157,76 @@ END;
 CREATE INDEX IF NOT EXISTS events_kind_id ON events(kind,id);
 CREATE INDEX IF NOT EXISTS events_action_id ON events(action,id);
 CREATE INDEX IF NOT EXISTS action_trace_status_id ON action_trace(status,id DESC);
+
+-- World 001 food systems (Nimo 009): additive; never reset existing history.
+CREATE TABLE IF NOT EXISTS world_settings (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  hunger_rate REAL NOT NULL DEFAULT 0.1 CHECK(hunger_rate >= 0 AND hunger_rate <= 2.5),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+INSERT OR IGNORE INTO world_settings(id,hunger_rate) VALUES(1,0.1);
+
+CREATE TABLE IF NOT EXISTS world_food_trees (
+  id TEXT PRIMARY KEY,
+  fruit TEXT NOT NULL CHECK(fruit IN ('amber','blue','red')),
+  stock INTEGER NOT NULL CHECK(stock >= 0),
+  capacity INTEGER NOT NULL CHECK(capacity IN (2,3)),
+  regrow_at INTEGER,
+  seen_fruit TEXT,
+  last_seen_stock INTEGER,
+  last_inspected_at TEXT
+);
+INSERT OR IGNORE INTO world_food_trees(id,fruit,stock,capacity) VALUES
+  ('tree_001','amber',2,2),('tree_002','blue',3,3),
+  ('tree_003','red',2,2),('tree_004','amber',3,3),
+  ('tree_005','blue',2,2);
+CREATE TABLE IF NOT EXISTS world_food_inventory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fruit TEXT NOT NULL CHECK(fruit IN ('amber','blue','red')),
+  picked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS world_food_memory (
+  fruit TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  informative INTEGER NOT NULL,
+  mean REAL,
+  minimum_relief REAL NOT NULL,
+  helpful INTEGER NOT NULL,
+  harmful INTEGER NOT NULL
+);
+
+-- Observation-only experience evaluation ledger. Does not update Nimo's drives
+-- or decisions; never resets earlier world events, documents or memories.
+CREATE TABLE IF NOT EXISTS experience_evaluations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_key TEXT NOT NULL UNIQUE,
+  event_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  action TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  repetition TEXT NOT NULL CHECK(repetition IN ('none','low','high','unknown')),
+  learning TEXT NOT NULL CHECK(learning IN ('none','low','high','unknown')),
+  surprise TEXT NOT NULL CHECK(surprise IN ('none','low','high','unknown')),
+  progress TEXT NOT NULL CHECK(progress IN ('none','low','high','unknown')),
+  evidence TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS experience_evaluations_recent ON experience_evaluations(id DESC);
+
+-- Single optional vending experiment. Entirely additive; no coin source is seeded.
+CREATE TABLE IF NOT EXISTS vending_state (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  coins INTEGER NOT NULL DEFAULT 0 CHECK(coins >= 0),
+  inspected_at TEXT
+);
+INSERT OR IGNORE INTO vending_state(id,coins) VALUES(1,0);
+CREATE TABLE IF NOT EXISTS vending_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  item_id TEXT NOT NULL CHECK(item_id IN ('seed_packet','sketchpad','mystery_box')),
+  price INTEGER NOT NULL,
+  coins_at_attempt INTEGER NOT NULL,
+  success INTEGER NOT NULL DEFAULT 0 CHECK(success IN (0,1)),
+  message TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vending_attempts_latest ON vending_attempts(id DESC);
