@@ -157,3 +157,40 @@ END;
 CREATE INDEX IF NOT EXISTS events_kind_id ON events(kind,id);
 CREATE INDEX IF NOT EXISTS events_action_id ON events(action,id);
 CREATE INDEX IF NOT EXISTS action_trace_status_id ON action_trace(status,id DESC);
+
+-- World 001 food systems (Nimo 009): additive; never reset existing history.
+CREATE TABLE IF NOT EXISTS world_settings (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  hunger_rate REAL NOT NULL DEFAULT 0.1 CHECK(hunger_rate >= 0 AND hunger_rate <= 2.5),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+INSERT OR IGNORE INTO world_settings(id,hunger_rate) VALUES(1,0.1);
+
+CREATE TABLE IF NOT EXISTS world_food_trees (
+  id TEXT PRIMARY KEY,
+  fruit TEXT NOT NULL CHECK(fruit IN ('amber','blue','red')),
+  stock INTEGER NOT NULL CHECK(stock >= 0),
+  capacity INTEGER NOT NULL CHECK(capacity IN (2,3)),
+  regrow_at INTEGER,
+  seen_fruit TEXT,
+  last_seen_stock INTEGER,
+  last_inspected_at TEXT
+);
+INSERT OR IGNORE INTO world_food_trees(id,fruit,stock,capacity) VALUES
+  ('tree_001','amber',2,2),('tree_002','blue',3,3),
+  ('tree_003','red',2,2),('tree_004','amber',3,3),
+  ('tree_005','blue',2,2);
+CREATE TABLE IF NOT EXISTS world_food_inventory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fruit TEXT NOT NULL CHECK(fruit IN ('amber','blue','red')),
+  picked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS world_food_memory (
+  fruit TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  informative INTEGER NOT NULL,
+  mean REAL,
+  minimum_relief REAL NOT NULL,
+  helpful INTEGER NOT NULL,
+  harmful INTEGER NOT NULL
+);
