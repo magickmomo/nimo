@@ -45,3 +45,10 @@ test("blocked purchases are idempotent, logged and evaluated",()=>{
   assert.match(index,/type:"purchase_blocked"/);
   assert.match(index,/vendingAttempts/);
 });
+
+test("Nimo is not told about undiscovered vending machine",()=>{
+  assert.doesNotMatch(index,/A vending machine, if found/);
+  assert.match(index,/perception\.visibleObjects\.some\(o=>o\.id===vending\.machineId\)/);
+  assert.match(index,/vending\.inspected\?\{coins:vending\.coins,inspected:true,items:vending\.items\}/);
+  assert.doesNotMatch(index,/workspace, food, vending:\{machineId:vending\.machineId/);
+});
