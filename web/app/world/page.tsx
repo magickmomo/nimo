@@ -24,8 +24,8 @@ type Snapshot = {
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
   availableTools?: string[];
-  rewardTotal?: number;
-  rewards?: { id:number; created_at:string; action:string; points:number; detail:string }[];
+  hungerRate?:number;
+  food?:{inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
   environmentMemory?: {
@@ -38,9 +38,7 @@ type Snapshot = {
 export default function World() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
-  const [draft, setDraft] = useState("");
-  const [token, setToken] = useState("");
-  const [sending, setSending] = useState(false);
+  const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
@@ -94,33 +92,29 @@ export default function World() {
     };
   }, [refresh, refreshLive]);
 
-  async function send(event: React.FormEvent) {
-    event.preventDefault();
-    if (!draft.trim() || !token || sending) return;
-    setSending(true);
-    try {
-      const res = await fetch("/api/world/message", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-world-owner-token": token },
-        body: JSON.stringify({ message: draft.trim() }),
+  async function changeRate(value:number) {
+    if(settingRate)return;
+    setSettingRate(true);
+    try{
+      const response=await fetch("/api/world/hunger-rate",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({rate:value}),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Message failed");
-      setDraft("");
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send");
-    } finally {
-      setSending(false);
-    }
+      const body=await response.json() as {hungerRate?:number;error?:string};
+      if(!response.ok)throw Error(body.error||"Could not update hunger rate");
+      setData(old=>old?{...old,hungerRate:body.hungerRate}:old);
+      setError("");
+    }catch(err){setError(err instanceof Error?err.message:"Unable to update hunger rate");}
+    finally{setSettingRate(false);}
   }
 
   async function exportWorld() {
-    if (!token || exporting) return;
+    if (exporting) return;
     setExporting(true);
     setError("");
     try {
       const response=await fetch("/api/world/export",{
-        headers:{"x-world-owner-token":token},cache:"no-store",
+        cache:"no-store",
       });
       if(!response.ok) {
         const body=await response.json() as {error?:string};
@@ -151,15 +145,16 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness" },
-    { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger" },
-    { label: "Happiness", value: state.emotions.happiness, tone: "happiness" },
-    { label: "Boredom", value: state.emotions.boredom, tone: "boredom" },
+    { label: "Tiredness", value: 1 - state.emotions.energy, tone: "tiredness", inactive:true },
+    { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger", inactive:false },
+    { label: "Happiness", value: state.emotions.happiness, tone: "happiness", inactive:true },
+    { label: "Boredom", value: state.emotions.boredom, tone: "boredom", inactive:true },
   ] : [];
   return (
     <div className="world-page world-dashboard">
       <div className="world-topbar">
-        <a className="world-settings-link" href="/world/settings">World settings — Sleep / Wake</a>
+        <a className="world-messages-link" href="/world/messages">Messages</a>
+        <a className="world-settings-link" href="/world/settings">Settings — Sleep / Wake</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
       <div className="world-layout">
@@ -170,10 +165,10 @@ export default function World() {
             {meters.map((item) => {
               const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
               return (
-                <div className="world-status-item" key={item.label}>
+                <div className={`world-status-item${item.inactive?" is-inactive":""}`} key={item.label}>
                   <div className="world-status-head">
                     <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
-                    <span>{item.label}</span>
+                    <span>{item.label}{item.inactive?" · Paused":""}</span>
                     <span className="world-status-percent">{Math.round(value * 100)}%</span>
                   </div>
                   <div className="world-status-bar" role="progressbar"
@@ -198,6 +193,23 @@ export default function World() {
           </div>
         </>
       )}
+      <section className="world-card world-food-controls" aria-label="Survival and inventory">
+        <div className="world-journal-head"><h2>Survival</h2><span className="meta">Hunger only · other needs paused</span></div>
+        <div className="world-hunger-rate">
+          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
+          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
+            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
+            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
+          </select>
+        </div>
+        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??3})</strong>
+          <div className="world-fruits">
+            {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
+              <span className="meta">Nothing collected yet</span>}
+          </div>
+        </div>
+        <p className="meta">Fruit effects must be learned by eating. Trees regenerate gradually, and Nimo can carry three fruit.</p>
+      </section>
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       <section className="world-card world-action-monitor" aria-label="Live execution monitor">
@@ -226,33 +238,6 @@ export default function World() {
             ))}
           </ol>
           {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
-        </details>
-      </section>
-      <section className="world-card world-rewards" aria-label="Verified action rewards">
-        <div className="world-journal-head">
-          <h2>Reward feedback</h2>
-          <span className="meta">Lifetime score: {typeof data?.rewardTotal === "number" ? `${data.rewardTotal} points` : "Unavailable"}</span>
-        </div>
-        {data && (!Array.isArray(data.rewards) || typeof data.rewardTotal !== "number") ? (
-          <p className="world-warning" role="status">Reward data is unavailable from the World Worker. The frontend may be running a newer version than the backend, or the reward database migration may not be applied. This is not a confirmed zero score.</p>
-        ) : (
-          <p className="meta">Rewards are awarded after verified actions, not for intending to act. Zero and negative scores are recorded too.</p>
-        )}
-        <details open>
-          <summary>Recent scored outcomes ({Array.isArray(data?.rewards) ? data.rewards.length : "unavailable"})</summary>
-          <ol className="world-action-list">
-            {(data?.rewards ?? []).slice(0,15).map(item => (
-              <li key={item.id}>
-                <div className="world-action-line">
-                  <span className="world-action-kind">{item.action}</span>
-                  <strong>{item.points > 0 ? "+" : ""}{item.points}</strong>
-                  <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleTimeString()}</time>
-                </div>
-                <small>{item.detail}</small>
-              </li>
-            ))}
-          </ol>
-          {Array.isArray(data?.rewards) && data.rewards.length===0 && <p className="meta">No scored actions yet.</p>}
         </details>
       </section>
       <section className="world-card world-object-memory">
@@ -313,22 +298,13 @@ export default function World() {
               <li key={i}><strong>{b.text}</strong><small>Confidence {Math.round(b.confidence * 100)}% · Evidence: {b.evidence}</small></li>
             )}</ul>
           ) : <p className="meta">No beliefs formed from experience yet. The initial identity is deliberately minimal.</p>}
-          <h2>Interaction</h2>
-          <form onSubmit={send} className="world-form">
-            <label htmlFor="world-token">Owner access token</label>
-            <input id="world-token" type="password" autoComplete="off" value={token} onChange={e=>setToken(e.target.value)} placeholder="Owner token (not stored)" />
-            <label htmlFor="world-message">Leave a message in the world</label>
-            <textarea id="world-message" rows={3} maxLength={1000} value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Hello. Is anyone here?" />
-            <button disabled={!draft.trim() || !token || sending}>{sending ? "Sending…" : "Leave message"}</button>
-          </form>
-          <p className="meta">Messages enter the event log and can influence the next AI decision; replies aren't instantaneous.</p>
         </section>
       </div>
         </div>
       <section className="world-card world-journal">
-        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls"><button type="button" onClick={()=>void refresh()}>Refresh</button><button type="button" disabled={!token || exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button></div></div>
-        <p className="meta">Download the persisted journal, actions, rewards, object observations, workspace and world state as JSON. Enter your owner token under Interaction to enable export.</p>
-        {data?.events.length ? groupJournalEvents(data.events).map(event => (
+        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls"><button type="button" onClick={()=>void refresh()}>Refresh</button><button type="button" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button></div></div>
+        <p className="meta">Download the persisted journal, actions, rewards, object observations, workspace and world state as JSON. Sign in under Settings to export the full history.</p>
+        {data?.events.length ? groupJournalEvents(data.events.filter(event=>event.kind!=="visitor"&&event.kind!=="reply"&&event.kind!=="request"&&event.action!=="REQUEST")).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
             {event.movement && (
