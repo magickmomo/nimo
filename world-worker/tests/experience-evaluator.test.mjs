@@ -33,7 +33,8 @@ test("experience telemetry remains accessible in the Worker, but not the simplif
   assert.match(worker,/path === "\/experience"/);
   assert.doesNotMatch(ui,/Observation-only: verified outcomes, not rewards/);
   assert.doesNotMatch(ui,/\/api\/world\/experience/);
-  assert.match(ui,/Export complete log/);
+  assert.match(ui,/Export log/);
+  assert.match(ui,/title="Export complete world log"/);
 });
 
 const js=ts.transpileModule(evalCode,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
