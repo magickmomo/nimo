@@ -8,7 +8,7 @@ export async function POST(req:NextRequest) {
   if(typeof body.rate!=="number"||body.rate<0||body.rate>2.5||Math.abs(body.rate*10-Math.round(body.rate*10))>1e-7)
     return NextResponse.json({error:"Rate must be 0–2.5 in steps of 0.1"},{status:400});
   try {
-    const response=await fetch(url.replace(/\\/$/,"")+"/hunger-rate",{
+    const response=await fetch(url.replace(/\/$/,"")+"/hunger-rate",{
       method:"POST",headers:{Authorization:"Bearer "+secret,"Content-Type":"application/json"},
       body:JSON.stringify({rate:body.rate}),cache:"no-store",signal:AbortSignal.timeout(10000),
     });
