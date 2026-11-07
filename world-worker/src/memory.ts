@@ -69,10 +69,15 @@ export async function recallMemories(db:D1Database,tags:readonly MemoryCategory[
 }
 export async function saveMemories(db:D1Database,items:readonly MemoryCandidate[],throughEvent:number){
   const now=new Date().toISOString();
+  let changed=0;
   for(const item of items){
-    const current=await db.prepare("SELECT evidence_ids FROM consolidated_memories WHERE topic=?").bind(item.topic).first<{evidence_ids:string}>();
+    const current=await db.prepare("SELECT category,summary,lesson,evidence_ids FROM consolidated_memories WHERE topic=?").bind(item.topic)
+      .first<{category:string;summary:string;lesson:string;evidence_ids:string}>();
     const previous:number[]=current?JSON.parse(current.evidence_ids):[];
     const evidence=[...new Set([...previous,...item.evidence_ids])].slice(-20);
+    if(current&&current.category===item.category&&current.summary===item.summary&&current.lesson===item.lesson &&
+      JSON.stringify(previous)===JSON.stringify(evidence))continue;
+    changed++;
     await db.prepare(`INSERT INTO consolidated_memories(topic,category,summary,lesson,evidence_ids,status,updated_at)
       VALUES(?,?,?,?,?,'tentative',?)
       ON CONFLICT(topic) DO UPDATE SET category=excluded.category,summary=excluded.summary,lesson=excluded.lesson,
@@ -80,6 +85,7 @@ export async function saveMemories(db:D1Database,items:readonly MemoryCandidate[
       .bind(item.topic,item.category,item.summary,item.lesson,JSON.stringify(evidence),now).run();
   }
   await db.prepare("UPDATE memory_consolidation SET last_event_id=MAX(last_event_id,?),last_completed_at=? WHERE id=1").bind(throughEvent,now).run();
+  return changed;
 }
 export async function consolidationSource(db:D1Database,initial=false,options:ConsolidationOptions={}):Promise<MemoryEvent[]>{
   const cursor=await db.prepare("SELECT last_event_id FROM memory_consolidation WHERE id=1").first<{last_event_id:number}>();
@@ -160,8 +166,8 @@ If nothing meaningful happened return an empty memories array. Do not force a me
       :result.choices?.[0]?.message?.content;
     if(!raw)throw Error("Empty memory consolidation response");
     const items=validateCandidates(JSON.parse(raw),source);
-    await saveMemories(db,items,cutoff);
-    return {status:"ok",saved:items.length,processed:source.length,throughEvent:cutoff};
+    const saved=await saveMemories(db,items,cutoff);
+    return {status:"ok",saved,processed:source.length,throughEvent:cutoff};
   }finally{
     await db.prepare("UPDATE memory_consolidation SET last_started_at=NULL WHERE id=1").run();
   }
