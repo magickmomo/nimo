@@ -194,3 +194,13 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-journal-filter select{width:100%;min-width:0;max-width:100%;font-size:13px}
 .world-journal-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
 .world-journal .world-journal-buttons button{min-width:0;width:100%;padding:9px 6px;font-size:12px;white-space:nowrap}
+
+
+/* Nimo's sleeping pose is purely visual and follows the real Sleep/Wake toggle. */
+.nimo-character.is-sleeping{transform-origin:center -20px;animation:nimo-sleep-breathe 2.8s ease-in-out infinite}
+.nimo-sleep-z{transform-box:fill-box;transform-origin:center;animation:nimo-z-float 2.7s ease-out infinite;opacity:0}
+.nimo-sleep-z-two{animation-delay:.8s}
+.nimo-sleep-z-three{animation-delay:1.6s}
+@keyframes nimo-sleep-breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(1.2px)}}
+@keyframes nimo-z-float{0%{transform:translate(0,4px) scale(.75);opacity:0}22%{opacity:.9}75%{opacity:.75}100%{transform:translate(7px,-13px) scale(1.1);opacity:0}}
+@media(prefers-reduced-motion:reduce){.nimo-character.is-sleeping,.nimo-sleep-z{animation:none}.nimo-sleep-z{opacity:.85}.nimo-sleep-z-two{opacity:.7}.nimo-sleep-z-three{opacity:.55}}
