@@ -74,3 +74,49 @@ test("LLM instructions and log preserve the exact model messages",()=>{
  assert.match(route,/messages:modelMessages/);assert.match(route,/return NextResponse\.json\(\{action:/);
  assert.match(page,/traces\.current/);assert.match(page,/JSON\.stringify\(trace\.messages/);
 });
+
+test("Nimo 006 evidence model transfers observed fruit learning to survival projections",async()=>{
+ const helperJS=compile(src("../lib/survival-learning-008.ts")).replace(
+  /from ["']\.\/survival-008["']/g,'from "'+engineURL+'"');
+ const {evidence008,projections008,observationHistory008}=await import(url(helperJS));
+ let s=initial008(48162);
+ s=apply008(s,{type:"travel",treeId:"tree_a"},2);
+ s=apply008(s,{type:"inspect",treeId:"tree_a"},2);
+ s=apply008(s,{type:"pick",treeId:"tree_a"},2);
+ s=apply008(s,{type:"eat",fruit:"amber"},2);
+ const evidence=evidence008(s,2,"evaluation");
+ const memory=evidence008(s,2,"memory");
+ assert.equal(evidence.learnedConsequences.amber.mean,-35);
+ assert.equal(evidence.predictedOutcomes!==undefined,true);
+ assert.equal("predictedOutcomes" in memory,false);
+ assert.deepEqual(evidence.observationHistory,observationHistory008(s));
+ assert(evidence.observationHistory.some(x=>x.observed.includes("Inspected tree_a")));
+ assert(evidence.observationHistory.some(x=>x.observed.includes("Ate amber")));
+ assert(evidence.observationHistory.every(x=>!Object.hasOwn(x,"trueEffect")));
+ assert.equal("seed" in evidence,false);
+ assert.equal("hiddenEffects" in evidence,false);
+ assert(evidence.trees.every(t=>!Object.hasOwn(t,"regrowAt")&&!Object.hasOwn(t,"stock")));
+ const wait=evidence.predictedOutcomes.find(p=>p.action.type==="wait"&&p.action.seconds===10);
+ assert.equal(wait.expectedHungerAfter,Math.min(100,s.hunger+20));
+ const projectedEat=projections008({...s,inventory:["amber"]},2).find(p=>p.action.type==="eat");
+ assert.equal(projectedEat.expectedHungerAfter,Math.max(0,s.hunger+2-35));
+});
+test("unknown food never receives invented predicted benefits",async()=>{
+ const helperJS=compile(src("../lib/survival-learning-008.ts")).replace(
+  /from ["']\.\/survival-008["']/g,'from "'+engineURL+'"');
+ const {projections008}=await import(url(helperJS));
+ const predictions=projections008({...initial008(),inventory:["red"]},2);
+ const eat=predictions.find(p=>p.action.type==="eat");
+ assert.equal(eat.knownEffect,false);
+ assert.equal(eat.expectedHungerAfter,null);
+});
+test("LLM prompt has evidence modes with server-generated predictions and no prescribed tree strategy",()=>{
+ const route=src("../app/api/world/lab/008/decide/route.ts");
+ const page=src("../app/world/lab/008/page.tsx");
+ assert.match(route,/observationHistory:history/);
+ assert.match(route,/const predictions=mode==="evaluation"/);
+ assert.match(route,/Do not invent evidence/);
+ assert.doesNotMatch(route,/Revisit depleted trees after/);
+ assert.match(page,/evidence008\(current,rate,evidenceMode\)/);
+ assert.match(page,/Learned memory \+ timestamped observations/);
+});
