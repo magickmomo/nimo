@@ -25,6 +25,17 @@ test("only evidence-linked candidates with verified outcomes are accepted",()=>{
   assert.deepEqual(validateCandidates({memories:[{...candidate,topic:"not_allowed"}]},events),[]);
   assert.deepEqual(validateCandidates({memories:[{...candidate,evidence_ids:[1,2]},candidate]},events).length,1);
 });
+test("routine food-effect repetitions are rejected as memories",()=>{
+  const meals=Array.from({length:7},(_,i)=>({id:i+10,created_at:"2026-11-07",kind:"tool",action:"EAT_OK",content:"Amber reduced hunger by 35"}));
+  const candidate={topic:"food_effects",category:"food",summary:"Amber fruit repeatedly reduced hunger by thirty five points",
+    lesson:"Amber is useful food because it reduces hunger a lot",evidence_ids:meals.map(e=>e.id)};
+  assert.deepEqual(validateCandidates({memories:[candidate]},meals),[]);
+  assert.doesNotMatch(source,/\\"food_effects\\",\\"food_acquisition\\"/);
+});
+test("historical obstacle source is bounded and does not repeatedly spend tokens",()=>{
+  assert.match(source,/action IN \\('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST'\\)/);
+  assert.match(source,/newEvidence.length<2/);
+});
 test("memory tags use present needs and inventory rather than raw historical repetition",()=>{
   assert.ok(memoryTags({goal:"Find useful food",hunger:.85,inventory:["blue","blue","blue"],actions:[]}).includes("inventory"));
   assert.ok(memoryTags({goal:"Find useful food",hunger:.85,inventory:["blue"],actions:[]}).includes("food"));
