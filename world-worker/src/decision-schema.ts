@@ -88,7 +88,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
         fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
       toolCall = {name:"remember_object",objectId:tool.objectId,label:tool.label,note:tool.note};
     } else if (tool.name === "pick_fruit") {
-      if (!string(tool.treeId,40) || !/^tree_\\d{3}$/.test(tool.treeId))fail("Invalid fruit tree ID");
+      if (!string(tool.treeId,40) || !/^tree_\d{3}$/.test(tool.treeId))fail("Invalid fruit tree ID");
       toolCall={name:"pick_fruit",treeId:tool.treeId};
     } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
       if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
