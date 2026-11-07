@@ -119,3 +119,7 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 /* Needs use the existing compact status-strip layout and visual conventions. */
 .world-status-dot.hunger,.world-status-fill.hunger{background:#e58a59}
 .world-status-dot.tiredness,.world-status-fill.tiredness{background:#729bc6}
+
+/* Keep live-journal actions aligned on narrow screens. */
+.world-journal-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.world-journal-controls button:disabled{opacity:.55;cursor:not-allowed}

@@ -41,6 +41,7 @@ export default function World() {
   const [draft, setDraft] = useState("");
   const [token, setToken] = useState("");
   const [sending, setSending] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -110,6 +111,34 @@ export default function World() {
       setError(err instanceof Error ? err.message : "Failed to send");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function exportWorld() {
+    if (!token || exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const response=await fetch("/api/world/export",{
+        headers:{"x-world-owner-token":token},cache:"no-store",
+      });
+      if(!response.ok) {
+        const body=await response.json() as {error?:string};
+        throw new Error(body.error || "Could not export world history");
+      }
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");
+      link.href=url;
+      link.download="nimo-world-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }catch(err) {
+      setError(err instanceof Error?err.message:"World export failed");
+    }finally {
+      setExporting(false);
     }
   }
 
@@ -297,7 +326,8 @@ export default function World() {
       </div>
         </div>
       <section className="world-card world-journal">
-        <div className="world-journal-head"><h2>Journal</h2><button type="button" onClick={()=>void refresh()}>Refresh</button></div>
+        <div className="world-journal-head"><h2>Journal</h2><div className="world-journal-controls"><button type="button" onClick={()=>void refresh()}>Refresh</button><button type="button" disabled={!token || exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export complete log"}</button></div></div>
+        <p className="meta">Download the persisted journal, actions, rewards, object observations, workspace and world state as JSON. Enter your owner token under Interaction to enable export.</p>
         {data?.events.length ? groupJournalEvents(data.events).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
