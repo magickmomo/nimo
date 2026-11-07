@@ -12,7 +12,7 @@ export async function GET(req:NextRequest) {
   if(!worker || !secret)
     return NextResponse.json({error:"World Worker not configured"},{status:503});
   try {
-    const response=await fetch(worker.replace(/\\/$/,"")+"/export",{
+    const response=await fetch(worker.replace(/\/$/,"")+"/export",{
       headers:{Authorization:"Bearer "+secret},
       cache:"no-store",
       signal:AbortSignal.timeout(30000),
