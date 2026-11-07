@@ -16,6 +16,7 @@ type TraceRecord = {
   id:number;started_at:string;finished_at:string|null;kind:string;
   status:string;detail:string;result:string|null;
 };
+type MemoryRecord={id:number;topic:string;category:string;summary:string;lesson:string;evidence_ids:string;status:string;updated_at:string};
 type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
@@ -50,6 +51,10 @@ export default function World() {
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [memories,setMemories]=useState<MemoryRecord[]>([]);
+  const [memoryBusy,setMemoryBusy]=useState(false);
+  const [memoryMessage,setMemoryMessage]=useState("");
+  const [memoryError,setMemoryError]=useState("");
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
   const [journalCursor,setJournalCursor]=useState<number|null>(null);
@@ -142,6 +147,30 @@ export default function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[journalWindow]);
 
+  const refreshMemories=useCallback(async()=>{
+    try{
+      const response=await fetch("/api/world/memories",{cache:"no-store"});
+      const body=await response.json() as {memories?:MemoryRecord[];error?:string};
+      if(!response.ok)throw Error(body.error||"Could not load memories");
+      setMemories(body.memories??[]);
+      setMemoryError("");
+    }catch(error){setMemoryError(error instanceof Error?error.message:"Could not load memories");}
+  },[]);
+  useEffect(()=>{void refreshMemories()},[refreshMemories]);
+  async function consolidateMemory(){
+    if(memoryBusy)return;
+    setMemoryBusy(true);setMemoryError("");setMemoryMessage("");
+    try{
+      const response=await fetch("/api/world/memories/consolidate",{method:"POST"});
+      const result=await response.json() as {status?:string;saved?:number;processed?:number;error?:string};
+      if(!response.ok)throw Error(result.error||"Consolidation failed");
+      setMemoryMessage(result.status==="ok"
+        ?`Reviewed ${result.processed??0} events and saved ${result.saved??0} memory updates.`
+        :result.status==="no_new_evidence"?"No new significant events to review.":"Consolidation is already running.");
+      await refreshMemories();
+    }catch(error){setMemoryError(error instanceof Error?error.message:"Consolidation failed");}
+    finally{setMemoryBusy(false);}
+  }
   async function changeRate(value:number) {
     if(settingRate)return;
     setSettingRate(true);
@@ -344,6 +373,24 @@ export default function World() {
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
       </details>
+      <section className="world-card world-memory-panel" aria-label="Consolidated memory">
+        <div className="world-memory-heading">
+          <h2>Memory</h2>
+          <button type="button" disabled={memoryBusy} onClick={()=>void consolidateMemory()}>
+            {memoryBusy?"Consolidating…":"Consolidate now"}
+          </button>
+        </div>
+        <p className="meta">Tentative lessons from verified experiences, with links to journal evidence. New memories are not automatically treated as facts.</p>
+        {memoryError&&<p className="world-warning" role="alert">{memoryError}</p>}
+        {memoryMessage&&<p className="meta" role="status">{memoryMessage}</p>}
+        {memories.length ? <div className="world-memory-list">{memories.slice(0,8).map(item=>(
+          <details key={item.id} className="world-memory-entry">
+            <summary><strong>{item.summary}</strong><small>{item.category} · {item.status}</small></summary>
+            <p>{item.lesson}</p>
+            <p className="meta">Journal evidence: {(() => { try{return (JSON.parse(item.evidence_ids) as number[]).join(", ")}catch{return "Unavailable"} })()}</p>
+          </details>
+        ))}</div> : <p className="meta">No consolidated memories yet. Use Consolidate now to review recent journal outcomes.</p>}
+      </section>
       <details className="world-card world-workspace world-secondary-panel">
         <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
         <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
