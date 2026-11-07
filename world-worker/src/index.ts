@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
@@ -20,7 +21,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
@@ -178,7 +179,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -202,7 +203,9 @@ Do not claim a write, inspection or journey has already succeeded in your monolo
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
-You receive outcome-based rewards (not points for attempting actions). In this 9×9 world: first entry to an unvisited tile +10, revisit 0, first inspection of an object +12, changed inspection +8, unchanged inspection -1, first object note +3, revising notes 0, new document +4, overwriting document 0, verified visitor reply +2, failed tool -2, THINK/OBSERVE/REMEMBER/REQUEST without a tool 0. You can compare recent reward history to choose whether something is worth repeating. Do not farm points by cycling actions; a zero-scoring action can still be useful for other reasons. Hunger cannot yet be satisfied because eating is not an available tool. Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
+Only hunger is active now; boredom, happiness and tiredness are paused and should not influence choices. Hunger rises by the provided percentage points per real second (the owner may change this).
+Five trees grow amber, blue or red fruit. Their effects are initially unknown; learn them through actual eating, not colour assumptions. Each tree has 2–3 fruit at capacity and regrows gradually after picking, about once per 75–120 seconds; unseen regeneration schedules are unknown. Your inventory holds at most three fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
+Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
@@ -235,7 +238,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -340,17 +343,21 @@ async function tick(env: Env) {
   const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
     async()=>{await recordSight(env.DB,position);return modelPerception(position);},
     result=>`${result.visibleTiles.length} visible tiles, ${result.visibleObjects.length} visible objects`);
-  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
+  const rate=await hungerRate(env.DB);
+  await refreshFood(env.DB,now.getTime());
+  const food=await foodView(env.DB);
+  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
-  emotions = applyRewards(emotions, earlierRewards);
+  // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
   const rewardHistory = await recentRewards(env.DB, 20);
   const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
-  if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.15); }
+  // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
-  const priority = computePriorityPolicy(state.emotions, objects, pendingMessage !== null);
+  const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
-  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null);
+  const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,food,adjacentTreeIds);
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -362,7 +369,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
