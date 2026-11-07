@@ -130,7 +130,7 @@ async function exportLedger(db:D1Database, model:string) {
   const result:Record<string,unknown>={
     format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
     world,position,journey,autonomousEnabled:control,
-    documents:workspace,environmentMemory:memory,objects,
+    documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
@@ -350,7 +350,7 @@ async function tick(env: Env) {
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
   // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
-  const rewardHistory = await recentRewards(env.DB, 20);
+  const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
   const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
@@ -419,10 +419,32 @@ async function tick(env: Env) {
         const found = await traced(env.DB,"inspect",`Inspect object ${call.direction} of Nimo`,
           ()=>inspectObject(env.DB,call.direction),
           result=>`${result.objectId}: ${result.comparison}; ${result.recordedObservations} recorded observations`);
-        toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.`;
+        const fruit=found.objectId.startsWith("tree_") ? await inspectFruit(env.DB,found.objectId) : null;
+        toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
+          (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "");
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
+      } else if (call.name === "pick_fruit") {
+        if(!menu.pickTreeIds.includes(call.treeId))throw Error("Fruit picking was not available");
+        const picked=await traced(env.DB,"inspect",`Pick fruit from ${call.treeId}`,
+          ()=>pickFruit(env.DB,call.treeId,position),v=>`Picked ${v.fruit} from ${v.treeId}`);
+        toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 3).`;
+        await log(env.DB,"tool",toolOutcome,"PICK_OK");
+      } else if (call.name === "eat_fruit") {
+        if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
+        const eaten=await traced(env.DB,"inspect",`Eat ${call.fruit} fruit`,
+          ()=>eatFruit(env.DB,call.fruit,state.emotions.hunger,rate),
+          v=>`Hunger ${v.before}% to ${v.after}%`);
+        state.emotions.hunger=eaten.hunger;
+        toolOutcome=`EAT OK: ${eaten.fruit}; observed hunger ${eaten.before}% to ${eaten.after}%.`+
+          (eaten.censored?" Observation censored at boundary.":"");
+        await log(env.DB,"tool",toolOutcome,"EAT_OK");
+      } else if (call.name === "discard_fruit") {
+        if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
+        await discardFruit(env.DB,call.fruit);
+        toolOutcome=`DISCARD OK: ${call.fruit} fruit.`;
+        await log(env.DB,"tool",toolOutcome,"DISCARD_OK");
       } else if (call.name === "remember_object") {
         const beforeNote = await env.DB.prepare("SELECT object_id FROM object_notes WHERE object_id=?")
           .bind(call.objectId).first();
@@ -462,7 +484,7 @@ async function tick(env: Env) {
   // Newly executed actions are scored only from recorded outcomes, then applied
   // to the same four existing meters before persisting state.
   const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
-  state.emotions = applyRewards(state.emotions,newRewards);
+  // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const next: WorldState = {
     ...state, identity, beliefs: beliefs.slice(-30),
@@ -476,7 +498,7 @@ async function tick(env: Env) {
     // Subsequent decisions can reliably find the next unanswered visitor message.
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
   } else {
-    await log(env.DB, "thought", d.monologue, d.action);
+    await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
   }
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
@@ -516,12 +538,24 @@ export default {
       const path = new URL(request.url).pathname;
       // Lightweight status poll. Historical journal, documents and observations
       // are deliberately excluded so the dashboard can update without D1 scans.
+      if (path === "/messages" && request.method === "GET") {
+        const history=await env.DB.prepare(
+          "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply','request') OR action='REQUEST' ORDER BY id DESC LIMIT 250"
+        ).all<EventRow>();
+        return json({messages:history.results.reverse()});
+      }
+      if (path === "/hunger-rate" && request.method === "POST") {
+        const body=await request.json() as {rate?:unknown};
+        if(!validHungerRate(body.rate))return json({error:"Rate must be 0–2.5 in 0.1 increments"},400);
+        await setHungerRate(env.DB,body.rate);
+        return json({hungerRate:await hungerRate(env.DB)});
+      }
       if (path === "/snapshot/live" && request.method === "GET") {
         const [world,position,journey,enabled] = await Promise.all([
           getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled});
+        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
@@ -530,7 +564,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], rewards: await recentRewards(env.DB, 30), rewardTotal: await totalRewards(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
