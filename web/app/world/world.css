@@ -217,3 +217,10 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-memory-entry summary small{display:block;font-size:11px;color:#6e8078;font-weight:400;text-transform:capitalize;margin-top:2px}
 .world-memory-entry p{font-size:13px;line-height:1.6;margin:9px 0 0}
 .world-memory-entry:focus-within{outline-color:#325e51}
+
+
+.world-memory-evidence{border-top:1px solid #e3ebe7;padding-top:10px;margin-top:10px}
+.world-memory-evidence>strong{font-size:12px}
+.world-memory-evidence ul{list-style:none;padding:0;margin:8px 0 0}
+.world-memory-evidence li{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid #edf0ee;overflow-wrap:anywhere;font-size:12px}
+.world-memory-evidence time{color:#6a8075;font-size:11px}
