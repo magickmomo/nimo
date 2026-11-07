@@ -85,3 +85,10 @@ test("window controls pass through UI and server boundaries",()=>{
   assert.match(source,/created_at<=\?/);
   assert.match(source,/JSON.stringify\(previous\)===JSON.stringify\(evidence\)/);
 });
+
+test("explicit historical windows bypass already-reviewed event cursor",()=>{
+  assert.match(source,/bounds.window==="since"&&bounds.mode==="incremental"/);
+  assert.match(source,/eligible.filter\(e=>e.id>gate.last_event_id\):eligible/);
+  assert.match(source,/reason:source.length===0\?"empty_window":"insufficient_verified_evidence"/);
+  assert.match(ui,/No matching journal events found in the selected period/);
+});
