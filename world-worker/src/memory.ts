@@ -129,9 +129,13 @@ export async function runConsolidation(db:D1Database,apiKey:string,model:string,
   const source=await consolidationSource(db,gate.last_event_id===0,options);
   // Historical obstacle windows are reference context, not permission to
   // repeatedly bill the model when no new evidence has arrived.
-  const verified=source.filter(e=>(e.kind==="tool"||e.kind==="request"||e.action==="REQUEST") &&
-    (bounds.mode==="rebuild"||e.id>gate.last_event_id));
-  if(verified.length<2)return {status:"no_new_evidence",saved:0,processed:0};
+  // A manually selected time range must be reviewable even after the cursor advances.
+  // Only the default "since" mode is gated by the new-event cursor.
+  const eligible=source.filter(e=>e.kind==="tool"||e.kind==="request"||e.action==="REQUEST");
+  const verified=bounds.window==="since"&&bounds.mode==="incremental"
+    ?eligible.filter(e=>e.id>gate.last_event_id):eligible;
+  if(verified.length<2)return {status:"no_new_evidence",saved:0,processed:source.length,eligible:verified.length,
+    reason:source.length===0?"empty_window":"insufficient_verified_evidence"};
   const cutoff=Math.max(...source.map(e=>e.id));
   const claim=await db.prepare("UPDATE memory_consolidation SET last_started_at=? WHERE id=1 AND last_event_id=? AND (last_started_at IS NULL OR last_started_at<?)")
     .bind(new Date(now).toISOString(),gate.last_event_id,new Date(now-90000).toISOString()).run();
