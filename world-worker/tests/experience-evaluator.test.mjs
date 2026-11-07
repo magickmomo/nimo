@@ -28,11 +28,12 @@ test("experience telemetry is persisted idempotently without touching motivation
   assert.doesNotMatch(evalCode,/applyRewards/);
   assert.doesNotMatch(evalCode,/updateEmotions/);
 });
-test("experience endpoint and dashboard remain read only",()=>{
+test("experience telemetry remains accessible in the Worker, but not the simplified main dashboard",()=>{
   const ui=read("../../web/app/world/page.tsx");
   assert.match(worker,/path === "\/experience"/);
-  assert.match(ui,/Observation-only: verified outcomes, not rewards/);
-  assert.match(ui,/\/api\/world\/experience/);
+  assert.doesNotMatch(ui,/Observation-only: verified outcomes, not rewards/);
+  assert.doesNotMatch(ui,/\/api\/world\/experience/);
+  assert.match(ui,/Export complete log/);
 });
 
 const js=ts.transpileModule(evalCode,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
