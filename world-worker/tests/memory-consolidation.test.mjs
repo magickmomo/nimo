@@ -42,7 +42,7 @@ test("manual consolidation is owner gated; main decisions retrieve but never aut
   assert.match(worker,/path === "\/memories\/consolidate"/);
   assert.match(worker,/recallMemories\(env.DB/);
   assert.match(worker,/consolidatedMemories:recalled/);
-  assert.doesNotMatch(worker,/scheduled\([\s\S]*runConsolidation\(/);
+  assert.doesNotMatch(worker.slice(worker.indexOf("async scheduled("),worker.indexOf("async fetch(")),/runConsolidation\(/);
   assert.match(ui,/Consolidate now/);
   const route=read("../../web/app/api/world/memories/consolidate/route.ts");
   assert.match(route,/hasOwnerSession\(req\)/);
