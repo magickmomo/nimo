@@ -74,9 +74,22 @@ export async function consolidationSource(db:D1Database,initial=false):Promise<M
     AND (kind IN ('tool','request','visitor','reply') OR action IN ('REQUEST','THINK','TRAVEL_START','DISCARD_OK','PICK_OK','EAT_OK','PURCHASE_FAILED'))
     ORDER BY id DESC LIMIT ?`).bind(cursor.last_event_id,initial?350:200).all<MemoryEvent>();
   const ascending=rows.results.reverse();
-  const thoughts=ascending.filter(e=>e.action==="THINK").slice(-12);
-  const other=ascending.filter(e=>e.action!=="THINK").slice(-95);
-  return [...other,...thoughts].sort((a,b)=>a.id-b.id);
+  const thoughts=ascending.filter(e=>e.action==="THINK").slice(-10);
+  const other=ascending.filter(e=>e.action!=="THINK").slice(-55);
+  // Sample notable historical obstacles even after the cursor advanced during
+  // the initial food-statistics consolidation. Do not replay the whole journal.
+  const anchors=await db.prepare(`SELECT id FROM events
+    WHERE action IN ('DISCARD_OK','PURCHASE_FAILED','PRIORITY_BLOCK','REQUEST')
+    ORDER BY id DESC LIMIT 8`).all<{id:number}>();
+  const windows=await Promise.all(anchors.results.slice(0,4).map(async anchor=>
+    (await db.prepare("SELECT id,created_at,kind,content,action FROM events WHERE id BETWEEN ? AND ? ORDER BY id ASC LIMIT 32")
+      .bind(Math.max(0,anchor.id-14),anchor.id+17).all<MemoryEvent>()).results));
+  const selected=new Map<number,MemoryEvent>();
+  for(const e of [...windows.flat(),...other,...thoughts]){
+    if(e.action==="EAT_OK" && !windows.some(window=>window.some(w=>w.id===e.id)))continue;
+    selected.set(e.id,e);
+  }
+  return [...selected.values()].sort((a,b)=>a.id-b.id).slice(-150);
 }
 export async function runConsolidation(db:D1Database,apiKey:string,model:string,force=false){
   if(!apiKey)throw Error("AI key not configured");
