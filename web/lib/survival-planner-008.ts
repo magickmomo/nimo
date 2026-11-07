@@ -57,9 +57,14 @@ export function localDecision008(s:State008,rate=1):{action:Action008;reason:str
   .sort((a,b)=>a.distance-b.distance||b.age-a.age||a.tree.id.localeCompare(b.tree.id));
  if(recovery.length){
   const candidate=recovery[0];
-  if(candidate.distance===0)
+  if(candidate.distance===0){
+   // Inspecting every second would just replace one stalled baseline with
+   // a costly inspection loop. Recheck after a short interval instead.
+   if(candidate.tree.seenStock===0&&candidate.age<5)
+    return wait(5,"Nearby beneficial tree was just checked; allow time before checking again.");
    return {action:{type:"inspect",treeId:candidate.tree.id},
     reason:"Recheck previously depleted beneficial tree; last observation may be stale."};
+  }
   return {action:{type:"travel",treeId:candidate.tree.id},
    reason:"Revisit beneficial tree because previously empty stock may have replenished."};
  }
