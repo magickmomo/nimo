@@ -634,7 +634,16 @@ export default {
       }
       if (path === "/memories/consolidate" && request.method === "POST") {
         // Explicit owner action only in v1: no periodic LLM cost until validated.
-        return json(await runConsolidation(env.DB,env.OPENAI_API_KEY,env.OPENAI_MODEL || "gpt-6.1-sol"));
+        const body=await request.json().catch(()=>({})) as {window?:unknown;mode?:unknown;from?:unknown;to?:unknown};
+        const allowed=["since","6h","24h","7d","all","custom"];
+        if(body.window!==undefined&&!allowed.includes(body.window as string))return json({error:"Invalid consolidation window"},400);
+        if(body.mode!==undefined&&!["incremental","rebuild"].includes(body.mode as string))return json({error:"Invalid consolidation mode"},400);
+        if((body.from!==undefined&&typeof body.from!=="string")||(body.to!==undefined&&typeof body.to!=="string"))return json({error:"Invalid date range"},400);
+        return json(await runConsolidation(env.DB,env.OPENAI_API_KEY,env.OPENAI_MODEL || "gpt-6.1-sol",{
+          window:body.window as "since"|"6h"|"24h"|"7d"|"all"|"custom"|undefined,
+          mode:body.mode as "incremental"|"rebuild"|undefined,
+          from:body.from as string|undefined,to:body.to as string|undefined
+        }));
       }
       if (path === "/experience" && request.method === "GET") {
         return json({evaluations:await recentExperiences(env.DB,60),mode:"observation_only"});
