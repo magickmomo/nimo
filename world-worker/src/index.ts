@@ -152,6 +152,7 @@ async function exportLedger(db:D1Database, model:string) {
     ["actionTrace","SELECT id,started_at,finished_at,kind,status,detail,result,metadata FROM action_trace ORDER BY id ASC LIMIT ?"],
     ["rewards","SELECT id,created_at,action,points,detail FROM world_rewards ORDER BY id ASC LIMIT ?"],
     ["objectObservations","SELECT id,object_id,observed_at,properties_json,comparison,changed_properties FROM object_observations ORDER BY id ASC LIMIT ?"],
+    ["experienceEvaluations","SELECT id,source_key,event_id,created_at,action,subject,repetition,learning,surprise,progress,evidence FROM experience_evaluations ORDER BY id ASC LIMIT ?"],
   ] as const;
   const tables=await Promise.all(ledgers.map(async ([name,sql])=>{
     const result=await db.prepare(sql).bind(MAX_ROWS+1).all<Record<string,unknown>>();
@@ -167,7 +168,6 @@ async function exportLedger(db:D1Database, model:string) {
     world,position,journey,autonomousEnabled:control,
     documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
-    experienceEvaluations:await recentExperiences(db,100),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
     if(table.name==="actionTrace" && typeof row.metadata==="string") {
