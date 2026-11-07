@@ -3,6 +3,7 @@ import {useRef,useState} from "react";
 import {initial008,apply008,view008,actions008,key008,hiddenEffects008,
  type State008,type Action008,type Event008} from "../../../../lib/survival-008";
 import {localDecision008} from "../../../../lib/survival-planner-008";
+import {evidence008,type EvidenceMode008} from "../../../../lib/survival-learning-008";
 import "../lab.css";
 import "./survival.css";
 type Arm="local"|"llm";
@@ -15,6 +16,7 @@ const sleep=(ms:number,signal:AbortSignal)=>new Promise<void>(resolve=>{
 });
 export default function Nimo008(){
  const [seed,setSeed]=useState(48162),[rate,setRate]=useState(1);
+ const [evidenceMode,setEvidenceMode]=useState<EvidenceMode008>("evaluation");
  const [states,setStates]=useState<Record<Arm,State008>>({local:initial008(),llm:initial008()});
  const latest=useRef(states),traces=useRef<Record<Arm,Trace[]>>({local:[],llm:[]});
  const [arm,setArm]=useState<Arm>("local"),[token,setToken]=useState("");
@@ -31,7 +33,7 @@ export default function Nimo008(){
   if(which==="local")return localDecision008(current,rate);
   const response=await fetch("/api/world/lab/008/decide",{method:"POST",signal,
    headers:{"Content-Type":"application/json","x-lab-owner-token":token},
-   body:JSON.stringify({view:view008(current),rate})});
+   body:JSON.stringify({view:evidence008(current,rate,evidenceMode),rate,evidenceMode})});
   const data=await response.json() as {action?:Action008;reason?:string;error?:string;modelMessages?:Trace["messages"]};
   if(!response.ok||!data.action||typeof data.reason!=="string"||!Array.isArray(data.modelMessages))
    throw Error(data.error||"Model response invalid");
@@ -58,7 +60,7 @@ export default function Nimo008(){
  }
  function exportLog(){
   const state=latest.current[arm],lines=["# Nimo 008 — Survival Planning","","- Seed: "+seed,
-   "- Mode: "+arm,"- Hunger rate: "+rate,"- Simulated seconds: "+state.seconds,
+   "- Mode: "+arm,"- LLM evidence mode: "+evidenceMode,"- Hunger rate: "+rate,"- Simulated seconds: "+state.seconds,
    "- Decisions: "+state.events.length,"- Final hunger: "+state.hunger,"",
    "## Hidden effects — analysis only","",JSON.stringify(hiddenEffects008(seed),null,2),"",
    "## Learned experience","",JSON.stringify(state.memory,null,2),"","## Decisions",""];
@@ -107,7 +109,14 @@ export default function Nimo008(){
     {arm==="llm"&&<><label htmlFor="s008token">Owner token</label>
      <input id="s008token" type="password" value={token} disabled={busy} autoComplete="off"
       onChange={e=>setToken(e.target.value)} placeholder="Required for LLM mode"/>
-     <p className="lab-muted">LLM decisions cost API tokens, but waiting or travelling several seconds only takes one call.</p></>}
+     <p className="lab-muted">LLM decisions cost API tokens, but waiting or travelling several seconds only takes one call.</p>
+     <label htmlFor="s008evidence">Experience used by the LLM</label>
+     <select id="s008evidence" value={evidenceMode} disabled={busy||states.llm.events.length>0}
+      onChange={e=>setEvidenceMode(e.target.value as EvidenceMode008)}>
+      <option value="memory">Learned memory + timestamped observations</option>
+      <option value="evaluation">Memory + predicted action outcomes (Nimo 006)</option>
+     </select>
+     <p className="lab-muted">Both modes learn continuously. The evaluation mode also receives predicted hunger after each action, calculated only from previous evidence.</p></>}
     <label htmlFor="s008rate">Hunger increase per simulated second: {rate} points</label>
     <input id="s008rate" type="range" min="0" max="3" step="0.5" value={rate}
      disabled={busy||states.local.events.length>0||states.llm.events.length>0}
@@ -130,7 +139,7 @@ export default function Nimo008(){
     <h3>Learned effects</h3><table className="lab-table"><thead><tr><th>Fruit</th><th>Trials</th><th>Estimated effect</th></tr></thead>
      <tbody>{(["amber","blue","red"] as const).map(f=><tr key={f}><td>{f}</td>
       <td>{s.memory[f]?.count??0}</td><td>{s.memory[f]?.mean==null?"Unknown":s.memory[f]?.mean+" points"}</td></tr>)}</tbody></table>
-    <p className="lab-muted">Nimo cannot see hidden fruit effects, current stock after leaving a tree, or exact regrowth timers.</p>
+    <p className="lab-muted">Nimo cannot see hidden fruit effects, current stock after leaving a tree, or exact regrowth timers. The LLM receives timestamped observations, so it may develop and revise its own hypotheses about regrowth.</p>
    </div>
    <div className="lab-panel"><h2>Recent decisions</h2>
     {s.events.length===0?<p className="lab-muted">No decisions yet.</p>:<ol className="lab-history">
