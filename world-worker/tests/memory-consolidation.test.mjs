@@ -1,0 +1,54 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import ts from "typescript";
+const read=p=>readFileSync(new URL(p,import.meta.url),"utf8");
+const source=read("../src/memory.ts");
+const worker=read("../src/index.ts");
+const schema=read("../schema.sql");
+const ui=read("../../web/app/world/page.tsx");
+const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {validateCandidates,memoryTags}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+const events=[
+  {id:1,created_at:"2026-11-07",kind:"thought",action:"THINK",content:"I might pick amber"},
+  {id:2,created_at:"2026-11-07",kind:"tool",action:"DISCARD_OK",content:"Discarded a blue fruit"},
+  {id:3,created_at:"2026-11-07",kind:"tool",action:"PICK_OK",content:"Picked amber"},
+  {id:4,created_at:"2026-11-07",kind:"tool",action:"EAT_OK",content:"Hunger reduced"},
+];
+test("only evidence-linked candidates with verified outcomes are accepted",()=>{
+  const candidate={topic:"inventory_capacity",category:"inventory",summary:"Discarding blue fruit made room for amber while hungry",
+    lesson:"A full inventory can block obtaining a more useful resource",evidence_ids:[1,2,3,4]};
+  assert.equal(validateCandidates({memories:[candidate]},events).length,1);
+  assert.deepEqual(validateCandidates({memories:[{...candidate,evidence_ids:[1,99]}]},events),[]);
+  assert.deepEqual(validateCandidates({memories:[{...candidate,evidence_ids:[1]}]},events),[]);
+  assert.deepEqual(validateCandidates({memories:[{...candidate,evidence_ids:[1,1]}]},events),[]);
+  assert.deepEqual(validateCandidates({memories:[{...candidate,topic:"not_allowed"}]},events),[]);
+  assert.deepEqual(validateCandidates({memories:[{...candidate,evidence_ids:[1,2]},candidate]},events).length,1);
+});
+test("memory tags use present needs and inventory rather than raw historical repetition",()=>{
+  assert.ok(memoryTags({goal:"Find useful food",hunger:.85,inventory:["blue","blue","blue"],actions:[]}).includes("inventory"));
+  assert.ok(memoryTags({goal:"Find useful food",hunger:.85,inventory:["blue"],actions:[]}).includes("food"));
+  assert.ok(!memoryTags({goal:null,hunger:.1,inventory:[],actions:[]}).includes("inventory"));
+});
+test("migration is additive; memories have unique topics and durable evidence",()=>{
+  assert.match(schema,/CREATE TABLE IF NOT EXISTS consolidated_memories/);
+  assert.match(schema,/topic TEXT NOT NULL UNIQUE/);
+  assert.match(schema,/evidence_ids TEXT NOT NULL/);
+  assert.match(schema,/CREATE TABLE IF NOT EXISTS memory_consolidation/);
+  assert.match(source,/ON CONFLICT\(topic\) DO UPDATE/);
+  assert.match(source,/last_event_id=MAX\(last_event_id,\?\)/);
+});
+test("manual consolidation is owner gated; main decisions retrieve but never auto-run consolidation",()=>{
+  assert.match(worker,/path === "\/memories\/consolidate"/);
+  assert.match(worker,/recallMemories\(env.DB/);
+  assert.match(worker,/consolidatedMemories:recalled/);
+  assert.doesNotMatch(worker,/scheduled\([\s\S]*runConsolidation\(/);
+  assert.match(ui,/Consolidate now/);
+  const route=read("../../web/app/api/world/memories/consolidate/route.ts");
+  assert.match(route,/hasOwnerSession\(req\)/);
+});
+test("core-belief accumulation is retired without deleting prior beliefs",()=>{
+  assert.doesNotMatch(worker,/beliefs\.push\(/);
+  assert.match(worker,/const beliefs = state\.beliefs/);
+  assert.match(worker,/beliefs: \[\]/);
+});
