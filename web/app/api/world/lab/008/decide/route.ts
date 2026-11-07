@@ -70,15 +70,45 @@ export async function POST(req:NextRequest){
  const prompt={...clean,...(predictions?{predictedOutcomes:predictions}:{})};
  const instruction="You are Nimo in an experimental world. Your only objective is to avoid prolonged or severe hunger over time. You may travel to trees (one decision can take multiple simulated seconds), inspect them, pick and carry up to three fruit, eat, discard or wait 1/5/10/20 seconds. Every simulated second increases hunger at the stated rate. Your observations and experience records are evidence, not guaranteed permanent facts; you can draw and revise hypotheses from them. Unknown fruit effects and unobserved regrowth times are genuinely unknown. Choose one available action based on your observations and what you have learned. Do not invent evidence, assume unseen fruit effects or treat uncertain predictions as certainty. Give a concise reason for your choice.";
  const modelMessages=[{role:"system",content:instruction},{role:"user",content:JSON.stringify(prompt)}];
- try{const res=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",
-  headers:{"Authorization":"Bearer "+process.env.LAB_OPENAI_API_KEY,"Content-Type":"application/json"},
-  body:JSON.stringify({model:process.env.LAB_OPENAI_MODEL||"gpt-4.1-mini",temperature:0,max_tokens:190,
-   response_format:{type:"json_schema",json_schema:{name:"nimo008",strict:true,schema:{type:"object",
-    properties:{actionIndex:{type:"integer"},reason:{type:"string"}},required:["actionIndex","reason"],additionalProperties:false}}},
-   messages:modelMessages}),signal:AbortSignal.timeout(20000)});
-  if(!res.ok)return fail("Model returned "+res.status,502);
-  const data=await res.json() as {choices?:{message?:{content?:string}}[]},raw=data.choices?.[0]?.message?.content;
-  if(!raw)return fail("Empty model answer",502);
+ const model=process.env.LAB_OPENAI_MODEL||"gpt-4.1-mini";
+ const reasoningModel=/^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+ const schema={type:"object",properties:{actionIndex:{type:"integer"},reason:{type:"string"}},
+  required:["actionIndex","reason"],additionalProperties:false};
+ try{
+  // GPT-6 reasoning models use Responses: legacy Chat Completions
+  // temperature:0 and max_tokens are not accepted by these models.
+  const endpoint=reasoningModel?"responses":"chat/completions";
+  const payload=reasoningModel?{
+   model,input:modelMessages,
+   reasoning:{effort:"low"},
+   max_output_tokens:1200,
+   text:{format:{type:"json_schema",name:"nimo008",strict:true,schema}},
+  }:{
+   model,temperature:0,max_tokens:190,
+   response_format:{type:"json_schema",json_schema:{name:"nimo008",strict:true,schema}},
+   messages:modelMessages,
+  };
+  const res=await fetch("https://api.openai.com/v1/"+endpoint,{method:"POST",
+   headers:{"Authorization":"Bearer "+process.env.LAB_OPENAI_API_KEY,"Content-Type":"application/json"},
+   body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});
+  if(!res.ok){
+   // Surface the API's safe, bounded diagnostic instead of hiding HTTP 400.
+   const details=await res.json().catch(()=>null) as {error?:{message?:string;code?:string}}|null;
+   const message=details?.error?.message?.slice(0,280)||"Unknown API error";
+   return fail("Model "+model+" returned "+res.status+": "+message,502);
+  }
+  const data=await res.json() as {
+   choices?:{message?:{content?:string}}[];
+   status?:string;
+   output?:{type?:string;content?:{type?:string;text?:string}[]}[];
+   incomplete_details?:{reason?:string};
+  };
+  const raw=reasoningModel?
+   data.output?.flatMap(o=>o.content??[]).filter(p=>p.type==="output_text").map(p=>p.text??"").join("")||
+    null:
+   data.choices?.[0]?.message?.content;
+  if(!raw)return fail("Empty model answer"+(data.incomplete_details?.reason?
+   " ("+data.incomplete_details.reason+")":""),502);
   const reply=JSON.parse(raw) as {actionIndex?:number;reason?:string};
   if(!Number.isInteger(reply.actionIndex)||reply.actionIndex!<0||reply.actionIndex!>=actions.length||typeof reply.reason!=="string")
    return fail("Model chose invalid action",502);
