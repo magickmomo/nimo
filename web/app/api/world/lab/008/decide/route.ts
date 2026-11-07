@@ -17,10 +17,58 @@ export async function POST(req:NextRequest){
   !Array.isArray(actions)||!actions.length||actions.length>30||!actions.every(valid)||
   !Array.isArray(v.trees)||v.trees.length!==5||!Array.isArray(v.inventory)||v.inventory.length>3||
   typeof body.rate!=="number"||!Number.isFinite(body.rate)||body.rate<0||body.rate>5)return fail("Invalid state",400);
- // Hidden effects, exact stock since inspection, regrowth timers, and seed are never sent.
- const prompt={position:v.position,hunger:v.hunger,seconds:v.seconds,inventory:v.inventory,
-  trees:v.trees,memory:v.memory,availableActions:actions,hungerPointsPerSimulatedSecond:body.rate};
- const instruction="You are Nimo in an isolated world. Your ONE drive is to keep hunger LOW over the long term (0 best, 100 worst). Food trees contain finite fruits and have unknown regrowth times. Inspect adjacent trees to learn fruit type and currently available stock; past sightings become stale, not guaranteed fresh stock. Eating teaches effects through changes in hunger. Trees can be reached via travel, a single action that moves along a shortest path over several simulated seconds. Waiting can advance 1, 5, 10, or 20 simulated seconds in one decision. Hunger increases each simulated second at the given rate. Inventory holds up to 3 fruits. You can save fruit for later, inspect backup resources, explore safely, and discard known harmful food. Do not claim knowledge of any hidden effects or regrowth timers. Choose only ONE index of the availableActions and provide a short reason. If hungry with a known helpful fruit, use it; if food is secure, consider exploring alternatives rather than waiting pointlessly.";
+ // Nimo 006 transferred: learned consequences, time-stamped experience and
+ // optionally a predicted-outcomes table derived from OBSERVED estimates.
+ // The engine's hidden mapping, seed, current unseen stock and regrowth timers
+ // are deliberately absent from the client view and model prompt.
+ const mode=body.evidenceMode==="evaluation"?"evaluation":"memory";
+ const memory:Record<string,{count:number;informative:number;mean:number|null;minimumRelief:number;helpful:number;harmful:number}>={};
+ const source=v.learnedConsequences;
+ if(source&&typeof source==="object"&&!Array.isArray(source)){
+  for(const fruit of fruits){const item=(source as Record<string,unknown>)[fruit];
+   if(!item||typeof item!=="object"||Array.isArray(item))continue;
+   const m=item as Record<string,unknown>;
+   if(!Number.isInteger(m.count)||!(Number(m.count)>0)||Number(m.count)>1000||
+    !Number.isInteger(m.informative)||Number(m.informative)<0||Number(m.informative)>Number(m.count)||
+    (m.mean!==null&&(typeof m.mean!=="number"||!Number.isFinite(m.mean)||Math.abs(m.mean)>100))||
+    typeof m.minimumRelief!=="number"||!Number.isFinite(m.minimumRelief)||m.minimumRelief<0||m.minimumRelief>100||
+    !Number.isInteger(m.helpful)||!Number.isInteger(m.harmful))continue;
+   memory[fruit]={count:Number(m.count),informative:Number(m.informative),
+    mean:m.mean===null?null:Number(m.mean),minimumRelief:Number(m.minimumRelief),
+    helpful:Number(m.helpful),harmful:Number(m.harmful)};
+  }
+ }
+ const history=Array.isArray(v.observationHistory)?v.observationHistory.slice(-50).filter(e=>{
+  if(!e||typeof e!=="object"||Array.isArray(e))return false;
+  const row=e as Record<string,unknown>;
+  return typeof row.atSecond==="number"&&Number.isFinite(row.atSecond)&&
+   typeof row.observed==="string"&&row.observed.length<=250;
+ }).map(e=>{
+  const row=e as Record<string,unknown>;
+  return {atSecond:row.atSecond,observed:row.observed};
+ }):[];
+ const trees=(v.trees as Record<string,unknown>[]).map(t=>({
+  id:t.id,x:t.x,y:t.y,fruit:t.fruit,
+  lastSeenStock:t.lastSeenStock,lastInspectedAt:t.lastInspectedAt,
+  travelSeconds:t.travelSeconds
+ }));
+ const clean={position:v.position,hunger:v.hunger,seconds:v.seconds,
+  inventory:v.inventory,trees,learnedConsequences:memory,
+  observationHistory:history,availableActions:actions,hungerPointsPerSimulatedSecond:body.rate};
+ // Compute predictions here from sanitized learned evidence; do not accept
+ // hypothetical projections supplied by the browser as model truth.
+ const predictions=mode==="evaluation"?actions.map(a=>{
+  const item=a as Record<string,unknown>;
+  const duration=item.type==="wait"?Number(item.seconds):
+   item.type==="travel"?Number(trees.find(t=>t.id===item.treeId)?.travelSeconds):1;
+  const effect=item.type==="eat"?memory[String(item.fruit)]?.mean??null:0;
+  const estimated=effect===null||!Number.isFinite(duration)?null:
+   Math.round(Math.max(0,Math.min(100,Number(v.hunger)+Number(body.rate)*duration+effect))*100)/100;
+  return {action:item,simulatedSeconds:duration,knownEffect:effect!==null,
+   expectedHungerAfter:estimated};
+ }):null;
+ const prompt={...clean,...(predictions?{predictedOutcomes:predictions}:{})};
+ const instruction="You are Nimo in an experimental world. Your only objective is to avoid prolonged or severe hunger over time. You may travel to trees (one decision can take multiple simulated seconds), inspect them, pick and carry up to three fruit, eat, discard or wait 1/5/10/20 seconds. Every simulated second increases hunger at the stated rate. Your observations and experience records are evidence, not guaranteed permanent facts; you can draw and revise hypotheses from them. Unknown fruit effects and unobserved regrowth times are genuinely unknown. Choose one available action based on your observations and what you have learned. Do not invent evidence, assume unseen fruit effects or treat uncertain predictions as certainty. Give a concise reason for your choice.";
  const modelMessages=[{role:"system",content:instruction},{role:"user",content:JSON.stringify(prompt)}];
  try{const res=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",
   headers:{"Authorization":"Bearer "+process.env.LAB_OPENAI_API_KEY,"Content-Type":"application/json"},
