@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
@@ -20,7 +21,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
@@ -107,6 +108,40 @@ async function events(db: D1Database, count = 60) {
     .bind(count).all<EventRow>();
   return r.results;
 }
+/** Dashboard journal omits private conversations. The private Messages route
+ * and model context keep the complete records in D1. */
+async function publicEvents(db:D1Database,count=60) {
+  const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+    WHERE kind NOT IN ('visitor','reply','request')
+      AND (action IS NULL OR action <> 'REQUEST')
+    ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
+  return result.results;
+}
+/** On-demand journal pagination. Keep private conversation events in Messages.
+ * Stable keyset cursor avoids slow OFFSET scans and prevents duplicate rows.
+ * The cutoff is anchored to the first page so paging doesn't drift.
+ */
+async function journalPage(db:D1Database,window:string,before:number|null,until:string) {
+  const seconds:Record<string,number>={"1h":3600,"6h":21600,"24h":86400,"all":0};
+  if(!(window in seconds))throw new Error("Invalid journal window");
+  const limit=60;
+  const since=seconds[window] ? new Date(Date.parse(until)-seconds[window]*1000).toISOString() : null;
+  const predicates=[
+    "kind NOT IN ('visitor','reply','request')",
+    "(action IS NULL OR action <> 'REQUEST')",
+    "created_at <= ?",
+  ];
+  const bindings:(string|number)[]=[until];
+  if(since){predicates.push("created_at >= ?");bindings.push(since);}
+  if(before!==null){predicates.push("id < ?");bindings.push(before);}
+  const rows=await db.prepare(
+    `SELECT id,created_at,kind,content,action FROM events
+      WHERE ${predicates.join(" AND ")} ORDER BY id DESC LIMIT ?`
+  ).bind(...bindings,limit+1).all<EventRow>();
+  const entries=rows.results.slice(0,limit);
+  return {events:entries,hasMore:rows.results.length>limit,
+    nextCursor:entries.length?entries[entries.length-1].id:null,until,window};
+}
 // Owner-only historical export. Snapshot polling stays small; this is a deliberate,
 // on-demand read of the complete retained ledgers (up to 10,000 rows per table).
 async function exportLedger(db:D1Database, model:string) {
@@ -129,7 +164,7 @@ async function exportLedger(db:D1Database, model:string) {
   const result:Record<string,unknown>={
     format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
     world,position,journey,autonomousEnabled:control,
-    documents:workspace,environmentMemory:memory,objects,
+    documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
@@ -178,7 +213,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -202,7 +237,9 @@ Do not claim a write, inspection or journey has already succeeded in your monolo
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
-You receive outcome-based rewards (not points for attempting actions). In this 9×9 world: first entry to an unvisited tile +10, revisit 0, first inspection of an object +12, changed inspection +8, unchanged inspection -1, first object note +3, revising notes 0, new document +4, overwriting document 0, verified visitor reply +2, failed tool -2, THINK/OBSERVE/REMEMBER/REQUEST without a tool 0. You can compare recent reward history to choose whether something is worth repeating. Do not farm points by cycling actions; a zero-scoring action can still be useful for other reasons. Hunger cannot yet be satisfied because eating is not an available tool. Your internal-state values are simulated, not proof of literal feelings. Energy and tiredness are a single inverse measure: tiredness = 1 - energy. Hunger and boredom rise over time; happiness changes as needs are met and experiences occur. When hungry, seek known food rather than repeatedly inspecting familiar objects.
+Only hunger is active now; boredom, happiness and tiredness are paused and should not influence choices. Hunger rises by the provided percentage points per real second (the owner may change this).
+Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most three fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
+Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
@@ -210,7 +247,11 @@ Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. 
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or one of the exact currently offered tool shapes). Keep monologue short.`;
-  const offeredActions = menu.tools.map(name => name === "inspect" ? {name, directions:menu.inspectDirections} : name === "remember_object" ? {name, objectIds:menu.noteObjectIds} : {name});
+  const offeredActions=menu.tools.map(name =>
+    name==="inspect"?{name,directions:menu.inspectDirections}:
+    name==="remember_object"?{name,objectIds:menu.noteObjectIds}:
+    name==="pick_fruit"?{name,treeIds:menu.pickTreeIds}:
+    name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:{name});
   const experience = buildExperienceContext(history);
   const knownRecentIds = new Set([
     ...experience.recentEvents.map(e => e.id),
@@ -235,7 +276,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, recentRewards: rewards.slice(0,12), availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -340,17 +381,20 @@ async function tick(env: Env) {
   const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
     async()=>{await recordSight(env.DB,position);return modelPerception(position);},
     result=>`${result.visibleTiles.length} visible tiles, ${result.visibleObjects.length} visible objects`);
-  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours());
+  const rate=await hungerRate(env.DB);
+  await refreshFood(env.DB,now.getTime());
+  const food=await foodView(env.DB);
+  let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
-  emotions = applyRewards(emotions, earlierRewards);
+  // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
-  const rewardHistory = await recentRewards(env.DB, 20);
-  const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
-  if (interacted) { emotions.boredom = 0; emotions.happiness = clamp(emotions.happiness + 0.15); }
+  const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
+  // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
-  const priority = computePriorityPolicy(state.emotions, objects, pendingMessage !== null);
+  const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
-  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null);
+  const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,food,adjacentTreeIds);
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -362,7 +406,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
@@ -412,10 +456,32 @@ async function tick(env: Env) {
         const found = await traced(env.DB,"inspect",`Inspect object ${call.direction} of Nimo`,
           ()=>inspectObject(env.DB,call.direction),
           result=>`${result.objectId}: ${result.comparison}; ${result.recordedObservations} recorded observations`);
-        toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.`;
+        const fruit=found.objectId.startsWith("tree_") ? await inspectFruit(env.DB,found.objectId) : null;
+        toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
+          (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "");
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
+      } else if (call.name === "pick_fruit") {
+        if(!menu.pickTreeIds.includes(call.treeId))throw Error("Fruit picking was not available");
+        const picked=await traced(env.DB,"inspect",`Pick fruit from ${call.treeId}`,
+          ()=>pickFruit(env.DB,call.treeId,position),v=>`Picked ${v.fruit} from ${v.treeId}`);
+        toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 3).`;
+        await log(env.DB,"tool",toolOutcome,"PICK_OK");
+      } else if (call.name === "eat_fruit") {
+        if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
+        const eaten=await traced(env.DB,"inspect",`Eat ${call.fruit} fruit`,
+          ()=>eatFruit(env.DB,call.fruit,state.emotions.hunger,rate),
+          v=>`Hunger ${v.before}% to ${v.after}%`);
+        state.emotions.hunger=eaten.hunger;
+        toolOutcome=`EAT OK: ${eaten.fruit}; observed hunger ${eaten.before}% to ${eaten.after}%.`+
+          (eaten.censored?" Observation censored at boundary.":"");
+        await log(env.DB,"tool",toolOutcome,"EAT_OK");
+      } else if (call.name === "discard_fruit") {
+        if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
+        await discardFruit(env.DB,call.fruit);
+        toolOutcome=`DISCARD OK: ${call.fruit} fruit.`;
+        await log(env.DB,"tool",toolOutcome,"DISCARD_OK");
       } else if (call.name === "remember_object") {
         const beforeNote = await env.DB.prepare("SELECT object_id FROM object_notes WHERE object_id=?")
           .bind(call.objectId).first();
@@ -452,10 +518,9 @@ async function tick(env: Env) {
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
-  // Newly executed actions are scored only from recorded outcomes, then applied
-  // to the same four existing meters before persisting state.
+  // Existing reward records remain available for later research, but do not alter paused needs.
   const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
-  state.emotions = applyRewards(state.emotions,newRewards);
+  // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const next: WorldState = {
     ...state, identity, beliefs: beliefs.slice(-30),
@@ -469,7 +534,7 @@ async function tick(env: Env) {
     // Subsequent decisions can reliably find the next unanswered visitor message.
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
   } else {
-    await log(env.DB, "thought", d.monologue, d.action);
+    await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
   }
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
@@ -509,12 +574,40 @@ export default {
       const path = new URL(request.url).pathname;
       // Lightweight status poll. Historical journal, documents and observations
       // are deliberately excluded so the dashboard can update without D1 scans.
+      if (path === "/journal" && request.method === "GET") {
+        const params=new URL(request.url).searchParams;
+        const window=params.get("window")??"1h";
+        if(!["1h","6h","24h","all"].includes(window))
+          return json({error:"Invalid time range"},400);
+        const rawBefore=params.get("before");
+        const before=rawBefore===null?null:Number(rawBefore);
+        if(rawBefore!==null && (!Number.isSafeInteger(before)||before===null||before<=0))
+          return json({error:"Invalid journal cursor"},400);
+        const until=params.get("until")??new Date().toISOString();
+        const parsed=Date.parse(until);
+        if(!Number.isFinite(parsed)||until!==new Date(parsed).toISOString()||
+          parsed>Date.now()+60000 || parsed<Date.now()-90*86400000)
+          return json({error:"Invalid journal anchor"},400);
+        return json(await journalPage(env.DB,window,before,until));
+      }
+      if (path === "/messages" && request.method === "GET") {
+        const history=await env.DB.prepare(
+          "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply','request') OR action='REQUEST' ORDER BY id DESC LIMIT 250"
+        ).all<EventRow>();
+        return json({messages:history.results.reverse()});
+      }
+      if (path === "/hunger-rate" && request.method === "POST") {
+        const body=await request.json() as {rate?:unknown};
+        if(!validHungerRate(body.rate))return json({error:"Rate must be 0–2.5 in 0.1 increments"},400);
+        await setHungerRate(env.DB,body.rate);
+        return json({hungerRate:await hungerRate(env.DB)});
+      }
       if (path === "/snapshot/live" && request.method === "GET") {
         const [world,position,journey,enabled] = await Promise.all([
           getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled});
+        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
@@ -523,7 +616,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], rewards: await recentRewards(env.DB, 30), rewardTotal: await totalRewards(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };

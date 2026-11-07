@@ -7,7 +7,7 @@ export type SceneryKind = "tree" | "rock" | "shrub";
 export type WorldObject = Point & { id: string; kind: SceneryKind };
 export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"tree_001",x:1,y:1,kind:"tree"},{id:"tree_002",x:6,y:1,kind:"tree"},{id:"tree_003",x:7,y:6,kind:"tree"},
-  {id:"tree_004",x:1,y:7,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
+  {id:"tree_004",x:1,y:7,kind:"tree"},{id:"tree_005",x:4,y:1,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
   {id:"shrub_001",x:2,y:5,kind:"shrub"},{id:"shrub_002",x:5,y:7,kind:"shrub"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasOwnerSession } from "../../../../lib/world-owner-session";
 
 export const dynamic = "force-dynamic";
 
 /** Owner-only read of the persisted world history. Never return worker secrets. */
 export async function GET(req:NextRequest) {
-  const owner=process.env.WORLD_OWNER_TOKEN;
   const worker=process.env.WORLD_WORKER_URL;
   const secret=process.env.WORLD_INTERNAL_SECRET;
-  if(!owner || req.headers.get("x-world-owner-token") !== owner)
+  if(!(await hasOwnerSession(req)))
     return NextResponse.json({error:"Owner access token required"},{status:401});
   if(!worker || !secret)
     return NextResponse.json({error:"World Worker not configured"},{status:503});

@@ -5,7 +5,10 @@ export type DecisionTool =
   | { name: "write_document"; path: string; content: string }
   | { name: "travel_to"; x: number; y: number }
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
-  | { name: "remember_object"; objectId: string; label: string; note: string };
+  | { name: "remember_object"; objectId: string; label: string; note: string }
+  | { name: "pick_fruit"; treeId: string }
+  | { name: "eat_fruit"; fruit: "amber"|"blue"|"red" }
+  | { name: "discard_fruit"; fruit: "amber"|"blue"|"red" };
 export type Decision = {
   action: DecisionAction;
   monologue: string;
@@ -17,7 +20,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -84,6 +87,12 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
           (!tool.label.trim() && !tool.note.trim()))
         fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
       toolCall = {name:"remember_object",objectId:tool.objectId,label:tool.label,note:tool.note};
+    } else if (tool.name === "pick_fruit") {
+      if (!string(tool.treeId,40) || !/^tree_\d{3}$/.test(tool.treeId))fail("Invalid fruit tree ID");
+      toolCall={name:"pick_fruit",treeId:tool.treeId};
+    } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
+      if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
+      toolCall={name:tool.name,fruit:tool.fruit as "amber"|"blue"|"red"};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
           (tool.x as number) < 1 || (tool.x as number) > 9 ||
