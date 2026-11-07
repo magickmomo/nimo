@@ -9,6 +9,7 @@ export type ActionMenu = {
   noteObjectIds: string[];
   pickTreeIds: string[];
   heldFruit: ("amber"|"blue"|"red")[];
+  vendingItemIds: string[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -22,8 +23,9 @@ export function buildActionMenu(
   hasPendingVisitor = false,
   food: {trees:{id:string;last_seen_stock:number|null}[];inventory:{fruit:"amber"|"blue"|"red"}[];capacity:number}={trees:[],inventory:[],capacity:3},
   adjacentTreeIds: readonly string[] = [],
+  vending:{adjacent:boolean;inspected:boolean;itemIds:string[]}={adjacent:false,inspected:false,itemIds:[]},
 ):ActionMenu {
-  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[]};
+  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[]};
   const inspectDirections = directions
     .filter(d=>d.canInspect && d.objectId && !priority.blockedInspectIds.includes(d.objectId) && dir(d.direction))
     .map(d=>d.direction);
@@ -38,7 +40,9 @@ export function buildActionMenu(
   const heldFruit=[...new Set(food.inventory.map(item=>item.fruit))];
   if(pickTreeIds.length)tools.push("pick_fruit");
   if(heldFruit.length)tools.push("eat_fruit","discard_fruit");
-  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit};
+  const vendingItemIds=vending.adjacent&&vending.inspected?vending.itemIds:[];
+  if(vendingItemIds.length)tools.push("buy_item");
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -69,6 +73,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       variants.push(obj({name:{type:"string",enum:["eat_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
       variants.push(obj({name:{type:"string",enum:["discard_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
     }
+    if(menu.vendingItemIds.length)variants.push(obj({name:{type:"string",enum:["buy_item"]},itemId:{type:"string",enum:menu.vendingItemIds}}));
     if(menu.noteObjectIds.length)variants.push(obj({
       name:{type:"string",enum:["remember_object"]},
       objectId:{type:"string",enum:menu.noteObjectIds},

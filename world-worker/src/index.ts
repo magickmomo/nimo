@@ -5,6 +5,7 @@ import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from 
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
+import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
@@ -22,7 +23,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
@@ -153,6 +154,7 @@ async function exportLedger(db:D1Database, model:string) {
     ["rewards","SELECT id,created_at,action,points,detail FROM world_rewards ORDER BY id ASC LIMIT ?"],
     ["objectObservations","SELECT id,object_id,observed_at,properties_json,comparison,changed_properties FROM object_observations ORDER BY id ASC LIMIT ?"],
     ["experienceEvaluations","SELECT id,source_key,event_id,created_at,action,subject,repetition,learning,surprise,progress,evidence FROM experience_evaluations ORDER BY id ASC LIMIT ?"],
+    ["vendingAttempts","SELECT id,source_key,created_at,item_id,price,coins_at_attempt,success,message FROM vending_attempts ORDER BY id ASC LIMIT ?"],
   ] as const;
   const tables=await Promise.all(ledgers.map(async ([name,sql])=>{
     const result=await db.prepare(sql).bind(MAX_ROWS+1).all<Record<string,unknown>>();
@@ -166,7 +168,7 @@ async function exportLedger(db:D1Database, model:string) {
   const result:Record<string,unknown>={
     format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
     world,position,journey,autonomousEnabled:control,
-    documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),
+    documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),vending:await vendingSnapshot(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
@@ -215,7 +217,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -241,6 +243,7 @@ If you receive a pending visitor message, choose REPLY with toolCall:null. Put t
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 Only hunger is active now; boredom, happiness and tiredness are paused and should not influence choices. Hunger rises by the provided percentage points per real second (the owner may change this).
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most three fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
+Objects may have interactions that become available when you physically encounter and inspect them. Learn what exists from perception and verified outcomes; do not assume unseen objects, items, money, possessions or capabilities exist.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
@@ -253,7 +256,8 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     name==="inspect"?{name,directions:menu.inspectDirections}:
     name==="remember_object"?{name,objectIds:menu.noteObjectIds}:
     name==="pick_fruit"?{name,treeIds:menu.pickTreeIds}:
-    name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:{name});
+    name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:
+    name==="buy_item"?{name,itemIds:menu.vendingItemIds}:{name});
   const experience = buildExperienceContext(history);
   const knownRecentIds = new Set([
     ...experience.recentEvents.map(e => e.id),
@@ -278,7 +282,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -386,6 +390,7 @@ async function tick(env: Env) {
   const rate=await hungerRate(env.DB);
   await refreshFood(env.DB,now.getTime());
   const food=await foodView(env.DB);
+  const vending=await vendingSnapshot(env.DB);
   let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
   // Rewards are stored for later but do not affect currently paused drives.
@@ -396,7 +401,8 @@ async function tick(env: Env) {
   const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
   const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
-  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,food,adjacentTreeIds);
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,food,adjacentTreeIds,
+    {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.map(item=>item.id)});
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -408,7 +414,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
@@ -461,8 +467,10 @@ async function tick(env: Env) {
           ()=>inspectObject(env.DB,call.direction),
           result=>`${result.objectId}: ${result.comparison}; ${result.recordedObservations} recorded observations`);
         const fruit=found.objectId.startsWith("tree_") ? await inspectFruit(env.DB,found.objectId) : null;
+        const machine=found.objectId==="vending_001" ? await inspectVending(env.DB) : null;
         toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
-          (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "");
+          (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "") +
+          (machine ? ` Display: ${machine.items.map(item=>`${item.label} (${item.price} coins) — ${item.description}`).join("; ")}. Coins: ${machine.coins}.` : "");
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
         verifiedExperience={type:"inspection",subject:found.objectId,comparison:found.comparison,fruitRevealed:fruit!==null};
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
@@ -489,6 +497,15 @@ async function tick(env: Env) {
         await discardFruit(env.DB,call.fruit);
         toolOutcome=`DISCARD OK: ${call.fruit} fruit.`;
         await log(env.DB,"tool",toolOutcome,"DISCARD_OK");
+      } else if (call.name === "buy_item") {
+        if(!menu.vendingItemIds.includes(call.itemId))throw Error("Purchase not available at this position");
+        const purchase=await traced(env.DB,"vending",`Attempt to buy ${call.itemId}`,
+          ()=>attemptPurchase(env.DB,position,call.itemId,decisionKey),
+          result=>result.message);
+        toolOutcome=purchase.message;
+        await log(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
+        verifiedExperience={type:"purchase_blocked",subject:purchase.item.id,
+          price:purchase.item.price,coins:purchase.coins,firstAttempt:purchase.firstAttempt};
       } else if (call.name === "remember_object") {
         const beforeNote = await env.DB.prepare("SELECT object_id FROM object_notes WHERE object_id=?")
           .bind(call.objectId).first();
@@ -503,9 +520,9 @@ async function tick(env: Env) {
           `${saved.objectId}: ${beforeNote?"revised":"first"} note`);
       }
     } catch (err) {
-      toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : call.name === "buy_item" ? "PURCHASE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
       await recordReward(env.DB,decisionKey,call.name,REWARD_POINTS.failedAction,toolOutcome);
-      await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : "WRITE_ERROR");
+      await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : call.name === "buy_item" ? "PURCHASE_ERROR" : "WRITE_ERROR");
       verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
   }
@@ -625,7 +642,7 @@ export default {
           getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB)});
+        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
@@ -634,7 +651,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };

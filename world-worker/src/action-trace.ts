@@ -1,4 +1,4 @@
-export type TraceKind = "perceive"|"recall"|"decide"|"inspect"|"travel"|"write"|"label"|"reply"|"observe"|"think"|"remember"|"request";
+export type TraceKind = "perceive"|"recall"|"decide"|"inspect"|"travel"|"write"|"label"|"reply"|"observe"|"think"|"remember"|"request"|"vending";
 export async function startTrace(db:D1Database,kind:TraceKind,detail:string,metadata:unknown=null):Promise<number> {
   const result=await db.prepare("INSERT INTO action_trace(kind,status,detail,metadata) VALUES(?,'running',?,?)")
     .bind(kind,detail,metadata==null?null:JSON.stringify(metadata)).run();

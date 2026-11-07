@@ -14,7 +14,8 @@ test("central view includes the whole 9x9 world", () => {
   const p = {x:4,y:4};
   const perception = world.modelPerception(p);
   assert.equal(perception.visibleTiles.length,81);
-  assert.equal(perception.visibleObjects.length,9);
+  assert.equal(perception.visibleObjects.length,10);
+  assert.equal(perception.visibleObjects.find(o=>o.id==="vending_001")?.type,"machine");
   assert.deepEqual(perception.position,{x:5,y:5});
   assert.deepEqual(perception.visibleObjects.find(o=>o.type==="tree").position,{x:2,y:2});
 });

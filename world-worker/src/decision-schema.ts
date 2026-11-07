@@ -8,7 +8,8 @@ export type DecisionTool =
   | { name: "remember_object"; objectId: string; label: string; note: string }
   | { name: "pick_fruit"; treeId: string }
   | { name: "eat_fruit"; fruit: "amber"|"blue"|"red" }
-  | { name: "discard_fruit"; fruit: "amber"|"blue"|"red" };
+  | { name: "discard_fruit"; fruit: "amber"|"blue"|"red" }
+  | { name: "buy_item"; itemId: "seed_packet"|"sketchpad"|"mystery_box" };
 export type Decision = {
   action: DecisionAction;
   monologue: string;
@@ -20,7 +21,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -82,7 +83,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
         fail("inspect direction must be north/south/east/west");
       toolCall = { name: "inspect", direction: tool.direction as "north" | "south" | "east" | "west" };
     } else if (tool.name === "remember_object") {
-      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub)_\d{3}$/.test(tool.objectId) ||
+      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub|vending)_\d{3}$/.test(tool.objectId) ||
           !string(tool.label, 80) || !string(tool.note, 500) ||
           (!tool.label.trim() && !tool.note.trim()))
         fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
@@ -93,6 +94,9 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
       if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
       toolCall={name:tool.name,fruit:tool.fruit as "amber"|"blue"|"red"};
+    } else if (tool.name === "buy_item") {
+      if (!["seed_packet","sketchpad","mystery_box"].includes(String(tool.itemId)))fail("Unknown vending item");
+      toolCall={name:"buy_item",itemId:tool.itemId as "seed_packet"|"sketchpad"|"mystery_box"};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
           (tool.x as number) < 1 || (tool.x as number) > 9 ||

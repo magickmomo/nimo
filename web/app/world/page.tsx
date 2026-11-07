@@ -32,6 +32,7 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   hungerRate?:number;
+  vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;description:string}[]};
   food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
@@ -291,6 +292,19 @@ export default function World() {
           </div>
         </>
       )}
+      <section className="world-card" aria-label="Vending machine experiment">
+        <div className="world-journal-head"><h2>Vending machine</h2>
+          <span className="meta">Currency: {data?.vending?.coins??0} coins</span></div>
+        <p className="meta">World object: vending_001. Nimo can independently discover it and decide whether to interact. No coin source is currently available.</p>
+        {data?.vending?.inspected ? (
+          <div className="world-file-list">
+            {data.vending.items.map(item=><div key={item.id}>
+              <strong>{item.label}</strong> · {item.price} coins
+              <p className="meta">{item.description}</p>
+            </div>)}
+          </div>
+        ) : <p className="meta">Its contents have not yet been inspected.</p>}
+      </section>
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
         <div className="world-journal-head"><h2>Survival</h2><span className="meta">Hunger only · other needs paused</span></div>
         <div className="world-hunger-rate">
