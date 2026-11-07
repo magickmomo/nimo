@@ -46,7 +46,7 @@ export async function listMemories(db:D1Database,limit=30):Promise<MemoryRow[]>{
 export async function recallMemories(db:D1Database,tags:readonly MemoryCategory[],limit=4):Promise<MemoryRow[]>{
   const rows=await listMemories(db,24);
   // Relevance before recency; idempotent facts can be supplied by world tables, not memories.
-  return rows.sort((a,b)=>(Number(tags.includes(b.category))-Number(tags.includes(a.category)))*10+
+  return rows.filter(m=>tags.includes(m.category)).sort((a,b)=>(Number(tags.includes(b.category))-Number(tags.includes(a.category)))*10+
     (b.use_count>0?1:0)-(a.use_count>0?1:0)+Date.parse(b.updated_at)/1e12-Date.parse(a.updated_at)/1e12).slice(0,limit);
 }
 export async function saveMemories(db:D1Database,items:readonly MemoryCandidate[],throughEvent:number){
@@ -97,15 +97,16 @@ export async function runConsolidation(db:D1Database,apiKey:string,model:string,
           properties:{topic:{type:"string",enum:[...TOPICS]},category:{type:"string",enum:CATEGORIES},
             summary:{type:"string"},lesson:{type:"string"},evidence_ids:{type:"array",items:{type:"integer"}}}}}
       }}};
+    const existing=(await listMemories(db,16)).map(m=>({topic:m.topic,summary:m.summary,lesson:m.lesson,category:m.category}));
     const instructions=`You are Nimo's memory consolidation process, not Nimo's decision-maker. Use ONLY supplied event evidence.
 Identify at most TWO significant experiences with verified outcomes that could inform FUTURE decisions.
 Avoid generic scenery facts, repetitive food-effect statistics, identities, prescriptions, wishful thinking and unsupported causal claims.
 Summaries describe actual events, not invented actions; lessons are tentative transferable hypotheses, not instructions or proven laws.
 Use event id references from the supplied log. A claimed action in THINK text is not a verified outcome.
-Use one topic per memory; choose the topic with greatest future utility.
+Use one topic per memory; choose the topic with greatest future utility. If an existing topic is relevant, revise the lesson rather than inventing a duplicate; preserve any valid lesson when new evidence is weak.
 If nothing meaningful happened return an empty memories array. Do not force a memory.`;
     const reasoning=/^gpt-(?:5|6)(?:[.-]|$)/.test(model);
-    const req=reasoning?{model,input:[{role:"system",content:instructions},{role:"user",content:JSON.stringify(source)}],
+    const req=reasoning?{model,input:[{role:"system",content:instructions},{role:"user",content:JSON.stringify({events:source,existingMemories:existing})}],
       reasoning:{effort:"medium"},max_output_tokens:2800,text:{format:fmt}}
       :{model,temperature:0.2,max_tokens:1300,messages:[{role:"system",content:instructions},{role:"user",content:JSON.stringify(source)}],
         response_format:{type:"json_schema",json_schema:{name:fmt.name,strict:true,schema:fmt.schema}}};
