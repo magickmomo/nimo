@@ -194,3 +194,20 @@ CREATE TABLE IF NOT EXISTS world_food_memory (
   helpful INTEGER NOT NULL,
   harmful INTEGER NOT NULL
 );
+
+-- Observation-only experience evaluation ledger. Does not update Nimo's drives
+-- or decisions; never resets earlier world events, documents or memories.
+CREATE TABLE IF NOT EXISTS experience_evaluations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_key TEXT NOT NULL UNIQUE,
+  event_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  action TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  repetition TEXT NOT NULL CHECK(repetition IN ('none','low','high','unknown')),
+  learning TEXT NOT NULL CHECK(learning IN ('none','low','high','unknown')),
+  surprise TEXT NOT NULL CHECK(surprise IN ('none','low','high','unknown')),
+  progress TEXT NOT NULL CHECK(progress IN ('none','low','high','unknown')),
+  evidence TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS experience_evaluations_recent ON experience_evaluations(id DESC);
