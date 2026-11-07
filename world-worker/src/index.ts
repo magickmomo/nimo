@@ -108,6 +108,15 @@ async function events(db: D1Database, count = 60) {
     .bind(count).all<EventRow>();
   return r.results;
 }
+/** Dashboard journal omits private conversations. The private Messages route
+ * and model context keep the complete records in D1. */
+async function publicEvents(db:D1Database,count=60) {
+  const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+    WHERE kind NOT IN ('visitor','reply','request')
+      AND (action IS NULL OR action <> 'REQUEST')
+    ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
+  return result.results;
+}
 // Owner-only historical export. Snapshot polling stays small; this is a deliberate,
 // on-demand read of the complete retained ledgers (up to 10,000 rows per table).
 async function exportLedger(db:D1Database, model:string) {
@@ -213,7 +222,11 @@ Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. 
 Return only JSON with action, monologue, activity, goal (string or null),
 belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
 toolCall (null or one of the exact currently offered tool shapes). Keep monologue short.`;
-  const offeredActions = menu.tools.map(name => name === "inspect" ? {name, directions:menu.inspectDirections} : name === "remember_object" ? {name, objectIds:menu.noteObjectIds} : {name});
+  const offeredActions=menu.tools.map(name =>
+    name==="inspect"?{name,directions:menu.inspectDirections}:
+    name==="remember_object"?{name,objectIds:menu.noteObjectIds}:
+    name==="pick_fruit"?{name,treeIds:menu.pickTreeIds}:
+    name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:{name});
   const experience = buildExperienceContext(history);
   const knownRecentIds = new Set([
     ...experience.recentEvents.map(e => e.id),
@@ -351,7 +364,6 @@ async function tick(env: Env) {
   // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
   const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
-  const interacted = pendingMessage != null && (!Number.isFinite(last) || Date.parse(pendingMessage.created_at) > last);
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
   const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
@@ -481,8 +493,7 @@ async function tick(env: Env) {
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
-  // Newly executed actions are scored only from recorded outcomes, then applied
-  // to the same four existing meters before persisting state.
+  // Existing reward records remain available for later research, but do not alter paused needs.
   const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
   // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
@@ -564,7 +575,7 @@ export default {
         const world = await getWorld(env.DB);
         // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await events(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
