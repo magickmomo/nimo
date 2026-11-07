@@ -13,7 +13,8 @@ export type VerifiedOutcome =
   | {type:"writing";subject:string;revision:number}
   | {type:"object_note";subject:string;first:boolean}
   | {type:"travel";subject:string;firstVisit:boolean}
-  | {type:"failure";subject:string;reason:string};
+  | {type:"failure";subject:string;reason:string}
+  | {type:"purchase_blocked";subject:string;price:number;coins:number;firstAttempt:boolean};
 
 export type Assessment = {
   action:string;subject:string;
@@ -50,6 +51,9 @@ export function evaluateExperience(o:VerifiedOutcome):Assessment {
     case "travel":
       return {...base,repetition:o.firstVisit?"none":"high",learning:"unknown",
         progress:"unknown",evidence:`Verified arrival at ${o.subject}; ${o.firstVisit?"first recorded visit":"revisited tile"}. Arrival alone does not establish learning or goal progress.`};
+    case "purchase_blocked":
+      return {...base,repetition:o.firstAttempt?"none":"high",learning:o.firstAttempt?"high":"none",
+        progress:"none",evidence:`Purchase blocked: ${o.subject} costs ${o.price} coins, balance ${o.coins}. ${o.firstAttempt?"First verified failed attempt":"Repeated failed attempt"}. No coin source is supplied.`};
     case "failure":
       return {...base,learning:"unknown",progress:"none",
         evidence:`Verified failure for ${o.subject}: ${o.reason.slice(0,160)}`};
