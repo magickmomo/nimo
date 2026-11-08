@@ -232,7 +232,7 @@ export function plans009(s:State009):Plan009[]{
   else if(a.type==="rest"){
    // Rest is useful only if recovery is needed, never an automatic fallback.
    const recovery=Math.max(0,90-s.energy)*.24+urgency009(s,"rest")*.6;
-   add({steps:[a],score:recovery-0.1,explanation:"Recover energy and rest"});
+   add({steps:[a],score:recovery>0?recovery-0.1:-2,explanation:"Recover energy and rest"});
   }else if(a.type==="wait")add({steps:[a],score:-.2,explanation:"Wait for a meaningful change"});
  }
  // Generic affordance chain: an inspected object produces a resource,
