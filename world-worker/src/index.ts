@@ -529,13 +529,14 @@ async function tick(env: Env) {
         if(!menu.gardenTools.includes(call.name))throw Error("Garden or store action unavailable");
         if("plotId" in call && !menu.gardenPlotIds.includes(call.plotId))throw Error("Plot not adjacent");
         if(call.name==="sell_item"&&!menu.saleItems.includes(call.item))throw Error("Item not offered for sale");
-        const result=await traced(env.DB,"garden",`Execute ${call.name}`,async()=>{
+        const result=await traced(env.DB,"vending",`Execute ${call.name}`,async()=>{
           if(call.name==="take_can")return takeCan(env.DB,position,decisionKey);
           if(call.name==="fill_can")return fillCan(env.DB,position,decisionKey);
           if(call.name==="plant_seed")return plantSeed(env.DB,position,call.plotId,decisionKey);
           if(call.name==="water_plot")return waterPlot(env.DB,position,call.plotId,decisionKey);
           if(call.name==="harvest_crop")return harvestCrop(env.DB,position,call.plotId,decisionKey);
-          return sellItem(env.DB,position,call.item,decisionKey);
+          if(call.name==="sell_item")return sellItem(env.DB,position,call.item,decisionKey);
+          throw Error("Unknown garden tool");
         },v=>v);
         toolOutcome=`${call.name.toUpperCase()} OK: ${result}`;
         await log(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
