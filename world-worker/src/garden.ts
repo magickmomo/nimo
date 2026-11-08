@@ -11,7 +11,9 @@ export const nearObject=(position:Point,id:string)=>{
   const obj=WORLD_OBJECTS.find(o=>o.id===id);
   return !!obj&&adjacent(position,obj);
 };
-const started = (plot:GardenPlot,now:number)=>plot.planted_at!==null&&plot.watered_at!==null&&now-plot.watered_at>=GARDEN_GROW_MS;
+export const plotStage = (plot:GardenPlot,now:number):"empty"|"dry"|"growing"|"ready"=>
+ plot.planted_at===null?"empty":plot.watered_at===null?"dry":now-plot.watered_at>=GARDEN_GROW_MS?"ready":"growing";
+const started = (plot:GardenPlot,now:number)=>plotStage(plot,now)==="ready";
 export async function gardenSnapshot(db:D1Database,now=Date.now()):Promise<GardenState>{
  const [items,plots,fruit,coins]=await Promise.all([
    db.prepare("SELECT id,kind,water_units FROM garden_inventory ORDER BY id").all<GardenItem>(),
@@ -19,7 +21,7 @@ export async function gardenSnapshot(db:D1Database,now=Date.now()):Promise<Garde
    db.prepare("SELECT count(*) AS n FROM world_food_inventory").first<{n:number}>(),
    db.prepare("SELECT coins FROM vending_state WHERE id=1").first<{coins:number}>()
  ]);
- return {inventory:items.results,plots:plots.results.map(p=>({...p,ready:started(p,now),stage:p.planted_at===null?"empty":p.watered_at===null?"dry":started(p,now)?"ready":"growing"})),
+ return {inventory:items.results,plots:plots.results.map(p=>({...p,ready:started(p,now),stage:plotStage(p,now)})),
    coins:coins?.coins??0,capacity:INVENTORY_CAPACITY,inventoryUsed:items.results.length+(fruit?.n??0)};
 }
 async function claim(db:D1Database,key:string,action:string,detail:string){
