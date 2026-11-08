@@ -29,6 +29,7 @@ type Snapshot = {
   availableTools?: string[];
   hungerRate?:number;
   vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;description:string}[]};
+  garden?:{coins:number;inventoryUsed:number;capacity:number;inventory:{id:number;kind:string;water_units:number}[];plots:{id:string;x:number;y:number;stage:string;ready:boolean}[]};
   food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
@@ -285,7 +286,12 @@ export default function World() {
           </li>)}</ul>
         </div>}
       </section>
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey}
+      {data?.garden&&<section className="world-card" aria-label="Garden and economy">
+        <div className="world-journal-head"><h2>Allotment and store</h2><span className="meta">{data.garden.coins} coins · {data.garden.inventoryUsed}/{data.garden.capacity} inventory slots</span></div>
+        <p className="meta">Carried supplies: {data.garden.inventory.length?data.garden.inventory.map(i=>i.kind==="watering_can"?"watering can ("+i.water_units+" water)":i.kind).join(", "):"None yet"}</p>
+        <p className="meta">Garden: {data.garden.plots.map(p=>p.id.replace("plot_","Plot ")+" "+p.stage).join(" · ")}</p>
+      </section>}
+      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
