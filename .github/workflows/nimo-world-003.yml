@@ -63,6 +63,13 @@ jobs:
           db.executescript(Path("world-worker/migrations/011_allotment_economy.sql").read_text())
           assert db.execute("SELECT COUNT(*) FROM garden_plots").fetchone()[0] == 3
           assert db.execute("SELECT COUNT(*) FROM garden_inventory").fetchone()[0] == 0
+          db.execute("CREATE TABLE world_settings(id INTEGER PRIMARY KEY,hunger_rate REAL NOT NULL,updated_at TEXT)")
+          db.execute("INSERT INTO world_settings(id,hunger_rate,updated_at) VALUES(1,0.1,'original')")
+          db.executescript(Path("world-worker/migrations/012_fullness_rate.sql").read_text())
+          assert abs(db.execute("SELECT hunger_rate FROM world_settings").fetchone()[0]-1/60)<1e-12
+          db.execute("UPDATE world_settings SET hunger_rate=0.2 WHERE id=1")
+          db.executescript(Path("world-worker/migrations/012_fullness_rate.sql").read_text())
+          assert db.execute("SELECT hunger_rate FROM world_settings").fetchone() == (0.2,)
           db.execute("INSERT INTO garden_inventory(kind,water_units) VALUES('watering_can',3)")
           assert db.execute("SELECT water_units FROM garden_inventory").fetchone() == (3,)
           db.execute("INSERT INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','one')")
