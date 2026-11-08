@@ -10,7 +10,7 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
-import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
+import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
   DB: D1Database;
@@ -221,9 +221,9 @@ async function decide(env: Env, state: WorldState, history: EventRow[], landmark
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
-You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
+You inhabit a persistent 16×16 isometric world and are represented by a simple character.
 Your perception contains a 9×9 square field of vision centred on your actual position and clipped to the world boundary. You can see all visible tiles and objects within it, including their coordinates. You cannot see beyond that field unless you remember previously seen places.
-All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 9, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
+All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 16, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
 Your currently offered executable actions are provided in the dynamic action menu below. This menu is authoritative. An absent tool or target cannot be selected; do not infer tool availability from historical memories or examples.
 Inspect only if the currently offered action menu includes inspect and choose an exact available direction. Do not inspect objects two steps away: move adjacent first.
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
