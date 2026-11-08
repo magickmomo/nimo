@@ -1,4 +1,4 @@
-import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { SEED, INITIAL_STATE, clamp, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
@@ -241,8 +241,8 @@ Do not claim a write, inspection or journey has already succeeded in your monolo
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
-Your needs are stored as FRACTIONS between 0 and 1: hunger=1.0 means 100% hungry (MAXIMUM hunger), not 1%; hunger=0.01 means 1% hungry. Use needsPercent below as the readable source of truth. Hunger rises by the provided percentage points per real second (the owner may change this). Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Other needs are currently paused.
-Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
+Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Use needsPercent.fullness as the readable source of truth. The hungerRatePointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Historic food.knowledge.mean values are measured changes in hunger: negative values mean food INCREASED fullness, positive values mean food DECREASED fullness. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Other needs are currently paused.
+Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
 Objects may have interactions that become available when you physically encounter and inspect them. Learn what exists from perception and verified outcomes; do not assume unseen objects, items, money, possessions or capabilities exist.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
@@ -273,9 +273,12 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     : "";
   const model = env.OPENAI_MODEL || "gpt-6.1-sol";
   const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
+  const {hunger: storedHunger, ...otherEmotions} = state.emotions;
+  const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{...state,tools:menu.tools}, needsPercent:{hunger:Math.round(state.emotions.hunger*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{...state,emotions:modelEmotions,tools:menu.tools}, needsPercent:{fullness:Math.round(modelEmotions.fullness*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
