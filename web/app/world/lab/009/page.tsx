@@ -14,10 +14,11 @@ export default function Lab009(){
  const [token,setToken]=useState(""),[busy,setBusy]=useState(false),lock=useRef(false),abort=useRef<AbortController|null>(null);
  const [error,setError]=useState(""),[status,setStatus]=useState("Ready — isolated simulation, no production writes.");
  const traces=useRef<Trace[]>([]),modelTraces=useRef<ModelTrace[]>([]);
+ const lastRejectedProposalStep=useRef(-100);
  const [modelTotals,setModelTotals]=useState({calls:0,input:0,output:0});
  const view=context009(state,memory);
  const save=(next:State009)=>{current.current=next;setState(next)};
- function reset(){if(lock.current)return;save(initial009(seed));traces.current=[];modelTraces.current=[];
+ function reset(){if(lock.current)return;save(initial009(seed));traces.current=[];modelTraces.current=[];lastRejectedProposalStep.current=-100;
   setModelTotals({calls:0,input:0,output:0});setError("");setStatus("Reset to seed "+seed);}
  function act(action:Action009,reason:string,context?:ReturnType<typeof context009>,messages?:Trace["messages"],
   creation?:{title:string;content:string}){
@@ -33,7 +34,11 @@ export default function Lab009(){
    body:JSON.stringify({phase,context,...(phase==="create"?{project:current.current.project}:{})})});
   const data=await response.json() as {result?:Record<string,unknown>;model?:string;
    usage?:{input:number;output:number};error?:string};
-  if(!response.ok||!data.result)throw Error(data.error||"Project model request failed");
+  if(!response.ok||!data.result){
+   if(phase==="propose"&&response.status===422)
+    throw new Error("RECOVERABLE_PROPOSAL: "+(data.error||"Unsupported proposal"));
+   throw Error(data.error||"Project model request failed");
+  }
   const usage={input:data.usage?.input??0,output:data.usage?.output??0};
   modelTraces.current.push({step:current.current.step,phase,...usage,model:data.model??"unknown",result:data.result});
   setModelTotals(p=>({calls:p.calls+1,input:p.input+usage.input,output:p.output+usage.output}));
@@ -41,10 +46,18 @@ export default function Lab009(){
  }
  async function step(signal:AbortSignal){
   if(mode==="hybrid"){
-   if(projectOpportunity009(current.current)){
-    const proposal=await projectRequest("propose",context009(current.current,memory),signal);
-    const next=startProject009(current.current,proposal as ProjectProposal009);
-    save(next);setStatus("Nimo proposed a project: "+next.project?.title);
+   if(projectOpportunity009(current.current)&&
+      current.current.step-lastRejectedProposalStep.current>=5){
+    try{
+     const proposal=await projectRequest("propose",context009(current.current,memory),signal);
+     const next=startProject009(current.current,proposal as ProjectProposal009);
+     save(next);setStatus("Nimo proposed a project: "+next.project?.title);
+    }catch(e){
+     // A rejected creative suggestion is not a failed world decision.
+     // Continue local action selection; try again after five real steps.
+     if(!(e instanceof Error&&e.message.startsWith("RECOVERABLE_PROPOSAL:")))throw e;
+     lastRejectedProposalStep.current=current.current.step;
+    }
    }
    const s=current.current,ctx=context009(s,memory),choice=localDecision009(s,memory);
    if(choice.action.type==="create"&&s.project?.phase==="creating"){
