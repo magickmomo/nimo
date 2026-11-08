@@ -269,7 +269,7 @@ export default function World() {
       )}
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
         <div className="world-journal-head"><h2>Hunger &amp; inventory</h2><span className="meta">Only hunger is active</span></div>
-        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??3})</strong>
+        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??9})</strong>
           <div className="world-fruits">
             {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
               <span className="meta">Nothing collected yet</span>}
