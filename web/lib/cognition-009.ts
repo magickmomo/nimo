@@ -164,30 +164,118 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
  if(withLearning)consolidate009(s);
  return s;
 }
-export function localDecision009(s:State009,withMemory=true):{action:Action009;reason:string}{
- const actions=opportunities009(s),mem=context009(s,withMemory).consolidatedMemories;
- const take=(type:Action009["type"],target?:string)=>actions.find(a=>a.type===type&&(target===undefined||a.target===target));
- // Simple generic experimental baseline: decisions consider only observed consequences.
- const candidateFood=[...new Set(s.inventory)].map(fruit=>({
-   fruit, effect:learnedEffect009(s,"fruit:"+fruit,"eat","hunger")
- })).sort((a,b)=>(a.effect??Infinity)-(b.effect??Infinity));
- const useful=candidateFood.find(x=>x.effect!==null&&x.effect<0);
- const unknown=candidateFood.find(x=>x.effect===null);
- let action:Action009|undefined;
- if(s.energy<22)action=take("rest");
- else if(s.needs.hunger>45){
-  if(useful)action=take("eat",useful.fruit);
-  else if(unknown)action=take("eat",unknown.fruit);
-  else {
-   const observedUseful=s.discoveries.facts.find(f=>f.property==="fruit"&&
-     (learnedEffect009(s,"fruit:"+f.value,"eat","hunger")??Infinity)<0);
-   if(observedUseful&&s.inventory.length===3)action=take("discard",candidateFood[candidateFood.length-1]?.fruit);
-   else if(observedUseful)action=take("pick",observedUseful.subject);
-   else action=TREE_IDS009.map(tree=>take("inspect",tree)).find(Boolean);
-  }
+/**
+ * Lab-only deterministic planning baseline.
+ *
+ * Rules below describe action affordances (what an interaction can reveal,
+ * consume or produce) and the cost of an attempt. They do NOT encode fruit
+ * names or hidden food effects. Unknown outcomes remain uncertain.
+ *
+ * This is deliberately a small, transparent planner, not general reasoning.
+ */
+type Plan009={steps:Action009[];score:number;explanation:string};
+const AFFORDANCES009={
+ inspect:{reveals:"fruit",cost:3},
+ pick:{produces:"fruit",cost:3},
+ eat:{consumes:"inventory",effect:"hunger",cost:3},
+ discard:{consumes:"inventory",cost:3},
+ create:{effect:"creativity",cost:13},
+ explore:{effect:"novelty",cost:8},
+ rest:{effect:"rest",cost:0},
+ wait:{cost:0},
+} as const;
+function effectFor009(s:State009,a:Action009,attribute:string):number|null{
+ const subject=a.type==="eat"||a.type==="discard"?"fruit:"+a.target:
+   a.type==="inspect"||a.type==="pick"?a.target:
+   "activity:"+a.type;
+ return learnedEffect009(s,subject,a.type,attribute);
+}
+function urgency009(s:State009,attribute:string){
+ if(attribute==="energy")return Math.max(0,85-s.energy)*.16;
+ if(attribute in s.needs){
+  const key=attribute as Need009;
+  return Math.max(0,s.needs[key]-20)*NEED_WEIGHTS009[key];
  }
- if(!action&&s.needs.creativity>=55&&s.energy>=35)action=take("create");
- if(!action&&s.needs.novelty>=45)action=take("explore");
- action??=take("rest")??actions[0];
- return {action,reason:"Local baseline; retrieved "+mem.length+" topic-matched memories. No LLM was used."};
+ return 0;
+}
+function planValue009(s:State009,steps:Action009[],effectAction:Action009|undefined,
+ attribute:string|undefined,description:string,uncertainty=false):Plan009{
+ const rawEffect=attribute&&effectAction?effectFor009(s,effectAction,attribute):null;
+ const urgency=attribute?urgency009(s,attribute):0;
+ // A known beneficial effect earns proportional utility. An unknown outcome
+ // has information value if there is a currently unmet need to investigate.
+ const expected=rawEffect!==null&&rawEffect<0?Math.min(-rawEffect,50)*urgency/22:
+   rawEffect!==null?0:uncertainty?urgency*.48:0;
+ const information=uncertainty&&rawEffect===null?Math.min(12,urgency*.45+2):0;
+ // Saturated and harmful actions have no value as a need-relief strategy.
+ const harmed=rawEffect!==null&&rawEffect>0?rawEffect*urgency/18:0;
+ const cost=steps.reduce((sum,a)=>sum+AFFORDANCES009[a.type].cost,0);
+ const fatigue=cost*(s.energy<35?.48:.12);
+ const length=steps.length-1;
+ const score=expected+information-harmed-fatigue-length*1.6;
+ return {steps,score,explanation:description+
+   (rawEffect!==null?" (observed "+attribute+" change "+rawEffect+")":
+     uncertainty?" (outcome unknown; experiment)":"")};
+}
+export function plans009(s:State009):Plan009[]{
+ const actions=opportunities009(s),allowed=new Set(actions.map(actionKey009));
+ const can=(a:Action009)=>allowed.has(actionKey009(a));
+ const proposals:Plan009[]=[];
+ const add=(p:Plan009)=>{if(p.steps.length&&can(p.steps[0]))proposals.push(p);};
+ const inventory=[...new Set(s.inventory)];
+ // Score each currently available interaction from prior verified observations.
+ for(const a of actions){
+  if(a.type==="eat")
+   add(planValue009(s,[a],a,"hunger","Try/use carried resource "+a.target,true));
+  else if(a.type==="create"||a.type==="explore")
+   add(planValue009(s,[a],a,AFFORDANCES009[a.type].effect,"Pursue "+a.type,true));
+  else if(a.type==="rest"){
+   // Rest is useful only if recovery is needed, never an automatic fallback.
+   const recovery=Math.max(0,90-s.energy)*.24+urgency009(s,"rest")*.6;
+   add({steps:[a],score:recovery-0.1,explanation:"Recover energy and rest"});
+  }else if(a.type==="wait")add({steps:[a],score:-.2,explanation:"Wait for a meaningful change"});
+ }
+ // Generic affordance chain: an inspected object produces a resource,
+ // a carried resource permits a usable interaction, and a full container
+ // can be freed via discard. No hidden effect is looked up here.
+ const knownObjects=s.discoveries.facts.filter(f=>f.property===AFFORDANCES009.inspect.reveals);
+ for(const observed of knownObjects){
+  const pick:Action009={type:"pick",target:observed.subject};
+  const eat:Action009={type:"eat",target:observed.value};
+  const existing=inventory.includes(observed.value);
+  const known=effectFor009(s,eat,"hunger");
+  // Don't collect resources already shown to be useless/harmful for hunger.
+  if(existing||known!==null&&known>=0)continue;
+  const steps:Action009[]=[];
+  if(s.inventory.length>=3){
+   const discardable=inventory
+    .map(value=>({value,effect:effectFor009(s,{type:"eat",target:value},"hunger")}))
+    .sort((a,b)=>(b.effect??0)-(a.effect??0))[0];
+   if(!discardable)continue;
+   steps.push({type:"discard",target:discardable.value});
+  }
+  steps.push(pick,eat);
+  add(planValue009(s,steps,eat,"hunger",
+    "Acquire "+observed.value+" from "+observed.subject+" and test its effect",true));
+ }
+ // Unknown objects can be investigated without revealing what they contain.
+ for(const inspect of actions.filter(a=>a.type==="inspect")){
+  // Investigating the unknown can enable future resource experiments.
+  const pressure=urgency009(s,"hunger");
+  add({steps:[inspect],score:Math.min(15,pressure*.55+3)-.36,
+    explanation:"Inspect unfamiliar object "+inspect.target+"; its contents are unknown"});
+ }
+ return proposals.sort((a,b)=>b.score-a.score||
+   a.steps.length-b.steps.length||
+   actionKey009(a.steps[0]).localeCompare(actionKey009(b.steps[0])));
+}
+export function localDecision009(s:State009,withMemory=true):{action:Action009;reason:string}{
+ const proposals=plans009(s);
+ const best=proposals[0];
+ if(!best)throw Error("No legal actions offered by environment");
+ const memories=context009(s,withMemory).consolidatedMemories;
+ return {action:best.steps[0],reason:"Local affordance planner: "+best.explanation+
+   "; proposed "+best.steps.map(actionKey009).join(" -> ")+
+   "; score "+best.score.toFixed(2)+
+   "; "+memories.length+" relevant memory records (not yet interpreted by local planner)."};
 }
