@@ -107,8 +107,9 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const visitedKeys = new Set(visited.map(p => `${p.x}:${p.y}`));
   const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
-  const sprites = [...objects.filter(o => inSight.has(`${o.x}:${o.y}`) || remembered.has(`${o.x}:${o.y}`))
-    .map(o => ({ ...o })),
+  // Owner view: show every world object. Nimo still receives only Worker perception
+  // and his own remembered discoveries; this display does not mutate either.
+  const sprites = [...objects.map(o => ({ ...o })),
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
@@ -116,7 +117,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     <div className="nimo-map">
       <div className="nimo-map-heading">
         <span>WORLD 002 · NIMO'S WORLD</span>
-        <span>{SIZE} × {SIZE}</span>
+        <span>{SIZE} × {SIZE} · Owner view</span>
       </div>
       <svg className="nimo-map-canvas" viewBox={`0 0 ${SIZE * HW * 2 + 40} ${SIZE * HH * 2 + 120}`} role="img"
         aria-label={`Isometric ${SIZE} by ${SIZE} map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
@@ -135,10 +136,11 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
-              <polygon points={points} fill={hasVisited ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#94b779" : "url(#nimo-ground)") } opacity={isVisible ? 1 : wasSeen ? .68 : .32}
-                stroke="#648b5a" strokeWidth="1" />
-              <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke="#6a985f" strokeWidth="1.4" fill="none" opacity=".8"/>
-              <title>{`Column ${tile.x + 1}, row ${tile.y + 1}${hasVisited ? " · visited" : wasSeen ? " · seen previously" : " · unseen"}`}</title>
+              <polygon points={points}
+                fill={isVisible ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#557b65" : "#4e715e")}
+                stroke={isVisible ? "#e2d19c" : "#527963"} strokeWidth={isVisible ? 1.35 : .65} />
+              <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke={isVisible ? "#6a985f" : "#63826e"} strokeWidth="1.4" fill="none" opacity={isVisible ? .8 : .4}/>
+              <title>{`Column ${tile.x + 1}, row ${tile.y + 1} · ${isVisible ? "currently in Nimo’s field of view" : wasSeen ? "outside view; previously seen by Nimo" : "outside view; not yet seen by Nimo"}${hasVisited ? " · visited" : ""}`}</title>
             </g>
           );
         })}
@@ -152,23 +154,24 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         {sprites.map(sprite => {
           const p = project(sprite);
           return <g key={sprite.id} transform={`translate(${p.x} ${p.y + 2})`}
-            role={sprite.kind === "nimo" ? undefined : "button"}
-            tabIndex={sprite.kind === "nimo" ? undefined : 0}
-            aria-label={sprite.kind === "nimo" ? undefined : `View Nimo's memory of ${sprite.kind} at (${Math.round(sprite.x)+1},${Math.round(sprite.y)+1})`}
-            onClick={sprite.kind === "nimo" ? undefined : ()=>onSelectObject?.(sprite.id)}
-            onKeyDown={sprite.kind === "nimo" ? undefined : event=>{
+            role={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : "button"}
+            tabIndex={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : 0}
+            aria-label={sprite.kind === "nimo" ? undefined : `${remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`) ? "View Nimo’s memory of" : "Undiscovered"} ${sprite.kind} at (${Math.round(sprite.x)+1},${Math.round(sprite.y)+1})`}
+            onClick={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : ()=>onSelectObject?.(sprite.id)}
+            onKeyDown={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : event=>{
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
-            style={sprite.kind === "nimo" ? undefined : {cursor:"pointer"}}>
+            style={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
             {sprite.kind === "nimo" ? <Character/> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <Scenery kind={sprite.kind} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
-              <title>Inspect Nimo's saved memory for {sprite.id}</title>
+              <title>{remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`) ? `Inspect Nimo’s saved memory for ${sprite.id}` : `${sprite.id} · visible to you, not yet discovered by Nimo`}</title>
             </>}
           </g>;
         })}
       </svg>
+      <div className="nimo-map-legend" aria-label="Map visibility legend"><span><i className="nimo-map-key nimo-map-key-sight" /> Bright tiles: Nimo’s current 9×9 vision</span><span><i className="nimo-map-key nimo-map-key-outside" /> Muted tiles: outside his vision (objects visible to you)</span></div>
       <div className="nimo-map-footer">
         <span><strong>Nimo</strong> · {moving ?
           `${journey?.status === "paused" ? "Paused" : "Walking"} toward tile (${route[route.length-1].x+1}, ${route[route.length-1].y+1})` :
