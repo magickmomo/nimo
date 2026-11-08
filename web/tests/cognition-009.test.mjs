@@ -197,7 +197,7 @@ test("hybrid project provides local motivation but only a verified creative acti
  assert.equal(s.completedProjects[0].completedStep,s.step);
  assert.equal(s.creations[0].content,text);
 });
-test("hybrid project proposal has a cooldown and a two-project cap",()=>{
+test("hybrid project proposal has a cooldown and allows continued interests beyond two projects",()=>{
  let s=initial009();
  s=apply009(s,{type:"inspect",target:"tree_001"});
  s=apply009(s,{type:"eat",target:"blue"});
@@ -212,7 +212,7 @@ test("hybrid project proposal has a cooldown and a two-project cap",()=>{
  s=apply009(s,{type:"create",target:"field_note"});
  s=finishProject009(s,"Second notebook","This second note describes what was directly observed of tree_001 without assuming fruit effects or making claims about hidden environmental properties.");
  for(let i=0;i<8;i++)s=apply009(s,{type:"wait"});
- assert.equal(projectOpportunity009(s),false);
+ assert.equal(projectOpportunity009(s),true);
 });
 test("hybrid endpoint is owner gated and separate from production APIs",()=>{
  const route=readFileSync(new URL("../app/api/world/lab/009/project/route.ts",import.meta.url),"utf8");
@@ -222,4 +222,72 @@ test("hybrid endpoint is owner gated and separate from production APIs",()=>{
  assert.doesNotMatch(route,/HIDDEN_EFFECTS009|HIDDEN_TREES009/);
  assert.match(page,/mode==="hybrid"/);
  assert.match(page,/modelTraces/);
+});
+
+test("a model-proposed interest survives bodily interruptions and must be investigated before creation",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ s=apply009(s,{type:"eat",target:"blue"});
+ const proposal={title:"Compare two trees",intention:"Investigate the other tree before making a comparison.",
+   question:"Does the second tree carry a different resource?",sourceIds:["tree_001"],
+   investigationAction:{type:"inspect",target:"tree_002"}};
+ s=startProject009(s,proposal);
+ assert.equal(s.interests[0].status,"active");
+ assert.equal(s.project.phase,"investigating");
+ assert.equal(localDecision009(s).action.type,"inspect");
+ assert.equal(localDecision009(s).action.target,"tree_002");
+ s=apply009(s,{type:"rest"});
+ assert.equal(s.project.phase,"investigating");
+ assert.equal(s.workingGoal,proposal.intention);
+ s=apply009(s,{type:"inspect",target:"tree_002"});
+ assert.equal(s.project.phase,"creating");
+ assert.equal(s.project.investigatedAt,s.step);
+ assert.equal(s.project.investigationOutcome,"Inspected tree_002; discovered blue fruit.");
+ assert.ok(s.discoveries.facts.some(f=>f.subject==="tree_002"));
+ const choice=localDecision009(s);
+ s=apply009(s,{type:"create",target:"field_note"},choice.reason);
+ s=finishProject009(s,"Two trees","I observed that the first tree bears amber fruit, while the second bears blue fruit. These observations do not prove that either fruit has the same effects as another fruit.");
+ assert.equal(s.interests[0].status,"completed");
+ assert.equal(s.interests[0].resolvedStep,s.step);
+});
+test("unavailable model investigation actions are rejected and never reveal hidden facts",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ s=apply009(s,{type:"eat",target:"blue"});
+ assert.throws(()=>startProject009(s,{title:"Unsupported",intention:"Investigate",sourceIds:["tree_001"],
+  question:"What is beyond the map?",investigationAction:{type:"inspect",target:"tree_999"}}));
+ assert.ok(!JSON.stringify(context009(s)).includes("HIDDEN_TREES009"));
+});
+test("memory can influence a legal plan and ablation removes the bonus",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"create",target:"field_note"});
+ s=apply009(s,{type:"create",target:"field_note"});
+ assert.ok(s.memories.some(m=>m.id==="creative_work"));
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ const p={title:"A note",intention:"Write from observations",question:"What is observed?",
+  sourceIds:["tree_001"]};
+ s=startProject009(s,p);
+ s.needs.hunger=10;s.needs.creativity=70;s.energy=80;
+ const withMemory=localDecision009(s,true);
+ const withoutMemory=localDecision009(s,false);
+ assert.match(withMemory.reason,/creative_work/);
+ assert.match(withoutMemory.reason,/memories used: none/);
+ assert.equal(withMemory.action.type,"create");
+});
+test("50-step local experiment is legal and has bounded cognition state",()=>{
+ let s=initial009();
+ for(let i=0;i<50;i++){
+  const c=localDecision009(s,true);
+  s=apply009(s,c.action,c.reason,true);
+  assert.ok(s.energy>=0&&s.energy<=100);
+  assert.ok(opportunities009(s).length>0);
+ }
+ assert.equal(s.episodes.length,50);
+ assert.ok(s.discoveries.effects.length>0);
+});
+test("50-decision control is available and complete journal is not clipped at 35",()=>{
+ const page=readFileSync(new URL("../app/world/lab/009/page.tsx",import.meta.url),"utf8");
+ assert.match(page,/run\(50\)/);
+ assert.match(page,/slice\(0,60\)/);
+ assert.match(page,/state\.interests/);
 });
