@@ -194,3 +194,10 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-journal-filter select{width:100%;min-width:0;max-width:100%;font-size:13px}
 .world-journal-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
 .world-journal .world-journal-buttons button{min-width:0;width:100%;padding:9px 6px;font-size:12px;white-space:nowrap}
+
+/* Owner-only world overview: Nimo's current perception remains limited to 9x9. */
+.nimo-map-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:9px 20px;padding:9px 16px 12px;color:#c4d6c7;font-size:11px;line-height:1.45}
+.nimo-map-legend span{display:inline-flex;align-items:center;gap:7px}
+.nimo-map-key{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #e2d19c;flex:none}
+.nimo-map-key-sight{background:#a9ca86}
+.nimo-map-key-outside{background:#557b65;border-color:#527963}

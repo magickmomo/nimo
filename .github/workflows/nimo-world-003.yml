@@ -60,6 +60,14 @@ jobs:
           assert db.execute("SELECT first_seen FROM world_seen").fetchone() == ('saw',)
           db.execute("UPDATE world_position SET x=15,y=15 WHERE id=1")
           db.execute("INSERT INTO world_seen(x,y) VALUES(15,15)")
+          db.executescript(Path("world-worker/migrations/011_allotment_economy.sql").read_text())
+          assert db.execute("SELECT COUNT(*) FROM garden_plots").fetchone()[0] == 3
+          assert db.execute("SELECT COUNT(*) FROM garden_inventory").fetchone()[0] == 0
+          db.execute("INSERT INTO garden_inventory(kind,water_units) VALUES('watering_can',3)")
+          assert db.execute("SELECT water_units FROM garden_inventory").fetchone() == (3,)
+          db.execute("INSERT INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','one')")
+          db.execute("INSERT OR IGNORE INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','duplicate')")
+          assert db.execute("SELECT COUNT(*) FROM garden_transactions").fetchone() == (1,)
           PY
       - name: Worker TypeScript
         run: npm run typecheck --prefix world-worker

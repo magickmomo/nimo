@@ -10,6 +10,9 @@ export type ActionMenu = {
   pickTreeIds: string[];
   heldFruit: ("amber"|"blue"|"red")[];
   vendingItemIds: string[];
+  gardenPlotIds: string[];
+  gardenTools: string[];
+  saleItems: string[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -24,8 +27,9 @@ export function buildActionMenu(
   food: {trees:{id:string;last_seen_stock:number|null}[];inventory:{fruit:"amber"|"blue"|"red"}[];capacity:number}={trees:[],inventory:[],capacity:9},
   adjacentTreeIds: readonly string[] = [],
   vending:{adjacent:boolean;inspected:boolean;itemIds:string[]}={adjacent:false,inspected:false,itemIds:[]},
+  garden:{plotIds:string[];tools:string[];saleItems:string[]}={plotIds:[],tools:[],saleItems:[]},
 ):ActionMenu {
-  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[]};
+  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[]};
   const inspectDirections = directions
     .filter(d=>d.canInspect && d.objectId && !priority.blockedInspectIds.includes(d.objectId) && dir(d.direction))
     .map(d=>d.direction);
@@ -42,7 +46,8 @@ export function buildActionMenu(
   if(heldFruit.length)tools.push("eat_fruit","discard_fruit");
   const vendingItemIds=vending.adjacent&&vending.inspected?vending.itemIds:[];
   if(vendingItemIds.length)tools.push("buy_item");
-  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds};
+  tools.push(...garden.tools);
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -74,6 +79,9 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       variants.push(obj({name:{type:"string",enum:["discard_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
     }
     if(menu.vendingItemIds.length)variants.push(obj({name:{type:"string",enum:["buy_item"]},itemId:{type:"string",enum:menu.vendingItemIds}}));
+    for(const name of ["take_can","fill_can"]){if(menu.tools.includes(name))variants.push(obj({name:{type:"string",enum:[name]}}));}
+    for(const name of ["plant_seed","water_plot","harvest_crop"]){if(menu.tools.includes(name))variants.push(obj({name:{type:"string",enum:[name]},plotId:{type:"string",enum:menu.gardenPlotIds}}));}
+    if(menu.tools.includes("sell_item"))variants.push(obj({name:{type:"string",enum:["sell_item"]},item:{type:"string",enum:menu.saleItems}}));
     if(menu.noteObjectIds.length)variants.push(obj({
       name:{type:"string",enum:["remember_object"]},
       objectId:{type:"string",enum:menu.noteObjectIds},
