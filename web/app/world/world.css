@@ -201,3 +201,7 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map-key{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #e2d19c;flex:none}
 .nimo-map-key-sight{background:#a9ca86}
 .nimo-map-key-outside{background:#557b65;border-color:#527963}
+
+.world-status-dot.curiosity,.world-status-fill.curiosity{background:#d1ac5c}
+.world-status-strip:has(.world-status-dot.curiosity){grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:520px){.world-status-strip:has(.world-status-dot.curiosity){grid-template-columns:1fr}}

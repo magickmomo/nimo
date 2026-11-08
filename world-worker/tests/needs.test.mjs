@@ -32,6 +32,14 @@ test("existing worlds gain hunger without losing old emotion values", () => {
   assert.equal(after.boredom,0.3);
   assert.equal(after.hunger,0.15);
 });
+test("default fullness decays exactly 1 percentage point every minute", () => {
+  const before = {...INITIAL_STATE.emotions, hunger:0.2};
+  const after = updateEmotions(before,60,12);
+  assert.ok(Math.abs(fullnessFromHunger(after.hunger)-0.79)<1e-10);
+  const tenMinutes=updateEmotions(before,600,12);
+  assert.ok(Math.abs(fullnessFromHunger(tenMinutes.hunger)-0.7)<1e-10);
+});
+
 test("only hunger grows, at a configurable rate, while other drives stay paused", () => {
   const after = updateEmotions(INITIAL_STATE.emotions, 86400, 12);
   assert.ok(after.hunger > INITIAL_STATE.emotions.hunger);

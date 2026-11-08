@@ -11,7 +11,7 @@ export type FoodMemory = { fruit:Fruit; count:number; informative:number; mean:n
 export type FoodInventoryItem = { id:number; fruit:Fruit; picked_at:string };
 const EFFECTS:Record<Fruit,number> = {amber:-35,blue:0,red:18};
 export const MAX_INVENTORY=9;
-export const DEFAULT_HUNGER_RATE=0.1;
+export const DEFAULT_HUNGER_RATE=1/60; // 1 percentage point of fullness per minute
 // This run uses lab 008 seed 48162, whose hidden mapping is amber -35, blue 0, red +18.
 // All five trees retain fixed identities; 2/3 starting fruit and 75–120s regeneration.
 export const FOOD_TREES:Readonly<Record<string,Fruit>>={
@@ -26,7 +26,7 @@ const nextRegrow=(id:string,now:number)=>now+75000+jitter(id,now)*1000;
 const round=(n:number)=>Math.round(n*100)/100;
 export function validHungerRate(rate:unknown):rate is number {
   return typeof rate==="number" && Number.isFinite(rate) && rate>=0 && rate<=2.5 &&
-    Math.abs(rate*10-Math.round(rate*10))<1e-7;
+    (Math.abs(rate-DEFAULT_HUNGER_RATE)<1e-9 || Math.abs(rate*10-Math.round(rate*10))<1e-7);
 }
 export async function hungerRate(db:D1Database):Promise<number> {
   const row=await db.prepare("SELECT hunger_rate FROM world_settings WHERE id=1")
@@ -34,7 +34,7 @@ export async function hungerRate(db:D1Database):Promise<number> {
   return row?.hunger_rate ?? DEFAULT_HUNGER_RATE;
 }
 export async function setHungerRate(db:D1Database,rate:number) {
-  if(!validHungerRate(rate))throw Error("Hunger rate must be 0–2.5 in steps of 0.1");
+  if(!validHungerRate(rate))throw Error("Fullness decay rate must be 1% per minute or 0–2.5 percentage points per second in steps of 0.1");
   await db.prepare("UPDATE world_settings SET hunger_rate=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1")
     .bind(rate).run();
 }
