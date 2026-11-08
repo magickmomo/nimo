@@ -1,7 +1,7 @@
 export type WorldState = {
   identity: string;
   beliefs: { text: string; evidence: string; confidence: number }[];
-  emotions: { energy: number; happiness: number; boredom: number; hunger: number };
+  emotions: { energy: number; happiness: number; boredom: number; curiosity?: number; hunger: number };
   currentGoal: string | null;
   currentActivity: string;
   tools: string[];
@@ -30,7 +30,7 @@ Do not claim to have completed an action unless the environment confirms it.`;
 export const INITIAL_STATE: WorldState = {
   identity: "I am an autonomous character in a persistent digital environment. I do not have a physical body.",
   beliefs: [],
-  emotions: { energy: 0.8, happiness: 0.5, boredom: 0, hunger: 0.15 },
+  emotions: { energy: 0.8, happiness: 0.5, boredom: 0, curiosity: 0.35, hunger: 0.15 },
   currentGoal: null,
   currentActivity: "observing",
   tools: [],
@@ -63,6 +63,7 @@ export function updateEmotions(
     energy:clamp(Number.isFinite(emotions.energy)?emotions.energy!:0.8),
     happiness:clamp(Number.isFinite(emotions.happiness)?emotions.happiness!:0.5),
     boredom:clamp(Number.isFinite(emotions.boredom)?emotions.boredom!:0),
+    curiosity:clamp(Number.isFinite(emotions.curiosity)?emotions.curiosity!:0.35),
     hunger,
   };
 }
