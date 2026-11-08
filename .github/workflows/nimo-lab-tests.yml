@@ -1,0 +1,26 @@
+name: Nimo lab cognition tests
+on:
+  pull_request:
+    paths:
+      - "web/lib/cognition-009.ts"
+      - "web/lib/cognition-011.ts"
+      - "web/app/world/lab/009/**"
+      - "web/app/world/lab/011/**"
+      - "web/tests/cognition-009.test.mjs"
+      - "web/tests/cognition-011.test.mjs"
+      - ".github/workflows/nimo-lab-tests.yml"
+  workflow_dispatch:
+jobs:
+  cognition-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install web dependencies
+        run: npm install --prefix web --no-audit --no-fund
+      - name: Run Nimo cognition tests
+        run: node --test web/tests/cognition-009.test.mjs web/tests/cognition-011.test.mjs
+      - name: Type-check website
+        run: npm run typecheck --prefix web
