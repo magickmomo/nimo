@@ -379,9 +379,10 @@ export default function World() {
         <p className="meta">Technical history remains in the owner export.</p>
         <div className="world-hunger-rate">
           <label htmlFor="hunger-rate">Fullness decrease (percentage points per second)</label>
-          <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
+          <select id="hunger-rate" value={String(data?.hungerRate??1/60)}
             disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
-            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
+            <option value={String(1/60)}>1% per minute</option>
+            {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={String(rate)}>{rate.toFixed(1)}% per second</option>)}
           </select>
         </div>
 
