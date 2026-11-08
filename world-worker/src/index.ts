@@ -428,7 +428,7 @@ async function tick(env: Env) {
     for(const kind of ["amber","blue","red"] as const)if(food.inventory.some(i=>i.fruit===kind))saleItems.push(kind);
     if(saleItems.length)gardenTools.push("sell_item");
   }
-  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,food,adjacentTreeIds,
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems});
   // Perception remains factual; execution opportunities are a separate constrained menu.
