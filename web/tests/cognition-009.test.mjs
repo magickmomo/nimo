@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 const source=readFileSync(new URL("../lib/cognition-009.ts",import.meta.url),"utf8");
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {initial009,apply009,context009,opportunities009,mood009,recall009,localDecision009}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+const {initial009,apply009,context009,opportunities009,mood009,recall009,localDecision009,learnedEffect009}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 test("separate Mood and Energy respond to bodily actions",()=>{
  let s=initial009();
  const prior=s;
@@ -61,4 +61,58 @@ test("no production write endpoints imported into lab",()=>{
  assert.doesNotMatch(page,/\/api\/world\/memories\/consolidate/);
  assert.match(route,/WORLD_OWNER_TOKEN/);
  assert.match(route,/LAB_OPENAI_API_KEY/);
+});
+
+test("generic discoveries begin empty, never disclose hidden world effects",()=>{
+ const s=initial009();
+ assert.deepEqual(s.discoveries,{effects:[],facts:[]});
+ const context=context009(s);
+ assert.deepEqual(context.discoveredKnowledge,[]);
+ assert.deepEqual(context.observedObjects,[]);
+ assert.ok(!("learnedFoodEffects" in context));
+ assert.ok(!("known" in context));
+ assert.ok(!JSON.stringify(context).includes("HIDDEN_EFFECTS009"));
+});
+test("verified interactions with food, objects, rest and creation use one generic knowledge schema",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"inspect",target:"amber"});
+ assert.equal(s.discoveries.facts.find(f=>f.subject==="tree:amber")?.value,"amber");
+ assert.equal(learnedEffect009(s,"fruit:amber","eat","hunger"),null);
+ s=apply009(s,{type:"eat",target:"blue"});
+ const blue=s.discoveries.effects.find(e=>e.subject==="fruit:blue"&&e.interaction==="eat"&&e.attribute==="hunger");
+ assert.ok(blue);
+ assert.equal(blue?.trials,1);
+ assert.equal(blue?.meanChange,0);
+ assert.equal(learnedEffect009(s,"fruit:amber","eat","hunger"),null);
+ s=apply009(s,{type:"rest"});
+ assert.ok(s.discoveries.effects.some(e=>e.subject==="activity:rest"&&e.attribute==="energy"));
+ s=apply009(s,{type:"create",target:"field_note"});
+ assert.ok(s.discoveries.effects.some(e=>e.subject==="activity:create"&&e.attribute==="creativity"));
+ assert.ok(s.discoveries.facts.some(f=>f.subject==="artifact:field_note_1"));
+ assert.ok(context009(s).discoveredKnowledge.some(e=>e.subject==="fruit:blue"));
+});
+test("boundary effects are logged but not treated as exact learned effects",()=>{
+ let s=initial009();
+ s.needs.hunger=3;
+ s=apply009(s,{type:"eat",target:"blue"});
+ // Blue has a zero effect, so it is informative even at low hunger.
+ assert.equal(learnedEffect009(s,"fruit:blue","eat","hunger"),0);
+ let t=initial009();
+ t.inventory=["amber"];
+ t.needs.hunger=5;
+ t=apply009(t,{type:"eat",target:"amber"});
+ const observation=t.discoveries.effects.find(e=>e.subject==="fruit:amber"&&e.attribute==="hunger");
+ assert.equal(observation?.trials,1);
+ assert.equal(observation?.informative,0);
+ assert.equal(observation?.meanChange,null);
+});
+test("generic local baseline uses observed effects rather than assuming amber is beneficial",()=>{
+ let s=initial009();
+ s.seen=["amber","blue"];
+ s.inventory=["blue","amber"];
+ assert.equal(localDecision009(s).action.target,"blue");
+ s=apply009(s,{type:"eat",target:"blue"});
+ s.needs.hunger=80;
+ assert.equal(localDecision009(s).action.target,"amber");
+ assert.equal(learnedEffect009(s,"fruit:amber","eat","hunger"),null);
 });
