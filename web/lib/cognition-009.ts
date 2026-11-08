@@ -186,7 +186,7 @@ const AFFORDANCES009={
 } as const;
 function effectFor009(s:State009,a:Action009,attribute:string):number|null{
  const subject=a.type==="eat"||a.type==="discard"?"fruit:"+a.target:
-   a.type==="inspect"||a.type==="pick"?a.target:
+   a.type==="inspect"||a.type==="pick"?(a.target??""):
    "activity:"+a.type;
  return learnedEffect009(s,subject,a.type,attribute);
 }
