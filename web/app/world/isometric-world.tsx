@@ -5,8 +5,8 @@ import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, type Point,
 
 const HW = 29;
 const HH = 16;
-const ORIGIN_X = 310;
-const ORIGIN_Y = 40;
+const ORIGIN_X = SIZE * HW + 20;
+const ORIGIN_Y = 80;
 const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
 
@@ -113,16 +113,16 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     <div className="nimo-map">
       <div className="nimo-map-heading">
         <span>WORLD 002 · NIMO'S WORLD</span>
-        <span>9 × 9</span>
+        <span>{SIZE} × {SIZE}</span>
       </div>
-      <svg className="nimo-map-canvas" viewBox="0 0 620 365" role="img"
-        aria-label={`Isometric nine by nine map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
+      <svg className="nimo-map-canvas" viewBox={`0 0 ${SIZE * HW * 2 + 40} ${SIZE * HH * 2 + 120}`} role="img"
+        aria-label={`Isometric ${SIZE} by ${SIZE} map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
         <defs>
           <linearGradient id="nimo-ground" x1="0" y1="0" x2="0.8" y2="1">
             <stop offset="0" stopColor="#9bc17d"/><stop offset="1" stopColor="#719b63"/>
           </linearGradient>
         </defs>
-        <ellipse cx="310" cy="190" rx="272" ry="132" fill="#071a18" opacity=".35"/>
+        <ellipse cx={ORIGIN_X} cy={ORIGIN_Y + (SIZE-1)*HH} rx={SIZE*HW - 10} ry={SIZE*HH - 10} fill="#071a18" opacity=".35"/>
         {tiles.map(tile => {
           const p = project(tile);
           const tileKey = `${tile.x}:${tile.y}`;
