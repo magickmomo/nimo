@@ -81,7 +81,7 @@ export default function Lab011(){
      const on=await tick("memory-on",e.on,c.signal);
      e={...e,on};save(e);
      if(c.signal.aborted)break;
-     const off=await tick("memory-off",e.off,c.signal);
+     const off=await tick("memory-off",e.off!,c.signal);
      e={...e,off};save(e);
      if(on.state.step%20===0)setStatus("Both branches: "+on.state.step+" / 120 decisions");
     }
