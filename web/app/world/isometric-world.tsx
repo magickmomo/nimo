@@ -19,6 +19,9 @@ function Scenery({ kind }: { kind: ObjectKind }) {
       <path d="M-15 -44 C-14 -58 -3 -61 7 -58" fill="none" stroke="#65a476" strokeWidth="5" strokeLinecap="round" opacity=".8" />
     </g>
   );
+  if (kind === "plot") return <g><ellipse cy="0" rx="25" ry="11" fill="#61422d" stroke="#a57847" strokeWidth="2"/><path d="M-18 0 L-8 -5 M-4 5 L6 -2 M10 5 L19 -3" stroke="#a98458" strokeWidth="2" opacity=".8"/></g>;
+  if (kind === "well") return <g><ellipse cy="3" rx="23" ry="11" fill="#344c52" opacity=".3"/><path d="M-17 -15 L-17 0 Q0 15 17 0 L17 -15" fill="#8c938d" stroke="#4d615c" strokeWidth="2"/><ellipse cy="-15" rx="17" ry="8" fill="#70b7bc" stroke="#bfc7b6" strokeWidth="5"/><path d="M-16 -20 V-43 M16 -20 V-43 M-20 -43 H20" stroke="#685540" strokeWidth="5"/></g>;
+  if (kind === "store") return <g><ellipse cy="2" rx="26" ry="10" fill="#152c24" opacity=".3"/><rect x="-22" y="-38" width="44" height="38" fill="#d7b78c" stroke="#7c5f48" strokeWidth="2"/><path d="M-29 -38 L0 -61 L29 -38Z" fill="#a9684f" stroke="#67473c" strokeWidth="3"/><rect x="-7" y="-25" width="14" height="25" fill="#6f8878"/><rect x="-19" y="-29" width="9" height="10" fill="#9bc4ca"/></g>;
   if (kind === "machine") return (
     <g>
       <ellipse cy="4" rx="17" ry="7" fill="#142b2c" opacity=".3"/>
