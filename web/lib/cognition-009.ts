@@ -9,8 +9,11 @@ export type Effect009={subject:string;interaction:string;attribute:string;trials
  meanChange:number|null;minChange:number|null;maxChange:number|null;evidence:number[]};
 export type Fact009={subject:string;property:string;value:string;evidence:number[]};
 export type Knowledge009={effects:Effect009[];facts:Fact009[]};
+export type ProjectProposal009={title:string;intention:string;sourceIds:string[]};
+export type Project009=ProjectProposal009&{id:string;startedStep:number;completedStep?:number};
+export type Creation009={projectId:string;title:string;content:string;sourceIds:string[];createdStep:number};
 export type Episode009={step:number;action:Action009;result:string;before:{mood:number;energy:number;needs:Needs009};after:{mood:number;energy:number;needs:Needs009};reason:string;retrieved:string[]};
-export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;};
+export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;project:Project009|null;completedProjects:Project009[];creations:Creation009[];};
 const clamp=(v:number)=>Math.max(0,Math.min(100,Math.round(v*100)/100));
 const copy=<T>(x:T):T=>JSON.parse(JSON.stringify(x)) as T;
 // Environment-owned objects: identities are visible; contents remain hidden until inspection.
@@ -22,7 +25,7 @@ export const NEED_WEIGHTS009:Needs009={hunger:.43,rest:.20,novelty:.19,creativit
 export function mood009(n:Needs009){return clamp(100-Object.entries(n).reduce((sum,[k,v])=>sum+Math.max(0,v-15)*NEED_WEIGHTS009[k as Need009],0));}
 export function initial009(seed=9009):State009{
  const needs={hunger:65,rest:25,novelty:45,creativity:72};
- return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],discoveries:{effects:[],facts:[]},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null};
+ return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],discoveries:{effects:[],facts:[]},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null,project:null,completedProjects:[],creations:[]};
 }
 export function observeFact009(knowledge:Knowledge009,subject:string,property:string,value:string,step:number){
  const old=knowledge.facts.find(x=>x.subject===subject&&x.property===property);
@@ -76,7 +79,10 @@ export function context009(s:State009,withMemory=true){
  return {step:s.step,mood:s.mood,energy:s.energy,needs:s.needs,moodContributors:causes,
   inventory:s.inventory,observedObjects:s.discoveries.facts,
   discoveredKnowledge:s.discoveries.effects,observedTrees:s.seen,
-  artifacts:s.artifacts,workingGoal:s.workingGoal,workingMemory:s.episodes.slice(-4).map(e=>({step:e.step,action:e.action,result:e.result,reason:e.reason})),
+  artifacts:s.artifacts,workingGoal:s.workingGoal,
+  activeProject:s.project,completedProjects:s.completedProjects.map(p=>({title:p.title,completedStep:p.completedStep})),
+  creations:s.creations.map(c=>({title:c.title,sourceIds:c.sourceIds,createdStep:c.createdStep})),
+  workingMemory:s.episodes.slice(-4).map(e=>({step:e.step,action:e.action,result:e.result,reason:e.reason})),
   consolidatedMemories:relevant,availableActions:opportunities009(s)};
 }
 function consolidate009(s:State009){
@@ -227,8 +233,13 @@ export function plans009(s:State009):Plan009[]{
  for(const a of actions){
   if(a.type==="eat")
    add(planValue009(s,[a],a,"hunger","Try/use carried resource "+a.target,true));
-  else if(a.type==="create"||a.type==="explore")
-   add(planValue009(s,[a],a,AFFORDANCES009[a.type].effect,"Pursue "+a.type,true));
+  else if(a.type==="create"||a.type==="explore"){
+   const p=planValue009(s,[a],a,AFFORDANCES009[a.type].effect,"Pursue "+a.type,true);
+   if(a.type==="create"&&s.project&&s.energy>=35&&s.needs.hunger<65){
+    p.score+=15;p.explanation="Work on original project: "+s.project.title;
+   }
+   add(p);
+  }
   else if(a.type==="rest"){
    // Rest is useful only if recovery is needed, never an automatic fallback.
    const recovery=Math.max(0,90-s.energy)*.24+urgency009(s,"rest")*.6;
@@ -268,6 +279,41 @@ export function plans009(s:State009):Plan009[]{
  return proposals.sort((a,b)=>b.score-a.score||
    a.steps.length-b.steps.length||
    actionKey009(a.steps[0]).localeCompare(actionKey009(b.steps[0])));
+}
+/**
+ * Project states are based only on observed sources. The model may propose goals,
+ * but it cannot invent a discovered fact or grant itself a new world action.
+ */
+export function projectOpportunity009(s:State009):boolean{
+ return !s.project&&s.discoveries.facts.length>0&&s.step>=2&&s.completedProjects.length<2&&
+   (s.completedProjects.length===0||s.step-(s.completedProjects[s.completedProjects.length-1].completedStep??0)>=6);
+}
+export function startProject009(previous:State009,proposal:ProjectProposal009):State009{
+ if(!projectOpportunity009(previous))throw Error("Project proposal unavailable");
+ const known=new Set(previous.discoveries.facts.map(f=>f.subject));
+ if(!proposal.title?.trim()||proposal.title.length>100||
+    !proposal.intention?.trim()||proposal.intention.length>400||
+    !Array.isArray(proposal.sourceIds)||proposal.sourceIds.length<1||proposal.sourceIds.length>4||
+    proposal.sourceIds.some(id=>!known.has(id)))
+  throw Error("Project must be grounded in observed sources");
+ const s=copy(previous);
+ s.project={...proposal,sourceIds:[...new Set(proposal.sourceIds)],
+   id:"project_"+(s.completedProjects.length+1),startedStep:s.step};
+ s.workingGoal=proposal.intention;
+ return s;
+}
+export function finishProject009(previous:State009,title:string,content:string):State009{
+ if(!previous.project)throw Error("No active project");
+ const last=previous.episodes[previous.episodes.length-1];
+ if(!last||last.action.type!=="create"||last.step<=previous.project.startedStep)
+  throw Error("Complete project only after a verified creative action");
+ if(!title.trim()||title.length>120||content.trim().length<60||content.length>6000)
+  throw Error("Creative output is missing or invalid");
+ const s=copy(previous),project=s.project!;
+ s.creations.push({projectId:project.id,title,content,sourceIds:project.sourceIds,createdStep:s.step});
+ s.completedProjects.push({...project,completedStep:s.step});
+ s.project=null;s.workingGoal=null;
+ return s;
 }
 export function localDecision009(s:State009,withMemory=true):{action:Action009;reason:string}{
  const proposals=plans009(s);
