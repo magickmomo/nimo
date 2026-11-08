@@ -14,10 +14,11 @@ export default function Lab009(){
  const [token,setToken]=useState(""),[busy,setBusy]=useState(false),lock=useRef(false),abort=useRef<AbortController|null>(null);
  const [error,setError]=useState(""),[status,setStatus]=useState("Ready — isolated simulation, no production writes.");
  const traces=useRef<Trace[]>([]),modelTraces=useRef<ModelTrace[]>([]);
+ const lastRejectedProposalStep=useRef(-100);
  const [modelTotals,setModelTotals]=useState({calls:0,input:0,output:0});
  const view=context009(state,memory);
  const save=(next:State009)=>{current.current=next;setState(next)};
- function reset(){if(lock.current)return;save(initial009(seed));traces.current=[];modelTraces.current=[];
+ function reset(){if(lock.current)return;save(initial009(seed));traces.current=[];modelTraces.current=[];lastRejectedProposalStep.current=-100;
   setModelTotals({calls:0,input:0,output:0});setError("");setStatus("Reset to seed "+seed);}
  function act(action:Action009,reason:string,context?:ReturnType<typeof context009>,messages?:Trace["messages"],
   creation?:{title:string;content:string}){
@@ -33,7 +34,11 @@ export default function Lab009(){
    body:JSON.stringify({phase,context,...(phase==="create"?{project:current.current.project}:{})})});
   const data=await response.json() as {result?:Record<string,unknown>;model?:string;
    usage?:{input:number;output:number};error?:string};
-  if(!response.ok||!data.result)throw Error(data.error||"Project model request failed");
+  if(!response.ok||!data.result){
+   if(phase==="propose"&&response.status===422)
+    throw new Error("RECOVERABLE_PROPOSAL: "+(data.error||"Unsupported proposal"));
+   throw Error(data.error||"Project model request failed");
+  }
   const usage={input:data.usage?.input??0,output:data.usage?.output??0};
   modelTraces.current.push({step:current.current.step,phase,...usage,model:data.model??"unknown",result:data.result});
   setModelTotals(p=>({calls:p.calls+1,input:p.input+usage.input,output:p.output+usage.output}));
@@ -41,13 +46,21 @@ export default function Lab009(){
  }
  async function step(signal:AbortSignal){
   if(mode==="hybrid"){
-   if(projectOpportunity009(current.current)){
-    const proposal=await projectRequest("propose",context009(current.current,memory),signal);
-    const next=startProject009(current.current,proposal as ProjectProposal009);
-    save(next);setStatus("Nimo proposed a project: "+next.project?.title);
+   if(projectOpportunity009(current.current)&&
+      current.current.step-lastRejectedProposalStep.current>=5){
+    try{
+     const proposal=await projectRequest("propose",context009(current.current,memory),signal);
+     const next=startProject009(current.current,proposal as ProjectProposal009);
+     save(next);setStatus("Nimo proposed a project: "+next.project?.title);
+    }catch(e){
+     // A rejected creative suggestion is not a failed world decision.
+     // Continue local action selection; try again after five real steps.
+     if(!(e instanceof Error&&e.message.startsWith("RECOVERABLE_PROPOSAL:")))throw e;
+     lastRejectedProposalStep.current=current.current.step;
+    }
    }
    const s=current.current,ctx=context009(s,memory),choice=localDecision009(s,memory);
-   if(choice.action.type==="create"&&s.project){
+   if(choice.action.type==="create"&&s.project?.phase==="creating"){
     const result=await projectRequest("create",ctx,signal);
     if(typeof result.title!=="string"||typeof result.content!=="string")throw Error("Incomplete creation");
     act(choice.action,choice.reason,ctx,undefined,{title:result.title,content:result.content});
@@ -89,7 +102,9 @@ export default function Lab009(){
   }
   lines.push("## Model calls","",JSON.stringify(modelTraces.current,null,2),"",
    "## Creative project outputs","",JSON.stringify(state.creations,null,2),"");
-  lines.push("## Discovered knowledge","```json",JSON.stringify(state.discoveries,null,2),"```");
+  lines.push("## Persistent interests and goals","\`\`\`json",JSON.stringify({interests:state.interests,
+   activeProject:state.project,completedProjects:state.completedProjects},null,2),"\`\`\`");
+  lines.push("## Discovered knowledge","\`\`\`json",JSON.stringify(state.discoveries,null,2),"\`\`\`");
   lines.push("## Stored experimental memories","```json",JSON.stringify(state.memories,null,2),"```");
   const url=URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/markdown"}));
   const a=document.createElement("a");a.href=url;a.download="nimo-009-experiment-"+seed+".md";a.click();URL.revokeObjectURL(url);
@@ -109,6 +124,7 @@ export default function Lab009(){
   <div className="cog009-actions">
    <button disabled={busy} onClick={()=>void run(1)}>Step once</button>
    <button disabled={busy} onClick={()=>void run(30)}>Run 30 decisions</button>
+   <button disabled={busy} onClick={()=>void run(50)}>Run 50 decisions</button>
    <button disabled={!busy} onClick={()=>abort.current?.abort()}>Stop</button>
    <button disabled={busy} onClick={reset}>Reset</button>
    <button onClick={exportLog}>Export experiment log</button>
@@ -143,8 +159,19 @@ export default function Lab009(){
    </section>
    <section className="cog009-card"><h2>Cognition and memory</h2>
     <p>Current goal: {state.workingGoal||"Not set"}</p>
-    {state.project&&<div><h3>Active self-proposed project</h3><p><strong>{state.project.title}</strong>: {state.project.intention}</p>
+    {state.project&&<div><h3>Active self-proposed project</h3>
+      <p><strong>{state.project.title}</strong>: {state.project.intention}</p>
+      <p><strong>Curiosity question:</strong> {state.project.question}</p>
+      <p><strong>Phase:</strong> {state.project.phase}</p>
+      {state.project.phase==="investigating"&&<p className="cog009-note">
+       Next investigation: {state.project.investigationAction?.type} {state.project.investigationAction?.target}</p>}
+      {state.project.investigationOutcome&&<p className="cog009-note">
+       Verified investigation: {state.project.investigationOutcome}</p>}
       <p className="cog009-note">Observed sources: {state.project.sourceIds.join(", ")}</p></div>}
+    <h3>Persistent interests ({state.interests.length})</h3>
+    {state.interests.length===0?<p className="cog009-note">No chosen interests yet.</p>:
+     state.interests.map(i=><p key={i.id}><strong>{i.status}</strong> · {i.question}
+      <small> (from step {i.createdStep})</small></p>)}
     <h3>Completed projects ({state.creations.length})</h3>
     {state.creations.length===0?<p className="cog009-note">None yet. Hybrid mode proposes projects after Nimo observes something.</p>:
       state.creations.map(c=><details key={c.projectId}><summary>{c.title} (step {c.createdStep})</summary>
@@ -157,7 +184,7 @@ export default function Lab009(){
    </section>
   </div>
   <section className="cog009-card"><h2>Decision journal</h2>
-   {state.episodes.length===0?<p>No decisions yet.</p>:[...state.episodes].reverse().slice(0,35).map(e=>
+   {state.episodes.length===0?<p>No decisions yet.</p>:[...state.episodes].reverse().slice(0,60).map(e=>
     <details key={e.step}><summary>#{e.step} {fmt(e.action)} — {e.result}</summary>
      <p>Reason: {e.reason}</p><p>Mood {e.before.mood} → {e.after.mood}; Energy {e.before.energy} → {e.after.energy}</p>
      <p>Retrieved memories: {e.retrieved.join(", ")||"none"}</p>

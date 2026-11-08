@@ -9,11 +9,16 @@ export type Effect009={subject:string;interaction:string;attribute:string;trials
  meanChange:number|null;minChange:number|null;maxChange:number|null;evidence:number[]};
 export type Fact009={subject:string;property:string;value:string;evidence:number[]};
 export type Knowledge009={effects:Effect009[];facts:Fact009[]};
-export type ProjectProposal009={title:string;intention:string;sourceIds:string[]};
-export type Project009=ProjectProposal009&{id:string;startedStep:number;completedStep?:number};
+export type ProjectProposal009={title:string;intention:string;sourceIds:string[];
+ question?:string;investigationAction?:Action009|null};
+export type Project009=ProjectProposal009&{id:string;startedStep:number;completedStep?:number;
+ phase:"investigating"|"creating";investigatedAt?:number;investigationOutcome?:string};
+export type Interest009={id:string;question:string;sourceIds:string[];createdStep:number;
+ status:"active"|"completed"|"abandoned";projectId:string;resolvedStep?:number};
 export type Creation009={projectId:string;title:string;content:string;sourceIds:string[];createdStep:number};
 export type Episode009={step:number;action:Action009;result:string;before:{mood:number;energy:number;needs:Needs009};after:{mood:number;energy:number;needs:Needs009};reason:string;retrieved:string[]};
-export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;project:Project009|null;completedProjects:Project009[];creations:Creation009[];};
+export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;project:Project009|null;completedProjects:Project009[];creations:Creation009[];
+ interests:Interest009[];};
 const clamp=(v:number)=>Math.max(0,Math.min(100,Math.round(v*100)/100));
 const copy=<T>(x:T):T=>JSON.parse(JSON.stringify(x)) as T;
 // Environment-owned objects: identities are visible; contents remain hidden until inspection.
@@ -25,7 +30,7 @@ export const NEED_WEIGHTS009:Needs009={hunger:.43,rest:.20,novelty:.19,creativit
 export function mood009(n:Needs009){return clamp(100-Object.entries(n).reduce((sum,[k,v])=>sum+Math.max(0,v-15)*NEED_WEIGHTS009[k as Need009],0));}
 export function initial009(seed=9009):State009{
  const needs={hunger:65,rest:25,novelty:45,creativity:72};
- return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],discoveries:{effects:[],facts:[]},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null,project:null,completedProjects:[],creations:[]};
+ return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],discoveries:{effects:[],facts:[]},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null,project:null,completedProjects:[],creations:[],interests:[]};
 }
 export function observeFact009(knowledge:Knowledge009,subject:string,property:string,value:string,step:number){
  const old=knowledge.facts.find(x=>x.subject===subject&&x.property===property);
@@ -80,7 +85,7 @@ export function context009(s:State009,withMemory=true){
   inventory:s.inventory,observedObjects:s.discoveries.facts,
   discoveredKnowledge:s.discoveries.effects,observedTrees:s.seen,
   artifacts:s.artifacts,workingGoal:s.workingGoal,
-  activeProject:s.project,completedProjects:s.completedProjects.map(p=>({title:p.title,completedStep:p.completedStep})),
+  interests:s.interests,activeProject:s.project,completedProjects:s.completedProjects.map(p=>({title:p.title,completedStep:p.completedStep})),
   creations:s.creations.map(c=>({title:c.title,sourceIds:c.sourceIds,createdStep:c.createdStep})),
   workingMemory:s.episodes.slice(-4).map(e=>({step:e.step,action:e.action,result:e.result,reason:e.reason})),
   consolidatedMemories:relevant,availableActions:opportunities009(s)};
@@ -165,7 +170,18 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
   observeEffect009(s.discoveries,subject,action.type,"energy",before.energy,s.energy,s.step+1,
     s.energy===0||s.energy===100);
  s.step++;s.mood=mood009(n);
- s.workingGoal=action.type==="eat"?"Recover from hunger":action.type==="create"?"Make something":s.workingGoal;
+ // A chosen investigation survives unrelated bodily actions and only advances on its actual execution.
+ if(s.project?.phase==="investigating"&&s.project.investigationAction){
+  if(actionKey009(action)===actionKey009(s.project.investigationAction)){
+   s.project.phase="creating";s.project.investigatedAt=s.step;
+   s.project.investigationOutcome=result;
+  }else if(!opportunities009(s).some(a=>actionKey009(a)===actionKey009(s.project!.investigationAction!))){
+   // Do not falsely mark investigation as completed if an opportunity vanished.
+   s.project.phase="creating";s.project.investigationOutcome="Investigation opportunity expired; no observation was made.";
+  }
+ }
+ if(!s.project) s.workingGoal=action.type==="eat"?"Recover from hunger":
+   action.type==="create"?"Make something":s.workingGoal;
  s.episodes.push({step:s.step,action,result,before,after:{mood:s.mood,energy:s.energy,needs:copy(s.needs)},reason,retrieved:context009(previous).consolidatedMemories.map(m=>m.id)});
  if(withLearning)consolidate009(s);
  return s;
@@ -233,10 +249,10 @@ export function plans009(s:State009):Plan009[]{
  for(const a of actions){
   if(a.type==="eat")
    add(planValue009(s,[a],a,"hunger","Try/use carried resource "+a.target,true));
-  else if(a.type==="create"||a.type==="explore"){
+  else if((a.type==="create"&&s.project?.phase!=="investigating")||a.type==="explore"){
    const p=planValue009(s,[a],a,AFFORDANCES009[a.type].effect,"Pursue "+a.type,true);
-   if(a.type==="create"&&s.project&&s.energy>=35&&s.needs.hunger<65){
-    p.score+=15;p.explanation="Work on original project: "+s.project.title;
+   if(a.type==="create"&&s.project?.phase==="creating"&&s.energy>=35&&s.needs.hunger<65){
+    p.score+=15;p.explanation="Continue chosen creative project: "+s.project.title;
    }
    add(p);
   }
@@ -269,6 +285,18 @@ export function plans009(s:State009):Plan009[]{
   add(planValue009(s,steps,eat,"hunger",
     "Acquire "+observed.value+" from "+observed.subject+" and test its effect",true));
  }
+ // A persistent, model-proposed investigation competes with needs rather than
+ // becoming an unbreakable scripted command. Only legal current actions can advance it.
+ if(s.project?.phase==="investigating"&&s.project.investigationAction){
+  const next=s.project.investigationAction;
+  if(can(next)&&s.energy>=20&&s.needs.hunger<75){
+   const candidate=planValue009(s,[next],next,undefined,"Investigate chosen question: "+s.project.question);
+   // Keep a chosen investigation meaningful across several steps, while
+   // allowing genuine high hunger, exhaustion or lost affordances to interrupt it.
+   candidate.score+=24;
+   add(candidate);
+  }
+ }
  // Unknown objects can be investigated without revealing what they contain.
  for(const inspect of actions.filter(a=>a.type==="inspect")){
   // Investigating the unknown can enable future resource experiments.
@@ -285,8 +313,8 @@ export function plans009(s:State009):Plan009[]{
  * but it cannot invent a discovered fact or grant itself a new world action.
  */
 export function projectOpportunity009(s:State009):boolean{
- return !s.project&&s.discoveries.facts.length>0&&s.step>=2&&s.completedProjects.length<2&&
-   (s.completedProjects.length===0||s.step-(s.completedProjects[s.completedProjects.length-1].completedStep??0)>=6);
+ return !s.project&&s.discoveries.facts.length>0&&s.step>=2&&s.completedProjects.length<6&&
+   (s.completedProjects.length===0||s.step-(s.completedProjects[s.completedProjects.length-1].completedStep??0)>=5);
 }
 export function startProject009(previous:State009,proposal:ProjectProposal009):State009{
  if(!projectOpportunity009(previous))throw Error("Project proposal unavailable");
@@ -294,11 +322,20 @@ export function startProject009(previous:State009,proposal:ProjectProposal009):S
  if(!proposal.title?.trim()||proposal.title.length>100||
     !proposal.intention?.trim()||proposal.intention.length>400||
     !Array.isArray(proposal.sourceIds)||proposal.sourceIds.length<1||proposal.sourceIds.length>4||
-    proposal.sourceIds.some(id=>!known.has(id)))
+    proposal.sourceIds.some(id=>!known.has(id))||
+    proposal.question!==undefined&&(typeof proposal.question!=="string"||proposal.question.length>300))
   throw Error("Project must be grounded in observed sources");
+ const investigation=proposal.investigationAction??null;
+ if(investigation&&(!["inspect","pick","eat"].includes(investigation.type)||
+   !opportunities009(previous).some(a=>actionKey009(a)===actionKey009(investigation))))
+  throw Error("Project investigation must be a legal observable interaction");
  const s=copy(previous);
- s.project={...proposal,sourceIds:[...new Set(proposal.sourceIds)],
-   id:"project_"+(s.completedProjects.length+1),startedStep:s.step};
+ const id="project_"+(s.completedProjects.length+1);
+ s.project={...proposal,question:proposal.question?.trim()||proposal.intention,
+   investigationAction:investigation,phase:investigation?"investigating":"creating",
+   sourceIds:[...new Set(proposal.sourceIds)],id,startedStep:s.step};
+ s.interests.push({id:"interest_"+id,question:s.project.question!,sourceIds:s.project.sourceIds,
+   createdStep:s.step,status:"active",projectId:id});
  s.workingGoal=proposal.intention;
  return s;
 }
@@ -309,19 +346,43 @@ export function finishProject009(previous:State009,title:string,content:string):
   throw Error("Complete project only after a verified creative action");
  if(!title.trim()||title.length>120||content.trim().length<60||content.length>6000)
   throw Error("Creative output is missing or invalid");
+ if(previous.project.phase!=="creating")
+  throw Error("Investigate the chosen question before completing the project");
  const s=copy(previous),project=s.project!;
  s.creations.push({projectId:project.id,title,content,sourceIds:project.sourceIds,createdStep:s.step});
  s.completedProjects.push({...project,completedStep:s.step});
+ const interest=s.interests.find(i=>i.projectId===project.id);
+ if(interest){interest.status="completed";interest.resolvedStep=s.step;}
  s.project=null;s.workingGoal=null;
  return s;
 }
 export function localDecision009(s:State009,withMemory=true):{action:Action009;reason:string}{
  const proposals=plans009(s);
- const best=proposals[0];
- if(!best)throw Error("No legal actions offered by environment");
- const memories=context009(s,withMemory).consolidatedMemories;
- return {action:best.steps[0],reason:"Local affordance planner: "+best.explanation+
-   "; proposed "+best.steps.map(actionKey009).join(" -> ")+
+ if(!proposals.length)throw Error("No legal actions offered by environment");
+ // Evidence-linked memories are interpreted as action-relevant observations,
+ // rather than merely counted. Disable for ablation without deleting stored state.
+ const memories=withMemory?context009(s,true).consolidatedMemories:[];
+ const evaluated=proposals.map(plan=>{
+  const first=plan.steps[0],keys=plan.steps.map(actionKey009),references:string[]=[];
+  let bonus=0;
+  for(const memory of memories){
+   if(memory.id==="inventory_capacity"&&first.type==="discard"&&
+      plan.steps.some(a=>a.type==="pick")){
+    bonus+=2;references.push(memory.id);
+   }
+   if(memory.id==="creative_work"&&first.type==="create"&&s.project?.phase==="creating"&&
+      s.energy>=35){
+    bonus+=1.5;references.push(memory.id);
+   }
+  }
+  // Verified effects remain the primary source for food decisions.
+  // An uninterpreted note or unsupported claim must not become a fact.
+  return {plan,score:plan.score+bonus,references};
+ }).sort((a,b)=>b.score-a.score||a.plan.steps.length-b.plan.steps.length||
+    actionKey009(a.plan.steps[0]).localeCompare(actionKey009(b.plan.steps[0])));
+ const best=evaluated[0];
+ return {action:best.plan.steps[0],reason:"Local affordance planner: "+best.plan.explanation+
+   "; proposed "+best.plan.steps.map(actionKey009).join(" -> ")+
    "; score "+best.score.toFixed(2)+
-   "; "+memories.length+" relevant memory records (not yet interpreted by local planner)."};
+   "; evidence-linked memories used: "+(best.references.join(", ")||"none")+"."};
 }

@@ -6,8 +6,11 @@ const isFact=(f:unknown):f is Fact=>!!f&&typeof f==="object"&&!Array.isArray(f)&
  typeof (f as Fact).subject==="string"&&typeof (f as Fact).property==="string"&&
  typeof (f as Fact).value==="string"&&Array.isArray((f as Fact).evidence);
 const schema=(phase:"propose"|"create")=>phase==="propose"?
- {type:"object",properties:{title:{type:"string"},intention:{type:"string"},sourceIds:{type:"array",items:{type:"string"}}},
-   required:["title","intention","sourceIds"],additionalProperties:false}:
+ {type:"object",properties:{title:{type:"string"},intention:{type:"string"},sourceIds:{type:"array",items:{type:"string"}},
+   question:{type:"string"},investigationAction:{anyOf:[
+    {type:"object",properties:{type:{type:"string"},target:{type:"string"}},required:["type","target"],additionalProperties:false},
+    {type:"null"}]}},
+   required:["title","intention","sourceIds","question","investigationAction"],additionalProperties:false}:
  {type:"object",properties:{title:{type:"string"},content:{type:"string"}},
    required:["title","content"],additionalProperties:false};
 export async function POST(req:NextRequest){
@@ -26,6 +29,13 @@ export async function POST(req:NextRequest){
     !Array.isArray(ctx.consolidatedMemories)||ctx.consolidatedMemories.length>4||
     JSON.stringify(body).length>18000)return fail("Invalid experiment context",400);
  const known=new Set(facts.map((f:Fact)=>f.subject));
+ const available=Array.isArray(ctx.availableActions)?ctx.availableActions.filter((a:unknown)=>!!a&&typeof a==="object"):[] as unknown[];
+ // Compare actions by their meaningful fields, not JSON property order.
+ const investigations=available.filter((a):a is {type:string;target:string}=>{
+  if(!a||typeof a!=="object")return false;
+  const action=a as {type?:unknown;target?:unknown};
+  return ["inspect","pick","eat"].includes(String(action.type))&&typeof action.target==="string";
+ });
  const p=project as {title?:unknown;intention?:unknown;sourceIds?:unknown}|null;
  if(phase==="create"&&(!p||typeof p.title!=="string"||typeof p.intention!=="string"||
     !Array.isArray(p.sourceIds)||p.sourceIds.length<1||p.sourceIds.length>4||
@@ -35,10 +45,11 @@ export async function POST(req:NextRequest){
  // Pass only observed information; never send hidden environment mappings.
  const grounded={mood:ctx.mood,energy:ctx.energy,needs:ctx.needs,observations:relevantFacts,
     learnedEffects:ctx.discoveredKnowledge,consolidatedMemories:ctx.consolidatedMemories,
-    completedProjects:ctx.completedProjects,creations:ctx.creations,
+    completedProjects:ctx.completedProjects,creations:ctx.creations,interests:ctx.interests,
+    availableActions:available,
     ...(phase==="create"?{project:p}:{})};
  const system=phase==="propose"?
-  "You are Nimo in a bounded creative cognition experiment. Choose ONE self-initiated small creative project suggested by your actual observed objects or verified experiences. Do not simply obey a mood threshold. Make something meaningful and specific, such as a short comparative field study, invented story explicitly labelled as fiction, or conceptual design. Use only subject IDs present in observations as sourceIds. Distinguish observed facts from imagination. Return title, concise intention, and 1-4 sourceIds. Do not claim to have used tools or discovered facts not present.":
+  "You are Nimo in a bounded creative cognition experiment. Choose ONE self-initiated curiosity question and a related creative project grounded in your observations, experiments, existing interests and completed work. Do not merely maximize mood or repeat the previous project. Return a title, intention, question and 1-4 observed sourceIds. If a currently available action could help you investigate before writing, choose exactly one investigationAction of type inspect, pick or eat copied from availableActions (with both type and target strings); otherwise use null. You can pursue this across decisions; do not invent unseen facts or actions. Treat speculation as speculation.":
   "You are Nimo completing a project you previously chose. Write the actual creative artefact: thoughtful, varied and substantial (roughly 120-350 words), not a placeholder. Only claim as factual what the observations or verified learned effects support; mark interpretations or fiction as such. Write in a voice with curiosity and specificity. Return title and complete content. No external actions or secret environment information.";
  const messages=[{role:"system",content:system},{role:"user",content:JSON.stringify(grounded)}];
  const model=process.env.LAB_OPENAI_MODEL||"gpt-4.1-mini";
@@ -68,9 +79,19 @@ export async function POST(req:NextRequest){
    return fail("Invalid project title",502);
   if(phase==="propose"){
    if(typeof output.intention!=="string"||!output.intention.trim()||output.intention.length>400||
-      !Array.isArray(output.sourceIds)||output.sourceIds.length<1||output.sourceIds.length>4||
-      !output.sourceIds.every(id=>typeof id==="string"&&known.has(id)))
-    return fail("Model proposed unsupported project references",502);
+      typeof output.question!=="string"||!output.question.trim()||output.question.length>300||
+      !Array.isArray(output.sourceIds))
+    return fail("Model proposed invalid project fields",422);
+   // Only observed objects qualify as evidence. Unsupported IDs are discarded,
+   // rather than allowing them to enter memory or halting the whole experiment.
+   const groundedIds=[...new Set(output.sourceIds.filter((id):id is string=>
+     typeof id==="string"&&known.has(id)))].slice(0,4);
+   if(!groundedIds.length)return fail("No verified sources for proposed project",422);
+   output.sourceIds=groundedIds;
+   const candidate=output.investigationAction as {type?:unknown;target?:unknown}|null;
+   const valid=investigations.find(a=>a.type===candidate?.type&&a.target===candidate?.target);
+   // No valid action means a creation-only project, not an invented experiment.
+   output.investigationAction=valid?{type:valid.type,target:valid.target}:null;
   }else if(typeof output.content!=="string"||output.content.trim().length<60||output.content.length>6000)
    return fail("Model returned an incomplete creation",502);
   return NextResponse.json({result:output,model,usage:{
