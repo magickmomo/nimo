@@ -30,7 +30,12 @@ export async function POST(req:NextRequest){
     JSON.stringify(body).length>18000)return fail("Invalid experiment context",400);
  const known=new Set(facts.map((f:Fact)=>f.subject));
  const available=Array.isArray(ctx.availableActions)?ctx.availableActions.filter((a:unknown)=>!!a&&typeof a==="object"):[] as unknown[];
- const permitted=new Set(available.map(a=>JSON.stringify(a)));
+ // Compare actions by their meaningful fields, not JSON property order.
+ const investigations=available.filter((a):a is {type:string;target:string}=>{
+  if(!a||typeof a!=="object")return false;
+  const action=a as {type?:unknown;target?:unknown};
+  return ["inspect","pick","eat"].includes(String(action.type))&&typeof action.target==="string";
+ });
  const p=project as {title?:unknown;intention?:unknown;sourceIds?:unknown}|null;
  if(phase==="create"&&(!p||typeof p.title!=="string"||typeof p.intention!=="string"||
     !Array.isArray(p.sourceIds)||p.sourceIds.length<1||p.sourceIds.length>4||
@@ -74,14 +79,19 @@ export async function POST(req:NextRequest){
    return fail("Invalid project title",502);
   if(phase==="propose"){
    if(typeof output.intention!=="string"||!output.intention.trim()||output.intention.length>400||
-      !Array.isArray(output.sourceIds)||output.sourceIds.length<1||output.sourceIds.length>4||
-      !output.sourceIds.every(id=>typeof id==="string"&&known.has(id))||
       typeof output.question!=="string"||!output.question.trim()||output.question.length>300||
-      output.investigationAction!==null&&(
-        !output.investigationAction||typeof output.investigationAction!=="object"||
-        !["inspect","pick","eat"].includes(String((output.investigationAction as {type?:unknown}).type))||
-        !permitted.has(JSON.stringify(output.investigationAction))))
-    return fail("Model proposed unsupported project references or investigation",502);
+      !Array.isArray(output.sourceIds))
+    return fail("Model proposed invalid project fields",422);
+   // Only observed objects qualify as evidence. Unsupported IDs are discarded,
+   // rather than allowing them to enter memory or halting the whole experiment.
+   const groundedIds=[...new Set(output.sourceIds.filter((id):id is string=>
+     typeof id==="string"&&known.has(id)))].slice(0,4);
+   if(!groundedIds.length)return fail("No verified sources for proposed project",422);
+   output.sourceIds=groundedIds;
+   const candidate=output.investigationAction as {type?:unknown;target?:unknown}|null;
+   const valid=investigations.find(a=>a.type===candidate?.type&&a.target===candidate?.target);
+   // No valid action means a creation-only project, not an invented experiment.
+   output.investigationAction=valid?{type:valid.type,target:valid.target}:null;
   }else if(typeof output.content!=="string"||output.content.trim().length<60||output.content.length>6000)
    return fail("Model returned an incomplete creation",502);
   return NextResponse.json({result:output,model,usage:{
