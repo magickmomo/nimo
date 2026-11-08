@@ -326,8 +326,9 @@ export function startProject009(previous:State009,proposal:ProjectProposal009):S
     proposal.question!==undefined&&(typeof proposal.question!=="string"||proposal.question.length>300))
   throw Error("Project must be grounded in observed sources");
  const investigation=proposal.investigationAction??null;
- if(investigation&&!opportunities009(previous).some(a=>actionKey009(a)===actionKey009(investigation)))
-  throw Error("Project investigation must be currently possible");
+ if(investigation&&(!["inspect","pick","eat"].includes(investigation.type)||
+   !opportunities009(previous).some(a=>actionKey009(a)===actionKey009(investigation))))
+  throw Error("Project investigation must be a legal observable interaction");
  const s=copy(previous);
  const id="project_"+(s.completedProjects.length+1);
  s.project={...proposal,question:proposal.question?.trim()||proposal.intention,
