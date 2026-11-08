@@ -82,8 +82,7 @@ export function context009(s:State009,withMemory=true){
 function consolidate009(s:State009){
  // Demonstrate evidence-linked reusable memory without an extra LLM call.
  // Actual production consolidation remains a separate, LLM-assisted pipeline.
- const discard=s.episodes.find(e=>e.action.type==="discard"&&e.before.needs&&
-   s.episodes.some(x=>x.step===e.step-1&&x.before&&x.after));
+ const discard=s.episodes.find(e=>e.action.type==="discard");
  const pick=s.episodes.find(e=>e.action.type==="pick"&&discard&&e.step>discard.step);
  const inspected=pick?s.episodes.find(e=>e.action.type==="inspect"&&e.action.target===pick.action.target&&e.step<pick.step):undefined;
  if(inspected&&discard&&pick&&!s.memories.some(m=>m.id==="inventory_capacity"))
