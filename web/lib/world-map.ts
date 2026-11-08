@@ -1,6 +1,6 @@
 // Shared deterministic world rules used by the browser and the Cloudflare Worker.
-// Coordinates are zero-based internally; the dashboard presents them as 1–9.
-export const WORLD_SIZE = 9;
+// Coordinates are zero-based internally; the dashboard presents them as 1–16.
+export const WORLD_SIZE = 16;
 export type Point = { x: number; y: number };
 export type Direction = "north" | "south" | "east" | "west";
 export type SceneryKind = "tree" | "rock" | "shrub" | "machine";
@@ -92,7 +92,7 @@ export function inspectedDescription(kind: SceneryKind): string {
   return descriptions[kind];
 }
 
-/** User-facing and model-facing coordinates are always one-based (1–9).
+/** User-facing and model-facing coordinates are always one-based (1–16).
  * D1 and the SVG use zero-based coordinates internally.
  */
 export function displayPoint(point: Point): Point {
@@ -127,7 +127,7 @@ export function modelPerception(position: Point) {
       canInspect: !!objectAt(destination(position,d.direction)),
       objectId: objectAt(destination(position,d.direction))?.id ?? null,
     })),
-    coordinates: "ONE-BASED: x and y range 1–9; north decreases y; south increases y; west decreases x; east increases x. Directions refer to grid axes, not diagonal directions on the isometric screen.",
+    coordinates: "ONE-BASED: x and y range 1–16; north decreases y; south increases y; west decreases x; east increases x. Directions refer to grid axes, not diagonal directions on the isometric screen.",
     inspectionRule: "inspect(direction) succeeds ONLY when that adjacent tile has an object and canInspect=true",
   };
 }
