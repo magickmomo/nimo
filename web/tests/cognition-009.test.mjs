@@ -122,9 +122,8 @@ test("uninspected objects expose stable IDs, never hidden fruit identities",()=>
  const inspection=ctx.availableActions.filter(a=>a.type==="inspect");
  assert.deepEqual(inspection.map(a=>a.target),["tree_001","tree_002"]);
  assert.equal(ctx.observedObjects.length,0);
- s.seen=["tree_001"];
- // Only already-observed tree is available to pick.
- assert.deepEqual(opportunities009(s).filter(a=>a.type==="pick").map(a=>a.target),[]);
+ // Inspected tree contents are still not pickable while the inventory is full.
  const discovered=apply009(initial009(),{type:"inspect",target:"tree_001"});
+ assert.deepEqual(opportunities009(discovered).filter(a=>a.type==="pick"),[]);
  assert.equal(context009(discovered).observedObjects[0].value,"amber");
 });
