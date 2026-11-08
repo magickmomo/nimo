@@ -50,6 +50,7 @@ jobs:
           db.execute("INSERT INTO world_visited VALUES(4,4,3,'first','last')")
           db.execute("CREATE TABLE world_inspected(x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),kind TEXT,description TEXT,inspection_count INTEGER,last_inspected TEXT,PRIMARY KEY(x,y))")
           db.execute("INSERT INTO world_inspected VALUES(1,1,'tree','known',2,'inspected')")
+          db.execute("DROP TABLE world_seen")
           db.execute("CREATE TABLE world_seen(x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),first_seen TEXT,PRIMARY KEY(x,y))")
           db.execute("INSERT INTO world_seen VALUES(4,4,'saw')")
           db.executescript(Path("world-worker/migrations/010_world_16x16.sql").read_text())
