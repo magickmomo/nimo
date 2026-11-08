@@ -227,6 +227,7 @@ export default function World() {
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
+    { label: "Curiosity", value: state.emotions.curiosity ?? 0.35, tone: "curiosity", inactive:false },
   ] : [];
   return (
     <div className="world-page world-dashboard">
@@ -269,7 +270,7 @@ export default function World() {
         </>
       )}
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Only fullness is active</span></div>
+        <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Fullness and curiosity are active</span></div>
         <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??9})</strong>
           <div className="world-fruits">
             {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
