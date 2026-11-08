@@ -291,7 +291,9 @@ export function plans009(s:State009):Plan009[]{
   const next=s.project.investigationAction;
   if(can(next)&&s.energy>=20&&s.needs.hunger<75){
    const candidate=planValue009(s,[next],next,undefined,"Investigate chosen question: "+s.project.question);
-   candidate.score+=12;
+   // Keep a chosen investigation meaningful across several steps, while
+   // allowing genuine high hunger, exhaustion or lost affordances to interrupt it.
+   candidate.score+=24;
    add(candidate);
   }
  }
