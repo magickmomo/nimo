@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 const source=readFileSync(new URL("../lib/cognition-009.ts",import.meta.url),"utf8");
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {initial009,apply009,context009,opportunities009,mood009,recall009,localDecision009,learnedEffect009,plans009}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+const {initial009,apply009,context009,opportunities009,mood009,recall009,localDecision009,learnedEffect009,plans009,projectOpportunity009,startProject009,finishProject009}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 test("separate Mood and Energy respond to bodily actions",()=>{
  let s=initial009();
  const prior=s;
@@ -164,4 +164,62 @@ test("seed 9009 learns an unfamiliar food effect and escapes the 25-rest failure
  assert.ok(s.episodes.some(e=>e.action.type==="eat"&&e.action.target==="amber"),"must experiment with amber");
  assert.ok(s.episodes.filter(e=>e.action.type==="rest").length<15,"must not rest continuously");
  assert.ok(s.discoveries.effects.some(e=>e.subject==="fruit:amber"&&e.attribute==="hunger"&&e.informative>0));
+});
+
+test("a creative project requires discovered sources, not hidden world facts",()=>{
+ let s=initial009();
+ assert.equal(projectOpportunity009(s),false);
+ assert.throws(()=>startProject009(s,{title:"Made-up tree",intention:"Unknown",sourceIds:["tree_001"]}));
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ assert.equal(projectOpportunity009(s),false); // proposal waits until at least two world steps
+ s=apply009(s,{type:"eat",target:"blue"});
+ assert.equal(projectOpportunity009(s),true);
+ assert.throws(()=>startProject009(s,{title:"Unknown object",intention:"Describe what I saw",sourceIds:["tree_999"]}));
+ s=startProject009(s,{title:"Notes on amber",intention:"Compare a direct observation with my experience.",sourceIds:["tree_001"]});
+ assert.equal(s.project?.sourceIds[0],"tree_001");
+ assert.ok(context009(s).activeProject);
+ assert.equal(projectOpportunity009(s),false);
+});
+test("hybrid project provides local motivation but only a verified creative action can complete it",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ s=apply009(s,{type:"eat",target:"blue"});
+ s=startProject009(s,{title:"World notebook",intention:"Write a grounded observation.",sourceIds:["tree_001"]});
+ s.needs.hunger=20;s.energy=75;
+ const choice=localDecision009(s);
+ assert.equal(choice.action.type,"create");
+ assert.throws(()=>finishProject009(s,"World notebook","An invented note that has never been written."));
+ s=apply009(s,choice.action,choice.reason);
+ const text="I observed tree_001 bearing amber fruit. That observation is evidence. I do not yet know whether it is nourishing. I want to compare this observation with future experiments.";
+ s=finishProject009(s,"World notebook",text);
+ assert.equal(s.creations.length,1);
+ assert.equal(s.project,null);
+ assert.equal(s.completedProjects[0].completedStep,s.step);
+ assert.equal(s.creations[0].content,text);
+});
+test("hybrid project proposal has a cooldown and a two-project cap",()=>{
+ let s=initial009();
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ s=apply009(s,{type:"eat",target:"blue"});
+ const proposal={title:"Observation notebook",intention:"Record what I observed",sourceIds:["tree_001"]};
+ s=startProject009(s,proposal);
+ s=apply009(s,{type:"create",target:"field_note"});
+ s=finishProject009(s,"Observation notebook","This note records the observation that tree_001 has amber fruit. Its effects remain untested. Future trials should separate observation and hypothesis.");
+ assert.equal(projectOpportunity009(s),false);
+ for(let i=0;i<6;i++)s=apply009(s,{type:"wait"});
+ assert.equal(projectOpportunity009(s),true);
+ s=startProject009(s,{...proposal,title:"Second notebook"});
+ s=apply009(s,{type:"create",target:"field_note"});
+ s=finishProject009(s,"Second notebook","This second note describes what was directly observed of tree_001 without assuming fruit effects or making claims about hidden environmental properties.");
+ for(let i=0;i<8;i++)s=apply009(s,{type:"wait"});
+ assert.equal(projectOpportunity009(s),false);
+});
+test("hybrid endpoint is owner gated and separate from production APIs",()=>{
+ const route=readFileSync(new URL("../app/api/world/lab/009/project/route.ts",import.meta.url),"utf8");
+ const page=readFileSync(new URL("../app/world/lab/009/page.tsx",import.meta.url),"utf8");
+ assert.match(route,/WORLD_OWNER_TOKEN/);
+ assert.match(route,/sourceIds/);
+ assert.doesNotMatch(route,/HIDDEN_EFFECTS009|HIDDEN_TREES009/);
+ assert.match(page,/mode==="hybrid"/);
+ assert.match(page,/modelTraces/);
 });
