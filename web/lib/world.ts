@@ -50,11 +50,11 @@ export function fullnessFromHunger(hunger: number): number {
 
 /** Only hunger is currently active. Other needs are retained unchanged so
  * development can resume later without losing historical state. Hunger rates
- * are percentage points per real elapsed second, e.g. 0.1 = 0.001 internally.
+ * are percentage points per real elapsed second; 1/60 equals 1% fullness per minute.
  */
 export function updateEmotions(
   emotions: Partial<WorldState["emotions"]>, seconds:number, _hourUTC:number,
-  sleeping=false, hungerPointsPerSecond=0.1
+  sleeping=false, hungerPointsPerSecond=1/60
 ):WorldState["emotions"] {
   const elapsed=Math.max(0,Math.min(86400,Number.isFinite(seconds)?seconds:0));
   const hunger=clamp((Number.isFinite(emotions.hunger)?emotions.hunger!:0.15)+
