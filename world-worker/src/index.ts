@@ -271,7 +271,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
-  const model = env.OPENAI_MODEL || "gpt-6.1-sol";
+  const model = env.OPENAI_MODEL || "gpt-6-luna";
   const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
   // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
   const {hunger: storedHunger, ...otherEmotions} = state.emotions;
@@ -416,7 +416,7 @@ async function tick(env: Env) {
   // can distinguish model changes. Earlier records cannot be retroactively tagged.
   const modelTrace=await startTrace(env.DB,"decide",
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
+    {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
     d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending);
     await finishTrace(env.DB,modelTrace,"completed",
@@ -649,7 +649,7 @@ export default {
         return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
-        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
+        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
       }
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);
