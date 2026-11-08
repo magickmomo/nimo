@@ -3,13 +3,18 @@
 export const WORLD_SIZE = 16;
 export type Point = { x: number; y: number };
 export type Direction = "north" | "south" | "east" | "west";
-export type SceneryKind = "tree" | "rock" | "shrub" | "machine";
+export type SceneryKind = "tree" | "rock" | "shrub" | "machine" | "well" | "store" | "plot";
 export type WorldObject = Point & { id: string; kind: SceneryKind };
 export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"tree_001",x:1,y:1,kind:"tree"},{id:"tree_002",x:6,y:1,kind:"tree"},{id:"tree_003",x:7,y:6,kind:"tree"},
   {id:"tree_004",x:1,y:7,kind:"tree"},{id:"tree_005",x:4,y:1,kind:"tree"},{id:"rock_001",x:3,y:2,kind:"rock"},{id:"rock_002",x:6,y:5,kind:"rock"},
   {id:"shrub_001",x:2,y:5,kind:"shrub"},{id:"shrub_002",x:5,y:7,kind:"shrub"},
   {id:"vending_001",x:7,y:3,kind:"machine"},
+  {id:"store_001",x:11,y:4,kind:"store"},
+  {id:"well_001",x:10,y:7,kind:"well"},
+  {id:"plot_001",x:10,y:10,kind:"plot"},
+  {id:"plot_002",x:11,y:10,kind:"plot"},
+  {id:"plot_003",x:12,y:10,kind:"plot"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
 export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
@@ -88,6 +93,9 @@ export function inspectedDescription(kind: SceneryKind): string {
     rock: "A solid grey rock resting on the grass. It occupies this tile and blocks walking.",
     shrub: "A low cluster of leafy green bushes. It occupies this tile and blocks walking.",
     machine: "A freestanding vending machine with a lit display and slots for items. It occupies this tile and blocks walking.",
+    well: "A stone well with fresh water; a watering can is stored here. It blocks walking.",
+    store: "A general store with a produce-buying counter. It buys fruit and harvested crops for coins.",
+    plot: "A small allotment soil plot where seeds can be planted and watered. Check its current growing state.",
   };
   return descriptions[kind];
 }
