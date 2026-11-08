@@ -3,12 +3,14 @@ export const runtime="nodejs";
 const fail=(error:string,status:number)=>NextResponse.json({error},{status,headers:{"Cache-Control":"no-store"}});
 const types=["inspect","pick","eat","discard","rest","create","explore","wait"];
 const fruits=["amber","blue"];
+const trees=["tree_001","tree_002"];
 type Action={type:string;target?:string};
 function isAction(a:unknown):a is Action{
  if(!a||typeof a!=="object"||Array.isArray(a))return false;
  const x=a as Record<string,unknown>;
  return types.includes(String(x.type))&&(x.target===undefined||typeof x.target==="string"&&x.target.length<=30)&&
-  (["eat","discard","inspect","pick"].includes(String(x.type))?fruits.includes(String(x.target)):true);
+  (["eat","discard"].includes(String(x.type))?fruits.includes(String(x.target)):
+   ["inspect","pick"].includes(String(x.type))?trees.includes(String(x.target)):true);
 }
 export async function POST(req:NextRequest){
  if(!process.env.WORLD_OWNER_TOKEN||req.headers.get("x-lab-owner-token")!==process.env.WORLD_OWNER_TOKEN)return fail("Owner token required",401);
