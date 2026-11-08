@@ -54,6 +54,7 @@ export default function Lab009(){
     ...(trace?["Decision context:","```json",JSON.stringify(trace.context,null,2),"```",
       ...(trace.messages?["Model messages:","```json",JSON.stringify(trace.messages,null,2),"```"]:[]),""]:[]));
   }
+  lines.push("## Discovered knowledge","```json",JSON.stringify(state.discoveries,null,2),"```");
   lines.push("## Stored experimental memories","```json",JSON.stringify(state.memories,null,2),"```");
   const url=URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/markdown"}));
   const a=document.createElement("a");a.href=url;a.download="nimo-009-experiment-"+seed+".md";a.click();URL.revokeObjectURL(url);
@@ -63,7 +64,7 @@ export default function Lab009(){
  return <main className="cog009">
   <nav><a href="/world/lab/008">Lab 008</a> · <a href="/world">World</a></nav>
   <h1>Nimo 009 · Cognitive Architecture Lab</h1>
-  <p>Experiment with needs, mood, energy, memory retrieval and choice. Runs in this browser only: no production Worker or D1 writes.</p>
+  <p>Experiment with needs, mood, energy, discovered knowledge, memory retrieval and choice. Runs in this browser only: no production Worker or D1 writes.</p>
   <div className="cog009-controls">
    <label>Seed <input type="number" value={seed} disabled={busy} onChange={e=>setSeed(Number(e.target.value)||9009)}/></label>
    <label>Decision mode <select value={mode} disabled={busy} onChange={e=>setMode(e.target.value as Mode)}><option value="local">Local deterministic baseline (free)</option><option value="llm">LLM reasoning (billable)</option></select></label>
@@ -88,7 +89,16 @@ export default function Lab009(){
    </section>
    <section className="cog009-card"><h2>Perception and opportunities</h2>
     <p>Inventory: {state.inventory.join(", ")||"empty"} / {state.inventory.length}/3</p>
-    <p>Known fruit effects: {JSON.stringify(state.known)}</p>
+    <h3>Discovered knowledge</h3>
+    {state.discoveries.effects.length===0&&state.discoveries.facts.length===0?
+      <p className="cog009-note">Nothing discovered yet. Verified interactions will populate this section.</p>:null}
+    {state.discoveries.facts.map(f=><p key={f.subject+":"+f.property}>
+      <strong>{f.subject}</strong> · {f.property}: {f.value} <small>(observed in step {f.evidence.join(", ")})</small>
+    </p>)}
+    {state.discoveries.effects.map(e=><p key={e.subject+":"+e.interaction+":"+e.attribute}>
+      <strong>{e.subject}</strong> · {e.interaction} → {e.attribute}: {e.meanChange===null?"effect magnitude unknown":(e.meanChange>=0?"+":"")+e.meanChange.toFixed(2)}
+      {" "}({e.informative}/{e.trials} informative trials)
+    </p>)}
     <p>Observed trees: {state.seen.join(", ")||"none"}</p>
     <p>Creations: {state.artifacts.join(", ")||"none"}</p>
     <h3>Available actions (manual)</h3><div className="cog009-actions">

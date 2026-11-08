@@ -3,12 +3,14 @@ export const runtime="nodejs";
 const fail=(error:string,status:number)=>NextResponse.json({error},{status,headers:{"Cache-Control":"no-store"}});
 const types=["inspect","pick","eat","discard","rest","create","explore","wait"];
 const fruits=["amber","blue"];
+const trees=["tree_001","tree_002"];
 type Action={type:string;target?:string};
 function isAction(a:unknown):a is Action{
  if(!a||typeof a!=="object"||Array.isArray(a))return false;
  const x=a as Record<string,unknown>;
  return types.includes(String(x.type))&&(x.target===undefined||typeof x.target==="string"&&x.target.length<=30)&&
-  (["eat","discard","inspect","pick"].includes(String(x.type))?fruits.includes(String(x.target)):true);
+  (["eat","discard"].includes(String(x.type))?fruits.includes(String(x.target)):
+   ["inspect","pick"].includes(String(x.type))?trees.includes(String(x.target)):true);
 }
 export async function POST(req:NextRequest){
  if(!process.env.WORLD_OWNER_TOKEN||req.headers.get("x-lab-owner-token")!==process.env.WORLD_OWNER_TOKEN)return fail("Owner token required",401);
@@ -28,7 +30,7 @@ export async function POST(req:NextRequest){
   JSON.stringify(context).length>14000)return fail("Invalid decision context",400);
  // The client supplies only observable state, not hidden fruit mapping.
  const messages=[{role:"system",content:
-  "You are Nimo in an isolated cognitive-architecture experiment. Mood and Energy are distinct primary states. Unmet hunger, rest, novelty and creativity affect mood; actions consume energy and verified outcomes affect needs. Decide independently which opportunity to pursue; do not simply maximize one dial. Make coherent multi-step progress, consider existing commitments and memories, solve obstacles using available tools, and sometimes create things. Unknown food effects are unknown until actually eaten. Consolidated memories are tentative evidence, not guaranteed facts. Choose exactly one available action by its zero-based index, with a concise reason. Avoid purposeless repetition."},
+  "You are Nimo in an isolated cognitive-architecture experiment. Mood and Energy are distinct primary states. Unmet hunger, rest, novelty and creativity affect mood; actions consume energy and verified outcomes affect needs. Decide independently which opportunity to pursue; do not simply maximize one dial. Make coherent multi-step progress, consider existing commitments and memories, solve obstacles using available tools, and sometimes create things. The environment's hidden properties are unknown until directly observed through actions. Discovered knowledge consists of verified entity–action–outcome observations, not guaranteed causal laws; do not invent unseen properties. Consolidated memories are tentative evidence, not guaranteed facts. Choose exactly one available action by its zero-based index, with a concise reason. Avoid purposeless repetition."},
   {role:"user",content:JSON.stringify(context)}];
  const model=process.env.LAB_OPENAI_MODEL||"gpt-4.1-mini",reasoning=/^gpt-(?:5|6)(?:[.-]|$)/.test(model);
  const schema={type:"object",properties:{actionIndex:{type:"integer"},reason:{type:"string"}},required:["actionIndex","reason"],additionalProperties:false};
