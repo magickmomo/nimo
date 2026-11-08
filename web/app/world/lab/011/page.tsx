@@ -1,10 +1,10 @@
 "use client";
 import {useRef,useState} from "react";
-import {actionKey009,finishProject009,localDecision009,projectOpportunity009,startProject009,
- type ProjectProposal009,type State009} from "../../../../lib/cognition-009";
+import {actionKey009,finishProject009,projectOpportunity009,startProject009,
+ type ProjectProposal009} from "../../../../lib/cognition-009";
 import {DECISIONS011,FORK_AT011,advance011,actionMetrics011,fork011,
  initialExperiment011,memoryContext011,memoryDecision011,
- type Branch011,type Decision011,type Experiment011} from "../../../../lib/cognition-011";
+ type Branch011,type Experiment011} from "../../../../lib/cognition-011";
 import "../lab.css";
 import "../009/cognition.css";
 type Phase="shared"|"memory-on"|"memory-off";
@@ -166,7 +166,7 @@ export default function Lab011(){
       experiment.off.decisions.filter(d=>d.step>60&&d.retrieved.length>0).length],
      ["Actual choice changes after fork",experiment.on.decisions.filter(d=>d.step>60&&d.differentFromBaseline).length,
       experiment.off.decisions.filter(d=>d.step>60&&d.differentFromBaseline).length],
-     ]) as [string,number,number][]).map(([label,on,off])=><tr key={label}>
+     ] as [string,number,number][]).map(([label,on,off])=><tr key={label}>
       <td>{label}</td><td>{on}</td><td>{off}</td></tr>)}</tbody>
    </table></section>}
   <p className="cog009-note">A retrieved memory is not proof of influence. The export records each scored adjustment
