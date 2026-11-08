@@ -241,7 +241,7 @@ Do not claim a write, inspection or journey has already succeeded in your monolo
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
-Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Use needsPercent.fullness as the readable source of truth. The hungerRatePointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Historic food.knowledge.mean values are measured changes in hunger: negative values mean food INCREASED fullness, positive values mean food DECREASED fullness. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Other needs are currently paused.
+Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Use needsPercent.fullness as the readable source of truth. The hungerRatePointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Other needs are currently paused.
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
 Objects may have interactions that become available when you physically encounter and inspect them. Learn what exists from perception and verified outcomes; do not assume unseen objects, items, money, possessions or capabilities exist.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
@@ -276,6 +276,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
   const {hunger: storedHunger, ...otherEmotions} = state.emotions;
   const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
+  const modelFood = {...food, knowledge: food.knowledge.map(({mean,minimum_relief,...rest}) => ({...rest,meanFullnessChange:mean===null?null:-mean,maximumObservedFullnessGain:minimum_relief}))};
   const messages = [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify({ state:{...state,emotions:modelEmotions,tools:menu.tools}, needsPercent:{fullness:Math.round(modelEmotions.fullness*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
@@ -285,7 +286,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food:modelFood, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -491,7 +492,7 @@ async function tick(env: Env) {
           ()=>eatFruit(env.DB,call.fruit,state.emotions.hunger,rate),
           v=>`Hunger ${v.before}% to ${v.after}%`);
         state.emotions.hunger=eaten.hunger;
-        toolOutcome=`EAT OK: ${eaten.fruit}; observed hunger ${eaten.before}% to ${eaten.after}%.`+
+        toolOutcome=`EAT OK: ${eaten.fruit}; observed fullness ${Math.round((100-eaten.before)*100)/100}% to ${Math.round((100-eaten.after)*100)/100}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
         await log(env.DB,"tool",toolOutcome,"EAT_OK");
         verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
