@@ -99,7 +99,7 @@ export default function Lab009(){
  return <main className="cog009">
   <nav><a href="/world/lab/008">Lab 008</a> · <a href="/world">World</a></nav>
   <h1>Nimo 009 · Cognitive Architecture Lab</h1>
-  <p>Experiment with needs, mood, energy, memory retrieval and choice. Runs in this browser only: no production Worker or D1 writes.</p>
+  <p>Experiment with needs, mood, energy, discovered knowledge, memory retrieval and choice. Runs in this browser only: no production Worker or D1 writes.</p>
   <div className="cog009-controls">
    <label>Seed <input type="number" value={seed} disabled={busy} onChange={e=>setSeed(Number(e.target.value)||9009)}/></label>
    <label>Decision mode <select value={mode} disabled={busy} onChange={e=>setMode(e.target.value as Mode)}><option value="local">Local deterministic baseline (free)</option><option value="llm">LLM every decision (billable)</option><option value="hybrid">Hybrid: local actions + LLM projects (billable)</option></select></label>
