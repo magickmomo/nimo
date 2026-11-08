@@ -42,6 +42,12 @@ export function clamp(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
+/** Public meter and model semantics: 1 = well fed, 0 = starving.
+ * Historical D1 state stores inverse hunger; do not flip existing records. */
+export function fullnessFromHunger(hunger: number): number {
+  return 1 - clamp(Number.isFinite(hunger) ? hunger : 0.15);
+}
+
 /** Only hunger is currently active. Other needs are retained unchanged so
  * development can resume later without losing historical state. Hunger rates
  * are percentage points per real elapsed second, e.g. 0.1 = 0.001 internally.
