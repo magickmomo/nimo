@@ -171,10 +171,14 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
     s.energy===0||s.energy===100);
  s.step++;s.mood=mood009(n);
  // A chosen investigation survives unrelated bodily actions and only advances on its actual execution.
- if(s.project?.phase==="investigating"&&s.project.investigationAction&&
-   actionKey009(action)===actionKey009(s.project.investigationAction)){
-  s.project.phase="creating";s.project.investigatedAt=s.step;
-  s.project.investigationOutcome=result;
+ if(s.project?.phase==="investigating"&&s.project.investigationAction){
+  if(actionKey009(action)===actionKey009(s.project.investigationAction)){
+   s.project.phase="creating";s.project.investigatedAt=s.step;
+   s.project.investigationOutcome=result;
+  }else if(!opportunities009(s).some(a=>actionKey009(a)===actionKey009(s.project!.investigationAction!))){
+   // Do not falsely mark investigation as completed if an opportunity vanished.
+   s.project.phase="creating";s.project.investigationOutcome="Investigation opportunity expired; no observation was made.";
+  }
  }
  if(!s.project) s.workingGoal=action.type==="eat"?"Recover from hunger":
    action.type==="create"?"Make something":s.workingGoal;
@@ -245,7 +249,7 @@ export function plans009(s:State009):Plan009[]{
  for(const a of actions){
   if(a.type==="eat")
    add(planValue009(s,[a],a,"hunger","Try/use carried resource "+a.target,true));
-  else if(a.type==="create"||a.type==="explore"){
+  else if((a.type==="create"&&s.project?.phase!=="investigating")||a.type==="explore"){
    const p=planValue009(s,[a],a,AFFORDANCES009[a.type].effect,"Pursue "+a.type,true);
    if(a.type==="create"&&s.project?.phase==="creating"&&s.energy>=35&&s.needs.hunger<65){
     p.score+=15;p.explanation="Continue chosen creative project: "+s.project.title;
