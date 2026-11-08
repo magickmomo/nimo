@@ -69,7 +69,7 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map{border:1px solid #304741;background:radial-gradient(ellipse at 50% 55%,#29443a 0%,#142b28 67%,#102220 100%);border-radius:16px;color:#e0eee4;margin:0 0 20px;overflow:hidden}
 .nimo-map-heading,.nimo-map-footer{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px 18px;font-size:11px;letter-spacing:.07em;color:#bdcfc1}
 .nimo-map-heading{border-bottom:1px solid #345349;font-weight:700}
-.nimo-map-canvas{display:block;width:100%;height:auto;max-height:440px;margin:auto;overflow:visible}
+.nimo-map-canvas{display:block;width:100%;height:auto;max-height:520px;margin:auto;overflow:visible}
 .nimo-map-footer{letter-spacing:0;border-top:1px solid #345349;font-size:12px}
 .nimo-map-footer strong{color:#f6f0d7}
 .nimo-map-preview{color:#9db9ac;text-align:right}
@@ -117,7 +117,7 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map-canvas [role="button"]:focus-visible{outline:none;filter:drop-shadow(0 0 8px #f1d58b)}
 
 /* Needs use the existing compact status-strip layout and visual conventions. */
-.world-status-dot.hunger,.world-status-fill.hunger{background:#e58a59}
+.world-status-dot.fullness,.world-status-fill.fullness{background:#78b888}
 .world-status-dot.tiredness,.world-status-fill.tiredness{background:#729bc6}
 
 /* Keep live-journal actions aligned on narrow screens. */

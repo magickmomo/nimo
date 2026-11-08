@@ -136,6 +136,46 @@ jobs:
           print('Verified world_rewards table in remote D1.')
           PY
 
+      - name: Migrate live world to 16x16 before Worker deployment
+        if: ${{ inputs.version == 'current-main' }}
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='world_position'" > "$RUNNER_TEMP/nimo-position-schema.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-position-schema.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          sql=[row.get('sql','') for entry in entries for row in entry.get('results',[])]
+          if len(sql)!=1: raise SystemExit('Missing world_position table; refusing deployment')
+          if 'BETWEEN 0 AND 15' in sql[0]:
+              Path(os.environ['RUNNER_TEMP'],'nimo-migrate-016').write_text('skip')
+          elif 'BETWEEN 0 AND 8' in sql[0]:
+              Path(os.environ['RUNNER_TEMP'],'nimo-migrate-016').write_text('apply')
+          else:
+              raise SystemExit('Unexpected coordinate constraints; refusing deployment')
+          PY
+          if [[ "$(cat "$RUNNER_TEMP/nimo-migrate-016")" == 'apply' ]]; then
+            npx wrangler d1 execute nimo-world --remote --file=migrations/010_world_16x16.sql
+          else
+            echo '16x16 coordinate schema already migrated.'
+          fi
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='world_position'" > "$RUNNER_TEMP/nimo-position-verified.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-position-verified.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          sql=[row.get('sql','') for entry in entries for row in entry.get('results',[])]
+          if len(sql)!=1 or 'BETWEEN 0 AND 15' not in sql[0]:
+              raise SystemExit('16x16 migration verification failed; do not deploy Worker')
+          print('Verified expanded coordinate schema.')
+          PY
+
       - name: Deploy Worker after successful migrations
         working-directory: world-worker
         env:

@@ -1,4 +1,4 @@
-import { SEED, INITIAL_STATE, clamp, updateEmotions, type WorldState } from "../../web/lib/world";
+import { SEED, INITIAL_STATE, clamp, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
@@ -10,7 +10,7 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
-import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, type Point, type Direction } from "../../web/lib/world-map";
+import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
 type Env = {
   DB: D1Database;
@@ -221,9 +221,9 @@ async function decide(env: Env, state: WorldState, history: EventRow[], landmark
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
-You inhabit a small persistent 9×9 isometric world and are represented by a simple character.
+You inhabit a persistent 16×16 isometric world and are represented by a simple character.
 Your perception contains a 9×9 square field of vision centred on your actual position and clipped to the world boundary. You can see all visible tiles and objects within it, including their coordinates. You cannot see beyond that field unless you remember previously seen places.
-All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 9, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
+All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 16, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
 Your currently offered executable actions are provided in the dynamic action menu below. This menu is authoritative. An absent tool or target cannot be selected; do not infer tool availability from historical memories or examples.
 Inspect only if the currently offered action menu includes inspect and choose an exact available direction. Do not inspect objects two steps away: move adjacent first.
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
@@ -241,8 +241,8 @@ Do not claim a write, inspection or journey has already succeeded in your monolo
 Avoid endlessly planning: when a goal involves writing, actually write something concrete.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
-Only hunger is active now; boredom, happiness and tiredness are paused and should not influence choices. Hunger rises by the provided percentage points per real second (the owner may change this).
-Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most three fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit at appropriate hunger levels, conserving useful supplies. Effects observed at hunger 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
+Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Keeping fullness comfortably closer to 100% than 0% supports wellbeing. At low fullness seek useful food, but do not eat wastefully when already full, and remain free to pursue other interests. Use needsPercent.fullness as the readable source of truth. The fullnessDecayPointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Other needs are currently paused.
+Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
 Objects may have interactions that become available when you physically encounter and inspect them. Learn what exists from perception and verified outcomes; do not assume unseen objects, items, money, possessions or capabilities exist.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
@@ -271,18 +271,22 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
-  const model = env.OPENAI_MODEL || "gpt-6.1-sol";
+  const model = env.OPENAI_MODEL || "gpt-6-luna";
   const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
+  const {hunger: storedHunger, ...otherEmotions} = state.emotions;
+  const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
+  const modelFood = {...food, knowledge: food.knowledge.map(({mean,minimum_relief,...rest}) => ({...rest,meanFullnessChange:mean===null?null:-mean,maximumObservedFullnessGain:minimum_relief}))};
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{...state,tools:menu.tools}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{...state,emotions:modelEmotions,tools:menu.tools}, needsPercent:{fullness:Math.round(modelEmotions.fullness*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), hungerRatePointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food:modelFood, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), fullnessDecayPointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -412,7 +416,7 @@ async function tick(env: Env) {
   // can distinguish model changes. Earlier records cannot be retroactively tagged.
   const modelTrace=await startTrace(env.DB,"decide",
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
-    {model:env.OPENAI_MODEL || "gpt-6.1-sol"});
+    {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
     d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending);
     await finishTrace(env.DB,modelTrace,"completed",
@@ -479,7 +483,7 @@ async function tick(env: Env) {
         if(!menu.pickTreeIds.includes(call.treeId))throw Error("Fruit picking was not available");
         const picked=await traced(env.DB,"inspect",`Pick fruit from ${call.treeId}`,
           ()=>pickFruit(env.DB,call.treeId,position),v=>`Picked ${v.fruit} from ${v.treeId}`);
-        toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 3).`;
+        toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 9).`;
         await log(env.DB,"tool",toolOutcome,"PICK_OK");
         verifiedExperience={type:"picking",subject:picked.treeId,fruit:picked.fruit,inventoryBefore:food.inventory.length,inventoryAfter:food.inventory.length+1};
       } else if (call.name === "eat_fruit") {
@@ -488,7 +492,7 @@ async function tick(env: Env) {
           ()=>eatFruit(env.DB,call.fruit,state.emotions.hunger,rate),
           v=>`Hunger ${v.before}% to ${v.after}%`);
         state.emotions.hunger=eaten.hunger;
-        toolOutcome=`EAT OK: ${eaten.fruit}; observed hunger ${eaten.before}% to ${eaten.after}%.`+
+        toolOutcome=`EAT OK: ${eaten.fruit}; observed fullness ${Math.round((100-eaten.before)*100)/100}% to ${Math.round((100-eaten.after)*100)/100}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
         await log(env.DB,"tool",toolOutcome,"EAT_OK");
         verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
@@ -645,7 +649,7 @@ export default {
         return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
-        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6.1-sol"));
+        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
       }
       if (path === "/snapshot" && request.method === "GET") {
         const world = await getWorld(env.DB);

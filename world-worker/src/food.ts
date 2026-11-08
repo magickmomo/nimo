@@ -10,7 +10,7 @@ export type FoodTree = { id:string; fruit:Fruit; stock:number; capacity:number; 
 export type FoodMemory = { fruit:Fruit; count:number; informative:number; mean:number|null; minimum_relief:number; helpful:number; harmful:number };
 export type FoodInventoryItem = { id:number; fruit:Fruit; picked_at:string };
 const EFFECTS:Record<Fruit,number> = {amber:-35,blue:0,red:18};
-export const MAX_INVENTORY=3;
+export const MAX_INVENTORY=9;
 export const DEFAULT_HUNGER_RATE=0.1;
 // This run uses lab 008 seed 48162, whose hidden mapping is amber -35, blue 0, red +18.
 // All five trees retain fixed identities; 2/3 starting fruit and 75–120s regeneration.
@@ -83,7 +83,7 @@ export async function pickFruit(db:D1Database,treeId:string,pos:Point) {
     throw Error("Inspect the tree and observe available fruit before picking");
   if(row.stock<=0)throw Error("Tree is empty; inspect it again");
   const inventory=await db.prepare("SELECT count(*) AS n FROM world_food_inventory").first<{n:number}>();
-  if((inventory?.n??0)>=MAX_INVENTORY)throw Error("Inventory full (3 fruit)");
+  if((inventory?.n??0)>=MAX_INVENTORY)throw Error("Inventory full (9 fruit)");
   const now=Date.now();
   await db.batch([
     db.prepare("INSERT INTO world_food_inventory(fruit) VALUES(?)").bind(row.fruit),

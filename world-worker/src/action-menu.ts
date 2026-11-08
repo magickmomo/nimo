@@ -21,7 +21,7 @@ export function buildActionMenu(
   seenObjectIds: readonly string[],
   objects: readonly MemObject[],
   hasPendingVisitor = false,
-  food: {trees:{id:string;last_seen_stock:number|null}[];inventory:{fruit:"amber"|"blue"|"red"}[];capacity:number}={trees:[],inventory:[],capacity:3},
+  food: {trees:{id:string;last_seen_stock:number|null}[];inventory:{fruit:"amber"|"blue"|"red"}[];capacity:number}={trees:[],inventory:[],capacity:9},
   adjacentTreeIds: readonly string[] = [],
   vending:{adjacent:boolean;inspected:boolean;itemIds:string[]}={adjacent:false,inspected:false,itemIds:[]},
 ):ActionMenu {

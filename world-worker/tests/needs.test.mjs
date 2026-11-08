@@ -5,8 +5,18 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../../web/lib/world.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const { INITIAL_STATE, updateEmotions, rewardNovelty, eatFood } =
+const { INITIAL_STATE, updateEmotions, fullnessFromHunger, rewardNovelty, eatFood } =
   await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+
+test("fullness reverses persisted hunger without changing its storage", () => {
+  assert.equal(fullnessFromHunger(0), 1);
+  assert.equal(fullnessFromHunger(0.4), 0.6);
+  assert.equal(fullnessFromHunger(1), 0);
+  assert.equal(fullnessFromHunger(2), 0);
+  const fullBefore=fullnessFromHunger(0.8);
+  const fullAfter=fullnessFromHunger(eatFood({...INITIAL_STATE.emotions,hunger:0.8}).hunger);
+  assert.ok(fullAfter>fullBefore);
+});
 
 test("energy is authoritative and tiredness is not a second persisted drive", () => {
   assert.equal("tiredness" in INITIAL_STATE.emotions, false);

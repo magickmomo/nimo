@@ -225,7 +225,7 @@ export default function World() {
   ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
-    { label: "Hunger", value: state.emotions.hunger ?? 0.15, tone: "hunger", inactive:false },
+    { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
   ] : [];
   return (
     <div className="world-page world-dashboard">
@@ -268,20 +268,20 @@ export default function World() {
         </>
       )}
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Hunger &amp; inventory</h2><span className="meta">Only hunger is active</span></div>
-        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??3})</strong>
+        <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Only fullness is active</span></div>
+        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??9})</strong>
           <div className="world-fruits">
             {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
               <span className="meta">Nothing collected yet</span>}
           </div>
         </div>
-        <p className="meta">Fruit effects must be learned by eating. Trees regenerate gradually, and Nimo can carry three fruit.</p>
+        <p className="meta">Fruit effects must be learned by eating. Trees regenerate gradually, and Nimo can carry nine fruit.</p>
         {!!data?.food?.knowledge.length&&<div className="world-food-knowledge">
           <strong>Learned food effects</strong>
           <ul>{data.food.knowledge.map(entry=><li key={entry.fruit}>
             <span className={"world-fruit "+entry.fruit}>{entry.fruit}</span>
-            <span>{entry.mean===null?"Not yet measured clearly":`Average observed change: ${entry.mean>0?"+":""}${entry.mean}%`}</span>
-            <small>{entry.count} eaten · {entry.minimum_relief}% minimum observed relief</small>
+            <span>{entry.mean===null?"Not yet measured clearly":`Average fullness change: ${-entry.mean>0?"+":""}${-entry.mean}%`}</span>
+            <small>{entry.count} eaten · {entry.minimum_relief}% maximum observed fullness gain</small>
           </li>)}</ul>
         </div>}
       </section>
@@ -371,7 +371,7 @@ export default function World() {
         <summary>Diagnostics &amp; controls</summary>
         <p className="meta">Technical history remains in the owner export.</p>
         <div className="world-hunger-rate">
-          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
+          <label htmlFor="hunger-rate">Fullness decrease (percentage points per second)</label>
           <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
             disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
             {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}

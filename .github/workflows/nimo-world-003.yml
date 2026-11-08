@@ -43,6 +43,23 @@ jobs:
           assert db.execute("SELECT total FROM object_observation_counts WHERE object_id='tree_003'").fetchone() == (2,)
           db.executescript(Path("world-worker/migrations/009_d1_read_budget.sql").read_text())
           assert db.execute("SELECT total FROM object_observation_counts WHERE object_id='tree_003'").fetchone() == (2,)
+          # Live 16x16 migration preserves old records and expands coordinate checks.
+          db.execute("CREATE TABLE world_position(id INTEGER PRIMARY KEY,x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),updated_at TEXT NOT NULL)")
+          db.execute("INSERT INTO world_position VALUES(1,4,4,'original')")
+          db.execute("CREATE TABLE world_visited(x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),visit_count INTEGER,first_visited TEXT,last_visited TEXT,PRIMARY KEY(x,y))")
+          db.execute("INSERT INTO world_visited VALUES(4,4,3,'first','last')")
+          db.execute("CREATE TABLE world_inspected(x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),kind TEXT,description TEXT,inspection_count INTEGER,last_inspected TEXT,PRIMARY KEY(x,y))")
+          db.execute("INSERT INTO world_inspected VALUES(1,1,'tree','known',2,'inspected')")
+          db.execute("DROP TABLE world_seen")
+          db.execute("CREATE TABLE world_seen(x INTEGER CHECK(x BETWEEN 0 AND 8),y INTEGER CHECK(y BETWEEN 0 AND 8),first_seen TEXT,PRIMARY KEY(x,y))")
+          db.execute("INSERT INTO world_seen VALUES(4,4,'saw')")
+          db.executescript(Path("world-worker/migrations/010_world_16x16.sql").read_text())
+          assert db.execute("SELECT x,y,updated_at FROM world_position").fetchone() == (4,4,'original')
+          assert db.execute("SELECT visit_count,first_visited FROM world_visited").fetchone() == (3,'first')
+          assert db.execute("SELECT inspection_count FROM world_inspected").fetchone() == (2,)
+          assert db.execute("SELECT first_seen FROM world_seen").fetchone() == ('saw',)
+          db.execute("UPDATE world_position SET x=15,y=15 WHERE id=1")
+          db.execute("INSERT INTO world_seen(x,y) VALUES(15,15)")
           PY
       - name: Worker TypeScript
         run: npm run typecheck --prefix world-worker

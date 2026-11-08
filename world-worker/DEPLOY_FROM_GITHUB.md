@@ -46,3 +46,14 @@ The GitHub Actions checks workflow `Nimo World 003 checks` only validates migrat
 ### Wrangler authentication error 10000
 
 Local `wrangler d1 execute --remote --file=...` uses D1's import endpoint. An OAuth login showing `d1 (write)` does **not** prove this particular import request will be accepted. The manual GitHub workflow uses the dedicated D1 API token from GitHub Secrets instead. If its migration step still fails, inspect its Cloudflare error and check the token's account and D1 permissions in Cloudflare; do not deploy the Worker until the migration is verified.
+
+## Live foundation 016: expand to 16×16
+
+This release changes **both** the website map and the persistent D1 coordinate constraints. It also increases fruit inventory capacity to nine and clarifies hunger scale to the LLM (stored `1.0` means 100% hungry).
+
+1. Merge the reviewed foundation PR only after CI passes. Put Nimo to **sleep** and back up the production D1 database before changing any schema.
+2. Run the manual **Deploy Nimo World Worker** workflow using `current-main` and confirmation `DEPLOY`. It checks whether `world_position` already permits 0–15 coordinates, applies migration `010_world_16x16.sql` only when the old 0–8 constraint is present, verifies the expanded schema, then deploys the Worker. If anything fails, **leave Nimo asleep** and inspect D1 before retrying.
+3. Confirm the corresponding website deploy includes the same 16×16 shared map code. Wake Nimo only once the Worker and website agree about coordinates.
+4. Verify his old position, visits, observations and fruit stock are preserved; test a walk to an expanded tile. Check the hunger model log uses the readable `needsPercent` field.
+
+The migration rebuilds four coordinate tables and is **not directly idempotent**: do not run its SQL file twice. Repeated deployments must use the guarded workflow. Existing objects remain at their original coordinates; the new space is intentionally empty until world-content features are added. New mood/energy dynamics and hourly consolidation are not included in this migration.

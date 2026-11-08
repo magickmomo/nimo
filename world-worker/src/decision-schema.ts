@@ -1,5 +1,7 @@
 // Validate the model's public decision contract before any tool can run.
 // Only narrow, unambiguous compatibility repairs are allowed.
+import { WORLD_SIZE } from "../../web/lib/world-map";
+
 export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
 export type DecisionTool =
   | { name: "write_document"; path: string; content: string }
@@ -99,9 +101,9 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
       toolCall={name:"buy_item",itemId:tool.itemId as "seed_packet"|"sketchpad"|"mystery_box"};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
-          (tool.x as number) < 1 || (tool.x as number) > 9 ||
-          (tool.y as number) < 1 || (tool.y as number) > 9)
-        fail("travel_to requires one-based integer x,y in 1–9");
+          (tool.x as number) < 1 || (tool.x as number) > WORLD_SIZE ||
+          (tool.y as number) < 1 || (tool.y as number) > WORLD_SIZE)
+        fail("travel_to requires one-based integer x,y in 1–${WORLD_SIZE}");
       toolCall = { name: "travel_to", x: tool.x as number, y: tool.y as number };
     } else fail("unknown tool name");
   }

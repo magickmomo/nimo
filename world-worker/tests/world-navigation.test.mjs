@@ -10,7 +10,7 @@ const compiled = ts.transpileModule(readFileSync(path,"utf8"), {
 }).outputText;
 const world = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
 
-test("central view includes the whole 9x9 world", () => {
+test("central 9x9 perception window preserves original landmarks", () => {
   const p = {x:4,y:4};
   const perception = world.modelPerception(p);
   assert.equal(perception.visibleTiles.length,81);
@@ -40,7 +40,14 @@ test("path avoids scenery and uses only adjacent walkable steps", () => {
 
 test("route to blocked or out-of-bounds destinations is rejected",()=>{
   assert.equal(world.shortestPath({x:4,y:4},{x:6,y:5}),null);
-  assert.equal(world.shortestPath({x:4,y:4},{x:9,y:0}),null);
+  assert.equal(world.shortestPath({x:4,y:4},{x:16,y:0}),null);
+});
+
+test("new 16x16 tiles are reachable without discarding the original world",()=>{
+  assert.equal(world.WORLD_SIZE,16);
+  const path=world.shortestPath({x:4,y:4},{x:15,y:15});
+  assert.ok(path && path.length>1);
+  assert.equal(world.modelPerception({x:15,y:15}).visibleTiles.length,25);
 });
 
 test("a destination at the current tile is a zero-distance path",()=>{
