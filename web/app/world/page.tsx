@@ -371,7 +371,7 @@ export default function World() {
         <summary>Diagnostics &amp; controls</summary>
         <p className="meta">Technical history remains in the owner export.</p>
         <div className="world-hunger-rate">
-          <label htmlFor="hunger-rate">Hunger growth (percentage points per second)</label>
+          <label htmlFor="hunger-rate">Fullness decrease (percentage points per second)</label>
           <select id="hunger-rate" value={(data?.hungerRate??0.1).toFixed(1)}
             disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
             {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={rate.toFixed(1)}>{rate.toFixed(1)}</option>)}
