@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/decision-schema.ts",import.meta.url),"utf8");
+const mapSource = readFileSync(new URL("../../web/lib/world-map.ts",import.meta.url),"utf8");
+const compiledMap = ts.transpileModule(mapSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const mapModule = "data:text/javascript;base64,"+Buffer.from(compiledMap).toString("base64");
+const source = readFileSync(new URL("../src/decision-schema.ts",import.meta.url),"utf8")
+  .replace('from "../../web/lib/world-map";',`from "${mapModule}";`);
 const js = ts.transpileModule(source,{
   compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022},
 }).outputText;
