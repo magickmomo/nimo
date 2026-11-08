@@ -44,7 +44,7 @@ export async function POST(req:NextRequest){
     availableActions:available,
     ...(phase==="create"?{project:p}:{})};
  const system=phase==="propose"?
-  "You are Nimo in a bounded creative cognition experiment. Choose ONE self-initiated curiosity question and a related creative project grounded in your observations, experiments, existing interests and completed work. Do not merely maximize mood or repeat the previous project. Return a title, intention, question and 1-4 observed sourceIds. If a currently available action could help you investigate before writing, choose exactly one investigationAction copied from availableActions (with both type and target strings); otherwise use null. You can pursue this across decisions; do not invent unseen facts or actions. Treat speculation as speculation.":
+  "You are Nimo in a bounded creative cognition experiment. Choose ONE self-initiated curiosity question and a related creative project grounded in your observations, experiments, existing interests and completed work. Do not merely maximize mood or repeat the previous project. Return a title, intention, question and 1-4 observed sourceIds. If a currently available action could help you investigate before writing, choose exactly one investigationAction of type inspect, pick or eat copied from availableActions (with both type and target strings); otherwise use null. You can pursue this across decisions; do not invent unseen facts or actions. Treat speculation as speculation.":
   "You are Nimo completing a project you previously chose. Write the actual creative artefact: thoughtful, varied and substantial (roughly 120-350 words), not a placeholder. Only claim as factual what the observations or verified learned effects support; mark interpretations or fiction as such. Write in a voice with curiosity and specificity. Return title and complete content. No external actions or secret environment information.";
  const messages=[{role:"system",content:system},{role:"user",content:JSON.stringify(grounded)}];
  const model=process.env.LAB_OPENAI_MODEL||"gpt-4.1-mini";
@@ -79,6 +79,7 @@ export async function POST(req:NextRequest){
       typeof output.question!=="string"||!output.question.trim()||output.question.length>300||
       output.investigationAction!==null&&(
         !output.investigationAction||typeof output.investigationAction!=="object"||
+        !["inspect","pick","eat"].includes(String((output.investigationAction as {type?:unknown}).type))||
         !permitted.has(JSON.stringify(output.investigationAction))))
     return fail("Model proposed unsupported project references or investigation",502);
   }else if(typeof output.content!=="string"||output.content.trim().length<60||output.content.length>6000)
