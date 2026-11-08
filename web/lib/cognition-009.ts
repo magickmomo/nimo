@@ -13,7 +13,9 @@ export type Episode009={step:number;action:Action009;result:string;before:{mood:
 export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;};
 const clamp=(v:number)=>Math.max(0,Math.min(100,Math.round(v*100)/100));
 const copy=<T>(x:T):T=>JSON.parse(JSON.stringify(x)) as T;
-export const FRUIT009=["amber","blue"] as const;
+// Environment-owned objects: identities are visible; contents remain hidden until inspection.
+export const TREE_IDS009=["tree_001","tree_002"] as const;
+const HIDDEN_TREES009:Record<string,string>={tree_001:"amber",tree_002:"blue"};
 // Hidden simulation truth. Never expose this map through context009 or the model API.
 const HIDDEN_EFFECTS009:Record<string,number>={amber:-35,blue:0};
 export const NEED_WEIGHTS009:Needs009={hunger:.43,rest:.20,novelty:.19,creativity:.18};
@@ -47,10 +49,10 @@ export function learnedEffect009(s:State009,subject:string,interaction:string,at
 }
 export function opportunities009(s:State009):Action009[]{
  const out:Action009[]=[{type:"rest"},{type:"explore"},{type:"wait"}];
- // Two trees are accessible but their effects are initially unknown.
- for(const fruit of FRUIT009){
-  if(!s.seen.includes(fruit))out.push({type:"inspect",target:fruit});
-  if(s.seen.includes(fruit)&&s.inventory.length<3)out.push({type:"pick",target:fruit});
+ // Locations are observable; fruit identities are not revealed by action names.
+ for(const tree of TREE_IDS009){
+  if(!s.seen.includes(tree))out.push({type:"inspect",target:tree});
+  if(s.seen.includes(tree)&&s.inventory.length<3)out.push({type:"pick",target:tree});
  }
  for(const fruit of new Set(s.inventory)){out.push({type:"eat",target:fruit},{type:"discard",target:fruit});}
  if(s.energy>=12)out.push({type:"create",target:"field_note"});
@@ -80,11 +82,12 @@ export function context009(s:State009,withMemory=true){
 function consolidate009(s:State009){
  // Demonstrate evidence-linked reusable memory without an extra LLM call.
  // Actual production consolidation remains a separate, LLM-assisted pipeline.
- const inspected=s.episodes.find(e=>e.action.type==="inspect"&&e.action.target==="amber");
- const discard=s.episodes.find(e=>e.action.type==="discard");
- const pick=s.episodes.find(e=>e.action.type==="pick"&&e.action.target==="amber"&&discard&&e.step>discard.step);
+ const discard=s.episodes.find(e=>e.action.type==="discard"&&e.before.needs&&
+   s.episodes.some(x=>x.step===e.step-1&&x.before&&x.after));
+ const pick=s.episodes.find(e=>e.action.type==="pick"&&discard&&e.step>discard.step);
+ const inspected=pick?s.episodes.find(e=>e.action.type==="inspect"&&e.action.target===pick.action.target&&e.step<pick.step):undefined;
  if(inspected&&discard&&pick&&!s.memories.some(m=>m.id==="inventory_capacity"))
-  s.memories.push({id:"inventory_capacity",tags:["inventory","hunger","resources"],lesson:"When the inventory is full, freeing a slot can enable collecting more useful food.",evidence:[inspected.step,discard.step,pick.step]});
+  s.memories.push({id:"inventory_capacity",tags:["inventory","hunger","resources"],lesson:"Freeing an inventory slot can enable collecting a resource from an inspected object.",evidence:[inspected.step,discard.step,pick.step]});
  const creative=s.episodes.filter(e=>e.action.type==="create");
  if(creative.length>=2&&!s.memories.some(m=>m.id==="creative_work"))
   s.memories.push({id:"creative_work",tags:["creativity","create"],lesson:"Finishing a distinct creation can relieve the urge to make something, but costs energy.",evidence:creative.slice(-2).map(e=>e.step)});
@@ -105,13 +108,18 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
  switch(action.type){
   case "inspect":{
    s.seen.push(action.target!);
-   observeFact009(s.discoveries,"tree:"+action.target!,"fruit",action.target!,s.step+1);
+   const fruit=HIDDEN_TREES009[action.target!];
+   observeFact009(s.discoveries,action.target!,"fruit",fruit,s.step+1);
    const beforeNovelty=n.novelty;n.novelty=clamp(n.novelty-12);
    snapshots.push({attribute:"novelty",before:beforeNovelty,after:n.novelty});
-   result="Observed tree bearing "+action.target+" fruit.";break;
+   result="Inspected "+action.target+"; discovered "+fruit+" fruit.";break;
   }
   case "discard":s.inventory.splice(s.inventory.indexOf(action.target!),1);result="Discarded "+action.target+" to free a slot.";break;
-  case "pick":s.inventory.push(action.target!);result="Collected "+action.target+" fruit.";break;
+  case "pick":{
+   const fruit=s.discoveries.facts.find(f=>f.subject===action.target&&f.property==="fruit")?.value;
+   if(!fruit)throw Error("Tree contents have not been observed");
+   s.inventory.push(fruit);result="Collected "+fruit+" fruit from "+action.target+".";break;
+  }
   case "eat":{
    s.inventory.splice(s.inventory.indexOf(action.target!),1);
    const beforeHunger=n.hunger;n.hunger=clamp(n.hunger+HIDDEN_EFFECTS009[action.target!]);
@@ -143,8 +151,8 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
   case "wait":result="Waited while needs changed.";break;
  }
  // Record only verified observations of this executed action, not hardcoded expected effects.
- const subject=action.type==="eat"||action.type==="pick"||action.type==="discard"
-   ?"fruit:"+action.target! : action.type==="inspect"?"tree:"+action.target!:
+ const subject=action.type==="eat"||action.type==="discard"
+   ?"fruit:"+action.target! : action.type==="inspect"||action.type==="pick"?action.target!:
    action.type==="create"?"activity:create":"activity:"+action.type;
  for(const observed of snapshots)
   observeEffect009(s.discoveries,subject,action.type,observed.attribute,observed.before,observed.after,s.step+1,observed.censored);
@@ -172,11 +180,11 @@ export function localDecision009(s:State009,withMemory=true):{action:Action009;r
   if(useful)action=take("eat",useful.fruit);
   else if(unknown)action=take("eat",unknown.fruit);
   else {
-   const observedUseful=FRUIT009.find(fruit=>s.seen.includes(fruit)&&
-     (learnedEffect009(s,"fruit:"+fruit,"eat","hunger")??Infinity)<0);
+   const observedUseful=s.discoveries.facts.find(f=>f.property==="fruit"&&
+     (learnedEffect009(s,"fruit:"+f.value,"eat","hunger")??Infinity)<0);
    if(observedUseful&&s.inventory.length===3)action=take("discard",candidateFood[candidateFood.length-1]?.fruit);
-   else if(observedUseful)action=take("pick",observedUseful);
-   else action=FRUIT009.map(fruit=>take("inspect",fruit)).find(Boolean);
+   else if(observedUseful)action=take("pick",observedUseful.subject);
+   else action=TREE_IDS009.map(tree=>take("inspect",tree)).find(Boolean);
   }
  }
  if(!action&&s.needs.creativity>=55&&s.energy>=35)action=take("create");
