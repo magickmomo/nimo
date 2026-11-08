@@ -176,6 +176,29 @@ jobs:
           print('Verified expanded coordinate schema.')
           PY
 
+      - name: Create and verify allotment tables before Worker deployment
+        if: ${{ inputs.version == 'current-main' }}
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world --remote --file=migrations/011_allotment_economy.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('garden_inventory','garden_plots','garden_transactions')" > "$RUNNER_TEMP/nimo-garden-schema.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ["RUNNER_TEMP"])/"nimo-garden-schema.json").read_text())
+          entries=data if isinstance(data,list) else [data]
+          if any(entry.get("success") is not True for entry in entries):
+              raise SystemExit("Garden D1 schema query failed")
+          names={r.get("name") for e in entries for r in e.get("results",[])}
+          if names!={"garden_inventory","garden_plots","garden_transactions"}:
+              raise SystemExit("Garden D1 migration incomplete; refusing deployment")
+          print("Verified allotment tables")
+          PY
+
       - name: Deploy Worker after successful migrations
         working-directory: world-worker
         env:
