@@ -1,5 +1,5 @@
 import { recordExperience } from "./experience-evaluator";
-import { shortestPath, visibleTiles, displayPoint, type Point } from "../../web/lib/world-map";
+import { shortestPath, visibleTiles, displayPoint, WORLD_SIZE, type Point } from "../../web/lib/world-map";
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 import { sightInsertSql } from "./sight-sql";
 
@@ -25,9 +25,9 @@ export type JourneySnapshot = {
 
 const parsePath = (value: string): Point[] => {
   const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || parsed.length > 81 ||
+  if (!Array.isArray(parsed) || parsed.length > WORLD_SIZE * WORLD_SIZE ||
       !parsed.every(p => p && Number.isInteger(p.x) && Number.isInteger(p.y) &&
-        p.x >= 0 && p.x < 9 && p.y >= 0 && p.y < 9))
+        p.x >= 0 && p.x < WORLD_SIZE && p.y >= 0 && p.y < WORLD_SIZE))
     throw new Error("Corrupt persisted journey path");
   return parsed as Point[];
 };
