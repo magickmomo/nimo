@@ -3,17 +3,47 @@ export type Need009="hunger"|"rest"|"novelty"|"creativity";
 export type Needs009=Record<Need009,number>;
 export type Action009={type:"inspect"|"pick"|"eat"|"discard"|"rest"|"create"|"explore"|"wait";target?:string};
 export type Memory009={id:string;tags:string[];lesson:string;evidence:number[]};
+// A discovery is a verified entity–interaction–attribute observation, never world truth.
+// Censored boundary outcomes count as trials but cannot establish exact mean effects.
+export type Effect009={subject:string;interaction:string;attribute:string;trials:number;informative:number;
+ meanChange:number|null;minChange:number|null;maxChange:number|null;evidence:number[]};
+export type Fact009={subject:string;property:string;value:string;evidence:number[]};
+export type Knowledge009={effects:Effect009[];facts:Fact009[]};
 export type Episode009={step:number;action:Action009;result:string;before:{mood:number;energy:number;needs:Needs009};after:{mood:number;energy:number;needs:Needs009};reason:string;retrieved:string[]};
-export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];known:Record<string,number>;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;};
+export type State009={seed:number;step:number;needs:Needs009;energy:number;mood:number;inventory:string[];discoveries:Knowledge009;seen:string[];artifacts:string[];episodes:Episode009[];memories:Memory009[];workingGoal:string|null;};
 const clamp=(v:number)=>Math.max(0,Math.min(100,Math.round(v*100)/100));
 const copy=<T>(x:T):T=>JSON.parse(JSON.stringify(x)) as T;
 export const FRUIT009=["amber","blue"] as const;
-export const EFFECTS009:Record<string,number>={amber:-35,blue:0};
+// Hidden simulation truth. Never expose this map through context009 or the model API.
+const HIDDEN_EFFECTS009:Record<string,number>={amber:-35,blue:0};
 export const NEED_WEIGHTS009:Needs009={hunger:.43,rest:.20,novelty:.19,creativity:.18};
 export function mood009(n:Needs009){return clamp(100-Object.entries(n).reduce((sum,[k,v])=>sum+Math.max(0,v-15)*NEED_WEIGHTS009[k as Need009],0));}
 export function initial009(seed=9009):State009{
  const needs={hunger:65,rest:25,novelty:45,creativity:72};
- return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],known:{},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null};
+ return {seed,step:0,needs,energy:82,mood:mood009(needs),inventory:["blue","blue","blue"],discoveries:{effects:[],facts:[]},seen:[],artifacts:[],episodes:[],memories:[],workingGoal:null};
+}
+export function observeFact009(knowledge:Knowledge009,subject:string,property:string,value:string,step:number){
+ const old=knowledge.facts.find(x=>x.subject===subject&&x.property===property);
+ if(old){old.value=value;if(!old.evidence.includes(step))old.evidence.push(step);}
+ else knowledge.facts.push({subject,property,value,evidence:[step]});
+}
+export function observeEffect009(knowledge:Knowledge009,subject:string,interaction:string,attribute:string,
+ before:number,after:number,step:number,censored=false){
+ const delta=Math.round((after-before)*100)/100;
+ let record=knowledge.effects.find(x=>x.subject===subject&&x.interaction===interaction&&x.attribute===attribute);
+ if(!record){record={subject,interaction,attribute,trials:0,informative:0,meanChange:null,minChange:null,maxChange:null,evidence:[]};
+  knowledge.effects.push(record);}
+ record.trials++;
+ if(!record.evidence.includes(step))record.evidence.push(step);
+ if(!censored){
+  record.meanChange=Math.round((((record.meanChange??0)*record.informative+delta)/(record.informative+1))*100)/100;
+  record.informative++;
+  record.minChange=record.minChange===null?delta:Math.min(record.minChange,delta);
+  record.maxChange=record.maxChange===null?delta:Math.max(record.maxChange,delta);
+ }
+}
+export function learnedEffect009(s:State009,subject:string,interaction:string,attribute:string){
+ return s.discoveries.effects.find(x=>x.subject===subject&&x.interaction===interaction&&x.attribute===attribute&&x.informative>0)?.meanChange??null;
 }
 export function opportunities009(s:State009):Action009[]{
  const out:Action009[]=[{type:"rest"},{type:"explore"},{type:"wait"}];
@@ -42,7 +72,8 @@ export function context009(s:State009,withMemory=true){
  const tags=[...causes.slice(0,2).map(c=>c.need),s.inventory.length>=3?"inventory":"resources",s.needs.creativity>50?"create":"routine"];
  const relevant=withMemory?recall009(s,tags):[];
  return {step:s.step,mood:s.mood,energy:s.energy,needs:s.needs,moodContributors:causes,
-  inventory:s.inventory,observedTrees:s.seen,learnedFoodEffects:s.known,
+  inventory:s.inventory,observedObjects:s.discoveries.facts,
+  discoveredKnowledge:s.discoveries.effects,observedTrees:s.seen,
   artifacts:s.artifacts,workingGoal:s.workingGoal,workingMemory:s.episodes.slice(-4).map(e=>({step:e.step,action:e.action,result:e.result,reason:e.reason})),
   consolidatedMemories:relevant,availableActions:opportunities009(s)};
 }
@@ -62,6 +93,8 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
  if(!opportunities009(previous).some(a=>actionKey009(a)===actionKey009(action)))throw Error("Action unavailable");
  const s=copy(previous), before={mood:s.mood,energy:s.energy,needs:copy(s.needs)};
  const n=s.needs;let result="";
+ // Track action-specific observed changes, separate from generic passage-of-time drift.
+ const snapshots: {attribute:string;before:number;after:number;censored?:boolean}[]=[];
  const active=action.type!=="rest"&&action.type!=="wait";
  const cost=action.type==="create"?13:action.type==="explore"?8:active?3:0;
  s.energy=clamp(s.energy-cost);
@@ -70,24 +103,54 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
  n.novelty=clamp(n.novelty+1);
  n.creativity=clamp(n.creativity+1.2);
  switch(action.type){
-  case "inspect": s.seen.push(action.target!);n.novelty=clamp(n.novelty-12);result="Discovered "+action.target+" fruit tree.";break;
+  case "inspect":{
+   s.seen.push(action.target!);
+   observeFact009(s.discoveries,"tree:"+action.target!,"fruit",action.target!,s.step+1);
+   const beforeNovelty=n.novelty;n.novelty=clamp(n.novelty-12);
+   snapshots.push({attribute:"novelty",before:beforeNovelty,after:n.novelty});
+   result="Observed tree bearing "+action.target+" fruit.";break;
+  }
   case "discard":s.inventory.splice(s.inventory.indexOf(action.target!),1);result="Discarded "+action.target+" to free a slot.";break;
   case "pick":s.inventory.push(action.target!);result="Collected "+action.target+" fruit.";break;
   case "eat":{
    s.inventory.splice(s.inventory.indexOf(action.target!),1);
-   const beforeHunger=n.hunger;n.hunger=clamp(n.hunger+EFFECTS009[action.target!]);
+   const beforeHunger=n.hunger;n.hunger=clamp(n.hunger+HIDDEN_EFFECTS009[action.target!]);
    const relief=beforeHunger-n.hunger;s.energy=clamp(s.energy+Math.max(0,relief*.12));
-   s.known[action.target!]=EFFECTS009[action.target!];result="Ate "+action.target+"; observed hunger relief "+relief.toFixed(1)+" points.";break;
+   snapshots.push({attribute:"hunger",before:beforeHunger,after:n.hunger,
+     censored:n.hunger===0||n.hunger===100});
+   result="Ate "+action.target+"; observed hunger "+beforeHunger.toFixed(1)+"% to "+n.hunger.toFixed(1)+"%.";break;
   }
-  case "rest":s.energy=clamp(s.energy+24);n.rest=clamp(n.rest-26);result="Rested and recovered energy; hunger rose slowly.";break;
-  case "explore":n.novelty=clamp(n.novelty-24);result="Explored a new area and gained novelty.";break;
+  case "rest":{
+   const beforeRest=n.rest;s.energy=clamp(s.energy+24);n.rest=clamp(n.rest-26);
+   snapshots.push({attribute:"rest",before:beforeRest,after:n.rest});
+   result="Rested and recovered energy; hunger rose slowly.";break;
+  }
+  case "explore":{
+   const beforeNovelty=n.novelty;n.novelty=clamp(n.novelty-24);
+   snapshots.push({attribute:"novelty",before:beforeNovelty,after:n.novelty});
+   result="Explored a new area and gained novelty.";break;
+  }
   case "create":{
    const idea="field_note_"+(s.artifacts.length+1);
-   s.artifacts.push(idea);n.creativity=clamp(n.creativity-Math.max(8,35-s.artifacts.length*5));
-   n.novelty=clamp(n.novelty-6);result="Created "+idea+" (a distinct artifact placeholder).";break;
+   s.artifacts.push(idea);
+   observeFact009(s.discoveries,"artifact:"+idea,"type","field_note",s.step+1);
+   const beforeCreativity=n.creativity,beforeNovelty=n.novelty;
+   n.creativity=clamp(n.creativity-Math.max(8,35-s.artifacts.length*5));
+   n.novelty=clamp(n.novelty-6);
+   snapshots.push({attribute:"creativity",before:beforeCreativity,after:n.creativity},
+     {attribute:"novelty",before:beforeNovelty,after:n.novelty});result="Created "+idea+" (a distinct artifact placeholder).";break;
   }
   case "wait":result="Waited while needs changed.";break;
  }
+ // Record only verified observations of this executed action, not hardcoded expected effects.
+ const subject=action.type==="eat"||action.type==="pick"||action.type==="discard"
+   ?"fruit:"+action.target! : action.type==="inspect"?"tree:"+action.target!:
+   action.type==="create"?"activity:create":"activity:"+action.type;
+ for(const observed of snapshots)
+  observeEffect009(s.discoveries,subject,action.type,observed.attribute,observed.before,observed.after,s.step+1,observed.censored);
+ if(s.energy!==before.energy)
+  observeEffect009(s.discoveries,subject,action.type,"energy",before.energy,s.energy,s.step+1,
+    s.energy===0||s.energy===100);
  s.step++;s.mood=mood009(n);
  s.workingGoal=action.type==="eat"?"Recover from hunger":action.type==="create"?"Make something":s.workingGoal;
  s.episodes.push({step:s.step,action,result,before,after:{mood:s.mood,energy:s.energy,needs:copy(s.needs)},reason,retrieved:context009(previous).consolidatedMemories.map(m=>m.id)});
@@ -97,15 +160,24 @@ export function apply009(previous:State009,action:Action009,reason="",withLearni
 export function localDecision009(s:State009,withMemory=true):{action:Action009;reason:string}{
  const actions=opportunities009(s),mem=context009(s,withMemory).consolidatedMemories;
  const take=(type:Action009["type"],target?:string)=>actions.find(a=>a.type===type&&(target===undefined||a.target===target));
- // Deliberately simple baseline: it does not claim to reproduce LLM planning.
- const hasUseful=typeof s.known.amber==="number"&&s.known.amber<0;
+ // Simple generic experimental baseline: decisions consider only observed consequences.
+ const candidateFood=[...new Set(s.inventory)].map(fruit=>({
+   fruit, effect:learnedEffect009(s,"fruit:"+fruit,"eat","hunger")
+ })).sort((a,b)=>(a.effect??Infinity)-(b.effect??Infinity));
+ const useful=candidateFood.find(x=>x.effect!==null&&x.effect<0);
+ const unknown=candidateFood.find(x=>x.effect===null);
  let action:Action009|undefined;
  if(s.energy<22)action=take("rest");
  else if(s.needs.hunger>45){
-  if(s.inventory.includes("amber"))action=take("eat","amber");
-  else if(hasUseful&&s.inventory.length===3)action=take("discard","blue");
-  else if(s.seen.includes("amber"))action=take("pick","amber");
-  else action=take("inspect","amber");
+  if(useful)action=take("eat",useful.fruit);
+  else if(unknown)action=take("eat",unknown.fruit);
+  else {
+   const observedUseful=FRUIT009.find(fruit=>s.seen.includes(fruit)&&
+     (learnedEffect009(s,"fruit:"+fruit,"eat","hunger")??Infinity)<0);
+   if(observedUseful&&s.inventory.length===3)action=take("discard",candidateFood[candidateFood.length-1]?.fruit);
+   else if(observedUseful)action=take("pick",observedUseful);
+   else action=FRUIT009.map(fruit=>take("inspect",fruit)).find(Boolean);
+  }
  }
  if(!action&&s.needs.creativity>=55&&s.energy>=35)action=take("create");
  if(!action&&s.needs.novelty>=45)action=take("explore");
