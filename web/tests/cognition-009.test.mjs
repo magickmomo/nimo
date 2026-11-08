@@ -25,9 +25,9 @@ test("energy costs, creativity pressure and novel artifacts have verified conseq
 });
 test("inventory obstacle can become an evidence-linked memory",()=>{
  let s=initial009();
- s=apply009(s,{type:"inspect",target:"amber"});
+ s=apply009(s,{type:"inspect",target:"tree_001"});
  s=apply009(s,{type:"discard",target:"blue"});
- s=apply009(s,{type:"pick",target:"amber"});
+ s=apply009(s,{type:"pick",target:"tree_001"});
  assert.deepEqual(s.memories.map(x=>x.id),["inventory_capacity"]);
  assert.deepEqual(s.memories[0].evidence,[1,2,3]);
  const v=context009(s);
@@ -36,9 +36,9 @@ test("inventory obstacle can become an evidence-linked memory",()=>{
 });
 test("memory ablation hides consolidated memories, without mutating stored memories",()=>{
  let s=initial009();
- s=apply009(s,{type:"inspect",target:"amber"});
+ s=apply009(s,{type:"inspect",target:"tree_001"});
  s=apply009(s,{type:"discard",target:"blue"});
- s=apply009(s,{type:"pick",target:"amber"});
+ s=apply009(s,{type:"pick",target:"tree_001"});
  assert.equal(context009(s,false).consolidatedMemories.length,0);
  assert.equal(s.memories.length,1);
 });
@@ -75,8 +75,8 @@ test("generic discoveries begin empty, never disclose hidden world effects",()=>
 });
 test("verified interactions with food, objects, rest and creation use one generic knowledge schema",()=>{
  let s=initial009();
- s=apply009(s,{type:"inspect",target:"amber"});
- assert.equal(s.discoveries.facts.find(f=>f.subject==="tree:amber")?.value,"amber");
+ s=apply009(s,{type:"inspect",target:"tree_001"});
+ assert.equal(s.discoveries.facts.find(f=>f.subject==="tree_001")?.value,"amber");
  assert.equal(learnedEffect009(s,"fruit:amber","eat","hunger"),null);
  s=apply009(s,{type:"eat",target:"blue"});
  const blue=s.discoveries.effects.find(e=>e.subject==="fruit:blue"&&e.interaction==="eat"&&e.attribute==="hunger");
@@ -108,11 +108,23 @@ test("boundary effects are logged but not treated as exact learned effects",()=>
 });
 test("generic local baseline uses observed effects rather than assuming amber is beneficial",()=>{
  let s=initial009();
- s.seen=["amber","blue"];
+ s.seen=["tree_001","tree_002"];
  s.inventory=["blue","amber"];
  assert.equal(localDecision009(s).action.target,"blue");
  s=apply009(s,{type:"eat",target:"blue"});
  s.needs.hunger=80;
  assert.equal(localDecision009(s).action.target,"amber");
  assert.equal(learnedEffect009(s,"fruit:amber","eat","hunger"),null);
+});
+
+test("uninspected objects expose stable IDs, never hidden fruit identities",()=>{
+ const s=initial009(),ctx=context009(s);
+ const inspection=ctx.availableActions.filter(a=>a.type==="inspect");
+ assert.deepEqual(inspection.map(a=>a.target),["tree_001","tree_002"]);
+ assert.equal(ctx.observedObjects.length,0);
+ s.seen=["tree_001"];
+ // Only already-observed tree is available to pick.
+ assert.deepEqual(opportunities009(s).filter(a=>a.type==="pick").map(a=>a.target),[]);
+ const discovered=apply009(initial009(),{type:"inspect",target:"tree_001"});
+ assert.equal(context009(discovered).observedObjects[0].value,"amber");
 });
