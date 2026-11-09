@@ -777,11 +777,21 @@ export default {
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
       }
-      if (path === "/snapshot" && request.method === "GET") {
+      if ((path === "/snapshot" || path === "/snapshot/owner") && request.method === "GET") {
+        const owner = path === "/snapshot/owner";
         const world = await getWorld(env.DB);
-        // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        const publicSnapshot = {
+          world, events: await publicEvents(env.DB), position: await getPosition(env.DB),
+          journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB),
+          objects: await objectMemory(env.DB), food: await foodView(env.DB),
+          vending: await vendingSnapshot(env.DB), garden: await gardenSnapshot(env.DB),
+          autonomousEnabled: await autonomousEnabled(env.DB),
+        };
+        if (!owner) return json(publicSnapshot);
+        return json({ ...publicSnapshot, documents: await documents(env.DB),
+          actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS],
+          hungerRate: await hungerRate(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
