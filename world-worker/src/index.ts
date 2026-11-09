@@ -19,7 +19,6 @@ type Env = {
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
   WORLD_INTERNAL_SECRET: string;
-  MAX_DAILY_AI_CALLS?: string;
 };
 type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
@@ -28,6 +27,8 @@ type WorldRow = { id: number; state: string; next_tick: string };
 const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
+const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
+const DECISION_CLAIM_LEASE_MS = 120_000; // Prevent overlapping model calls; recover if a Worker dies.
 type DocumentRow = { path: string; content: string; revision: number; updated_at: string };
 async function getPosition(db: D1Database): Promise<Point> {
   const position = await db.prepare("SELECT x,y FROM world_position WHERE id=1").first<Point>();
@@ -358,31 +359,38 @@ async function tick(env: Env) {
   const journey = await advanceJourney(env.DB, now);
   if (journey.status === "travelling" || journey.status === "paused")
     return {status:"action_in_progress"};
-  if (journey.status === "completed") {
-    // Completion and TRAVEL_OK are committed atomically in advanceJourney.
-    // The next decision can now start without waiting for an arbitrary timer.
-    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
-      .bind(now.toISOString()).run();
-  }
   const world = await getWorld(env.DB);
-  if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
-
-  // Cap model calls per UTC day as a failsafe. The max 1440/day permits one/minute.
-  const limit = Math.min(1440, Math.max(0, Number(env.MAX_DAILY_AI_CALLS ?? 1440) || 0));
-  const count = await env.DB.prepare("SELECT count(*) as n FROM decisions WHERE day = ?")
-    .bind(day(now)).first<{ n: number }>();
-  if ((count?.n || 0) >= limit) {
+  if (journey.status === "completed") {
+    // Allow a decision after arrival, but never inside the 30s cooldown.
+    const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
+    const eligibleAt = Number.isFinite(lastDecision)
+      ? Math.max(now.getTime(), lastDecision + DECISION_INTERVAL_MS) : now.getTime();
+    world.next_tick = new Date(eligibleAt).toISOString();
     await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
-      .bind(new Date(now.getTime() + 10000).toISOString()).run();
-    return { status: "daily_limit_reached" };
+      .bind(world.next_tick).run();
   }
+  if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
+  const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
+  if (Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
+    return { status: "not_due" };
 
-  // Atomically claim the due slot; don't double-invoke the LLM.
+  // Atomically reserve a lease longer than a typical model call, so simultaneous
+  // cron invocations or manual ticks cannot start a second request.
+  const leaseUntil = new Date(now.getTime() + DECISION_CLAIM_LEASE_MS).toISOString();
   const claimed = await env.DB.prepare(
     "UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?"
-  ).bind(new Date(now.getTime() + 10000).toISOString(), world.next_tick).run();
+  ).bind(leaseUntil, world.next_tick).run();
   if (claimed.meta.changes !== 1) return { status: "already_claimed" };
-  if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
+  const releaseDecisionSlot = async () => {
+    // Minimum 30s after finishing, not simply 30s after starting the LLM call.
+    const eligibleAt = new Date(Date.now() + DECISION_INTERVAL_MS).toISOString();
+    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?")
+      .bind(eligibleAt,leaseUntil).run();
+  };
+  if (!(await autonomousEnabled(env.DB))) {
+    await releaseDecisionSlot();
+    return { status: "sleeping" };
+  }
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
@@ -453,6 +461,7 @@ async function tick(env: Env) {
   }catch(error) {
     await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error));
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
+    await releaseDecisionSlot();
     return { status: "model_error" };
   }
   // Enforce priority outside the LLM, so a prohibited repetitive action cannot execute.
@@ -462,13 +471,15 @@ async function tick(env: Env) {
   const priorityBlock = priorityBlockReason(priority,d.toolCall,priorityTarget);
   if (priorityBlock) {
     await log(env.DB,"system",`Priority gate blocked proposed action: ${priorityBlock}`,"PRIORITY_BLOCK");
-    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
-      .bind(new Date(now.getTime()+30000).toISOString()).run();
+    await releaseDecisionSlot();
     return {status:"priority_blocked"};
   }
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
-  if (!(await autonomousEnabled(env.DB))) return { status: "paused_during_decision" };
+  if (!(await autonomousEnabled(env.DB))) {
+    await releaseDecisionSlot();
+    return { status: "paused_during_decision" };
+  }
   // Tool execution is authoritative; journal records verified results, never claims.
   let toolOutcome: string | null = null;
   let verifiedExperience:VerifiedOutcome|null=null;
@@ -618,6 +629,7 @@ async function tick(env: Env) {
   }
   if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
+  await releaseDecisionSlot();
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
 
@@ -636,7 +648,7 @@ export default {
         let interval = 10000;
         try {
           const result = await tick(env);
-          if (result.status === "daily_limit_reached" || result.status === "sleeping") break;
+          if (result.status === "sleeping") break;
           if (result.status === "action_in_progress") interval = 2000;
         } catch (e) {
           await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
