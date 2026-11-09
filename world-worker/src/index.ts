@@ -360,15 +360,9 @@ async function tick(env: Env) {
   if (journey.status === "travelling" || journey.status === "paused")
     return {status:"action_in_progress"};
   const world = await getWorld(env.DB);
-  if (journey.status === "completed") {
-    // Allow a decision after arrival, but never inside the 30s cooldown.
-    const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
-    const eligibleAt = Number.isFinite(lastDecision)
-      ? Math.max(now.getTime(), lastDecision + DECISION_INTERVAL_MS) : now.getTime();
-    world.next_tick = new Date(eligibleAt).toISOString();
-    await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1")
-      .bind(world.next_tick).run();
-  }
+  // A completed journey does not alter next_tick. The existing persisted
+  // deadline was established AFTER the previous decision finished; lastTick
+  // records its start and must never be used to shorten that cooldown.
   if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
   const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   if (Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
