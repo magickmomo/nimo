@@ -55,7 +55,7 @@ test("verified waypoint and decision reward writes use idempotency keys",()=>{
   const index=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
   const rewards=readFileSync(new URL("../src/rewards.ts",import.meta.url),"utf8");
   assert.match(journey,/INSERT OR IGNORE INTO world_rewards/);
-  assert.match(journey,/visit_count FROM world_visited/);
+  // Only genuinely new tiles earn points; revisits must not store zero-point rewards.\n  assert.match(journey,/visit_count=1/);\n  assert.match(journey,/SELECT \?,\x27explore_tile\x27,10,\?/);\n  assert.doesNotMatch(journey,/THEN 10 ELSE 0/);
   assert.match(index,/decisionKey =/);
   assert.match(rewards,/source_key,action,points,detail/);
 });

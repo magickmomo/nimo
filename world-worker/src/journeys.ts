@@ -1,4 +1,3 @@
-import { recordExperience } from "./experience-evaluator";
 import { shortestPath, visibleTiles, displayPoint, WORLD_SIZE, type Point } from "../../web/lib/world-map";
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 import { sightInsertSql } from "./sight-sql";
@@ -102,34 +101,23 @@ export async function advanceJourney(db: D1Database, now = new Date()):
           last_visited=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
         .bind(next.x,next.y),
       sightInsert(db,next),
-      // Reward the verified waypoint exactly once; revisit scores zero.
-      // visit_count=1 only after a first-ever successful arrival.
+      // Only new discoveries earn exploration rewards. A repeat visit is
+      // recorded in world_visited, but a zero-point reward adds no value.
+      // Keeping this in the step transaction preserves retry safety.
       db.prepare(`INSERT OR IGNORE INTO world_rewards(source_key,action,points,detail)
-        SELECT ?,'explore_tile',
-          CASE WHEN (SELECT visit_count FROM world_visited WHERE x=? AND y=?)=1 THEN 10 ELSE 0 END,
-          ?
-        WHERE EXISTS(SELECT 1 FROM world_journey WHERE id=1 AND step_index=?)
+        SELECT ?,'explore_tile',10,?
+        WHERE EXISTS(SELECT 1 FROM world_visited WHERE x=? AND y=? AND visit_count=1)
+          AND EXISTS(SELECT 1 FROM world_journey WHERE id=1 AND step_index=?)
           AND EXISTS(SELECT 1 FROM world_position WHERE id=1 AND x=? AND y=?)`)
-        .bind(`journey:${row.started_at}:step:${nextIndex}`,next.x,next.y,
+        .bind(`journey:${row.started_at}:step:${nextIndex}`,
           `Reached tile (${displayPoint(next).x}, ${displayPoint(next).y})`,
-          nextIndex,next.x,next.y),
+          next.x,next.y,nextIndex,next.x,next.y),
     ]);
     if (results[0].meta.changes !== 1) return {status:"travelling"};
     if (results[1].meta.changes !== 1) throw new Error("Journey position out of sync; pause and investigate");
-    // Instrument completed physical steps without adding another model call.
-    await db.prepare(`INSERT INTO action_trace(kind,status,detail,result,finished_at)
-      VALUES('travel','completed',?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
-      .bind(`Reach waypoint ${nextIndex} of ${route.length-1}`,
-        `At (${displayPoint(next).x},${displayPoint(next).y})`).run();
-    // Observe real arrivals only after the atomic position/visit transaction.
-    // Failure to write telemetry must not disrupt a verified journey.
-    try {
-      const visit=await db.prepare("SELECT visit_count FROM world_visited WHERE x=? AND y=?")
-        .bind(next.x,next.y).first<{visit_count:number}>();
-      await recordExperience(db,`journey:${row.started_at}:step:${nextIndex}`,
-        {type:"travel",subject:`(${displayPoint(next).x},${displayPoint(next).y})`,
-          firstVisit:visit?.visit_count===1});
-    } catch(error) {console.warn("Experience travel telemetry unavailable",error);}
+    // Per-waypoint state is already persisted above. Avoid redundant trace
+    // and experience rows on each step; the active journey trace stays visible
+    // and the final arrival event records completion.
     currentIndex = nextIndex;
   }
   if (currentIndex === route.length-1) {
