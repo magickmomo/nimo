@@ -104,8 +104,8 @@ export default function World() {
       .then(async response => {
         const body = await response.json() as { authenticated?: boolean };
         setIsOwner(Boolean(body.authenticated));
-      }).catch(() => setIsOwner(false));
-    void refresh();
+      }).catch(() => setIsOwner(false))
+      .finally(() => { void refresh(); });
     const refreshOnVisible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
