@@ -638,7 +638,6 @@ async function tick(env: Env) {
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
 
-
 // A bounded public mailbox for external autonomous agents. The opaque message ID
 // is a capability to read only its reply; it does not grant internal API access.
 const AGENT_DAY_LIMIT = 30;
@@ -684,7 +683,7 @@ async function agentGateway(request: Request, env: Env, path: string): Promise<R
     return json({ accepted: true, messageId, replyPath: "/api/agent/v1/messages/"+messageId,
       status: "pending", note: "Nimo can answer on a future autonomous tick while awake." }, 202);
   }
-  const match = new RegExp('^/agent/v1/messages/([0-9a-fA-F-]{36})
+  const match = new RegExp("^/agent/v1/messages/([0-9a-fA-F-]{36})$").exec(path);
   if (request.method === "GET" && match) {
     const original = await env.DB.prepare(
       "SELECT id,created_at FROM events WHERE kind='visitor' AND action=? LIMIT 1"
@@ -727,142 +726,7 @@ export default {
     const publicPath = new URL(request.url).pathname;
     if (publicPath === "/agent/v1" || publicPath.startsWith("/agent/v1/")) {
       try { return await agentGateway(request, env, publicPath); }
-      catch (error) { return json({ error: "Agent mailbox unavailable" }, 503); }
-    }
-    if (!env.WORLD_INTERNAL_SECRET ||
-        request.headers.get("Authorization") !== `Bearer ${env.WORLD_INTERNAL_SECRET}`) {
-      return json({ error: "Unauthorized" }, 401);
-    }
-    try {
-      const path = new URL(request.url).pathname;
-      // Lightweight status poll. Historical journal, documents and observations
-      // are deliberately excluded so the dashboard can update without D1 scans.
-      if (path === "/journal" && request.method === "GET") {
-        const params=new URL(request.url).searchParams;
-        const window=params.get("window")??"1h";
-        if(!["1h","6h","24h","all"].includes(window))
-          return json({error:"Invalid time range"},400);
-        const rawBefore=params.get("before");
-        const before=rawBefore===null?null:Number(rawBefore);
-        if(rawBefore!==null && (!Number.isSafeInteger(before)||before===null||before<=0))
-          return json({error:"Invalid journal cursor"},400);
-        const until=params.get("until")??new Date().toISOString();
-        const parsed=Date.parse(until);
-        if(!Number.isFinite(parsed)||until!==new Date(parsed).toISOString()||
-          parsed>Date.now()+60000 || parsed<Date.now()-90*86400000)
-          return json({error:"Invalid journal anchor"},400);
-        return json(await journalPage(env.DB,window,before,until));
-      }
-      if (path === "/experience" && request.method === "GET") {
-        return json({evaluations:await recentExperiences(env.DB,60),mode:"observation_only"});
-      }
-      if (path === "/messages" && request.method === "GET") {
-        const history=await env.DB.prepare(
-          "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply','request') OR action='REQUEST' ORDER BY id DESC LIMIT 250"
-        ).all<EventRow>();
-        return json({messages:history.results.reverse()});
-      }
-      if (path === "/hunger-rate" && request.method === "POST") {
-        const body=await request.json() as {rate?:unknown};
-        if(!validHungerRate(body.rate))return json({error:"Rate must be 0–2.5 in 0.1 increments"},400);
-        await setHungerRate(env.DB,body.rate);
-        return json({hungerRate:await hungerRate(env.DB)});
-      }
-      if (path === "/snapshot/live" && request.method === "GET") {
-        const [world,position,journey,enabled] = await Promise.all([
-          getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
-        ]);
-        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
-      }
-      if (path === "/export" && request.method === "GET") {
-        return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
-      }
-      if (path === "/snapshot" && request.method === "GET") {
-        const world = await getWorld(env.DB);
-        // Report current capabilities even before a decision or while asleep.
-        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
-      }
-      if (path === "/control" && request.method === "POST") {
-        const body = await request.json() as { enabled?: unknown };
-        if (typeof body.enabled !== "boolean")
-          return json({ error: "enabled must be a boolean" }, 400);
-        // Separate, durable operator control; never available to the agent as a tool.
-        const changedAt = new Date();
-        if (!body.enabled) {
-          // Freeze timed movement at its completed waypoint before sleeping.
-          await advanceJourney(env.DB,changedAt);
-        }
-        await env.DB.prepare(
-          "UPDATE world_control SET autonomous_enabled=?, updated_at=? WHERE id=1"
-        ).bind(body.enabled ? 1 : 0, changedAt.toISOString()).run();
-        if (body.enabled) await resumeJourney(env.DB,changedAt);
-        else await pauseJourney(env.DB,changedAt);
-        await log(env.DB, "system",
-          body.enabled ? "Autonomous loop enabled by owner." : "Autonomous loop paused by owner.",
-          body.enabled ? "WAKE" : "SLEEP");
-        return json({ ok: true, autonomousEnabled: await autonomousEnabled(env.DB) });
-      }
-      if (path === "/message" && request.method === "POST") {
-        const data = await request.json() as { message?: unknown };
-        if (typeof data.message !== "string" || !data.message.trim() || data.message.length > 1000)
-          return json({ error: "Message must be 1-1000 characters" }, 400);
-        await log(env.DB, "visitor", data.message.trim(), "INTERACT");
-        return json({ ok: true });
-      }
-      // Optional manual kick for testing: same secret, same quota and due-slot guard.
-      if (path === "/tick" && request.method === "POST") return json(await tick(env));
-      return json({ error: "Not found" }, 404);
-    } catch (e) {
-      return json({ error: e instanceof Error ? e.message : "World error" }, 500);
-    }
-  },
-};
-).exec(path);
-  if (request.method === "GET" && match) {
-    const original = await env.DB.prepare(
-      "SELECT id,created_at FROM events WHERE kind='visitor' AND action=? LIMIT 1"
-    ).bind("AGENT_INBOUND:"+match[1]).first<{id:number;created_at:string}>();
-    if (!original) return json({ error: "Unknown message" }, 404);
-    const reply = await env.DB.prepare(
-      "SELECT created_at,content FROM events WHERE kind='reply' AND action=? ORDER BY id ASC LIMIT 1"
-    ).bind("REPLY_TO:"+original.id).first<{created_at:string;content:string}>();
-    return json({ messageId:match[1], status:reply?"replied":"pending",
-      sentAt:original.created_at, reply:reply?{ from:"Nimo",message:reply.content,at:reply.created_at }:null });
-  }
-  return json({ error: "Not found" }, 404);
-}
-
-export default {
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // Cloudflare cron is minute-granular. Within each invocation poll active
-    // journeys at shorter intervals; make LLM decisions only when idle and due.
-    // Journey completion, not a fixed number of step actions, unlocks the model.
-    ctx.waitUntil((async () => {
-      const began = Date.now();
-      let nextCheck = began;
-      while (Date.now() - began < 55000) {
-        const delay = nextCheck - Date.now();
-        if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve,delay));
-        if (Date.now() - began >= 55000 || !(await autonomousEnabled(env.DB))) break;
-        let interval = 10000;
-        try {
-          const result = await tick(env);
-          if (result.status === "sleeping") break;
-          if (result.status === "action_in_progress") interval = 2000;
-        } catch (e) {
-          await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
-        }
-        nextCheck = Date.now() + interval;
-      }
-    })());
-  },
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const publicPath = new URL(request.url).pathname;
-    if (publicPath === "/agent/v1" || publicPath.startsWith("/agent/v1/")) {
-      try { return await agentGateway(request, env, publicPath); }
-      catch (error) { return json({ error: "Agent mailbox unavailable" }, 503); }
+      catch { return json({ error: "Agent mailbox unavailable" }, 503); }
     }
     if (!env.WORLD_INTERNAL_SECRET ||
         request.headers.get("Authorization") !== `Bearer ${env.WORLD_INTERNAL_SECRET}`) {
