@@ -404,7 +404,7 @@ async function tick(env: Env) {
   const garden=await gardenSnapshot(env.DB,now.getTime());
   let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
   const unseenObjects=objects.filter(o=>o.inspectionCount===0).length;
-  const curiosity=curiosityStep(emotions.curiosity??0.35,fullnessFromHunger(emotions.hunger),history,unseenObjects);
+  const curiosity=curiosityStep(emotions.curiosity??0.35,fullnessFromHunger(emotions.hunger),history,unseenObjects,world.state.curiosityDiscoveryCursor ?? NaN);
   emotions.curiosity=curiosity.value;
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),curiosity.value,unseenObjects,curiosity.foodLoop);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
@@ -412,7 +412,11 @@ async function tick(env: Env) {
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
   const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
   // Messages do not modify paused needs.
-  const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId, tools: [...AVAILABLE_TOOLS] };
+  const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId,
+    curiosityDiscoveryCursor: curiosity.discoveryCursor, tools: [...AVAILABLE_TOOLS] };
+  // Persist curiosity satisfaction and its cursor before calling the model.
+  // If the model fails, the same discovery must NOT be rewarded again.
+  await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(state)).run();
   const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
   const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
