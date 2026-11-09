@@ -17,6 +17,8 @@ jobs:
           node-version: '22'
       - name: Install worker dependencies
         run: npm install --prefix world-worker --no-audit --no-fund
+      - name: Test complete fresh-start reset against a populated database
+        run: python3 world-worker/reset/test_fresh_start.py
       - name: Install website dependencies
         run: npm install --prefix web --no-audit --no-fund
       - name: Validate D1 migration SQL syntax
