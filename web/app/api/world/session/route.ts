@@ -15,3 +15,14 @@ export async function POST(req:NextRequest) {
   });
   return response;
 }
+
+export async function DELETE(req: NextRequest) {
+  // Clearing the owner cookie is safe even if the session has expired.
+  const response = NextResponse.json({ authenticated: false },
+    { headers: { "Cache-Control": "private, no-store" } });
+  response.cookies.set(OWNER_COOKIE, "", {
+    httpOnly: true, secure: process.env.NODE_ENV === "production",
+    sameSite: "lax", path: "/", maxAge: 0,
+  });
+  return response;
+}
