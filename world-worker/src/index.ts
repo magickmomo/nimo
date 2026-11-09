@@ -117,7 +117,7 @@ async function events(db: D1Database, count = 60) {
  * and model context keep the complete records in D1. */
 async function publicEvents(db:D1Database,count=60) {
   const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
-    WHERE (kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP')))
+    WHERE (kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP'))) AND (action IS NULL OR action <> 'REQUEST')
     ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
   return result.results;
 }
@@ -131,7 +131,7 @@ async function journalPage(db:D1Database,window:string,before:number|null,until:
   const limit=60;
   const since=seconds[window] ? new Date(Date.parse(until)-seconds[window]*1000).toISOString() : null;
   const predicates=[
-    "(kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP')))",
+    "(kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP'))) AND (action IS NULL OR action <> 'REQUEST')",
     "created_at <= ?",
   ];
   const bindings:(string|number)[]=[until];
