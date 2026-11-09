@@ -43,6 +43,7 @@ type Snapshot = {
 
 export default function World() {
   const [data, setData] = useState<Snapshot | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
   const [initialLoading,setInitialLoading]=useState(true);
   const [messagesOpen,setMessagesOpen]=useState(false);
   // Stable across the once-per-second clock renders: the dialog must not refocus.
@@ -97,6 +98,13 @@ export default function World() {
   }, []);
 
   useEffect(() => {
+    // Owner-only controls are merely hidden here; mutation and data APIs
+    // independently enforce authentication on the server.
+    void fetch("/api/world/session", { cache: "no-store" })
+      .then(async response => {
+        const body = await response.json() as { authenticated?: boolean };
+        setIsOwner(Boolean(body.authenticated));
+      }).catch(() => setIsOwner(false));
     void refresh();
     const refreshOnVisible = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -243,11 +251,11 @@ export default function World() {
   return (
     <div className="world-page world-dashboard">
       <div className="world-topbar">
-        <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>
-        <a className="world-settings-link" href="/world/settings">Settings — Sleep / Wake</a>
+        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
+        <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
-      {messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
+      {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
@@ -309,7 +317,7 @@ export default function World() {
       </section>}
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
         selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
-      <section className="world-card world-action-monitor" aria-label="Current action">
+      {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
           <h2>Current action</h2>
           <span className="meta">Live status</span>
@@ -336,7 +344,7 @@ export default function World() {
           </ol>
           {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
         </details>
-      </section>
+      </section>}
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
         <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
         {selectedObject ? <>
@@ -366,7 +374,7 @@ export default function World() {
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
       </details>
-      <details className="world-card world-workspace world-secondary-panel">
+      {isOwner && <details className="world-card world-workspace world-secondary-panel">
         <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
         <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
         {data?.documents?.length ? (
@@ -388,8 +396,8 @@ export default function World() {
             ))}
           </>
         ) : <p className="meta">No documents yet. Nimo can create text files when awake.</p>}
-      </details>
-      <details className="world-card world-secondary-panel world-operator-settings">
+      </details>}
+      {isOwner && <details className="world-card world-secondary-panel world-operator-settings">
         <summary>Diagnostics &amp; controls</summary>
         <p className="meta">Technical history remains in the owner export.</p>
         <div className="world-hunger-rate">
@@ -403,7 +411,7 @@ export default function World() {
 
         <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
         <p className="meta">Decision #{state?.tickCount ?? "—"} · Next decision in {seconds}s</p>
-      </details>
+      </details>}
       </div>
       <section className="world-card world-journal">
         <div className="world-journal-head">
@@ -418,13 +426,13 @@ export default function World() {
             </div>
             <div className="world-journal-buttons">
               <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
-              <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>
+              {isOwner && <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>}
             </div>
           </div>
         </div>
         <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. The complete export requires owner access.</p>
         {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
-        {exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
+        {isOwner && exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
           <label htmlFor="world-export-token">Owner access token</label>
           <input id="world-export-token" type="password" value={exportToken}
             autoComplete="off" onChange={event=>setExportToken(event.target.value)}
