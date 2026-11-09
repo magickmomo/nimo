@@ -161,10 +161,10 @@ CREATE INDEX IF NOT EXISTS action_trace_status_id ON action_trace(status,id DESC
 -- World 001 food systems (Nimo 009): additive; never reset existing history.
 CREATE TABLE IF NOT EXISTS world_settings (
   id INTEGER PRIMARY KEY CHECK(id=1),
-  hunger_rate REAL NOT NULL DEFAULT 0.1 CHECK(hunger_rate >= 0 AND hunger_rate <= 2.5),
+  hunger_rate REAL NOT NULL DEFAULT (1.0/60.0) CHECK(hunger_rate >= 0 AND hunger_rate <= 2.5),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-INSERT OR IGNORE INTO world_settings(id,hunger_rate) VALUES(1,0.1);
+INSERT OR IGNORE INTO world_settings(id,hunger_rate) VALUES(1,1.0/60.0);
 
 CREATE TABLE IF NOT EXISTS world_food_trees (
   id TEXT PRIMARY KEY,

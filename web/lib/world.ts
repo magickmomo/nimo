@@ -1,7 +1,7 @@
 export type WorldState = {
   identity: string;
   beliefs: { text: string; evidence: string; confidence: number }[];
-  emotions: { energy: number; happiness: number; boredom: number; hunger: number };
+  emotions: { energy: number; happiness: number; boredom: number; curiosity?: number; hunger: number };
   currentGoal: string | null;
   currentActivity: string;
   tools: string[];
@@ -30,7 +30,7 @@ Do not claim to have completed an action unless the environment confirms it.`;
 export const INITIAL_STATE: WorldState = {
   identity: "I am an autonomous character in a persistent digital environment. I do not have a physical body.",
   beliefs: [],
-  emotions: { energy: 0.8, happiness: 0.5, boredom: 0, hunger: 0.15 },
+  emotions: { energy: 0.8, happiness: 0.5, boredom: 0, curiosity: 0.35, hunger: 0.15 },
   currentGoal: null,
   currentActivity: "observing",
   tools: [],
@@ -50,11 +50,11 @@ export function fullnessFromHunger(hunger: number): number {
 
 /** Only hunger is currently active. Other needs are retained unchanged so
  * development can resume later without losing historical state. Hunger rates
- * are percentage points per real elapsed second, e.g. 0.1 = 0.001 internally.
+ * are percentage points per real elapsed second; 1/60 equals 1% fullness per minute.
  */
 export function updateEmotions(
   emotions: Partial<WorldState["emotions"]>, seconds:number, _hourUTC:number,
-  sleeping=false, hungerPointsPerSecond=0.1
+  sleeping=false, hungerPointsPerSecond=1/60
 ):WorldState["emotions"] {
   const elapsed=Math.max(0,Math.min(86400,Number.isFinite(seconds)?seconds:0));
   const hunger=clamp((Number.isFinite(emotions.hunger)?emotions.hunger!:0.15)+
@@ -63,6 +63,7 @@ export function updateEmotions(
     energy:clamp(Number.isFinite(emotions.energy)?emotions.energy!:0.8),
     happiness:clamp(Number.isFinite(emotions.happiness)?emotions.happiness!:0.5),
     boredom:clamp(Number.isFinite(emotions.boredom)?emotions.boredom!:0),
+    curiosity:clamp(Number.isFinite(emotions.curiosity)?emotions.curiosity!:0.35),
     hunger,
   };
 }
