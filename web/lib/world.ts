@@ -8,6 +8,7 @@ export type WorldState = {
   tickCount: number;
   lastTick: string | null;
   rewardCursor?: number;
+  curiosityDiscoveryCursor?: number; // Last journal event examined for one-time curiosity satisfaction.
 };
 
 export type WorldEvent = {
@@ -36,6 +37,7 @@ export const INITIAL_STATE: WorldState = {
   tools: [],
   tickCount: 0,
   lastTick: null,
+  curiosityDiscoveryCursor: 0,
 };
 
 export function clamp(n: number): number {
