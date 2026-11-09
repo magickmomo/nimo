@@ -44,7 +44,7 @@ SET hunger_rate=1.0/60.0, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 WHERE id=1;
 
 UPDATE world
-SET state='{"identity":"I am an autonomous character in a persistent digital environment. I do not have a physical body.","beliefs":[],"emotions":{"energy":0.8,"happiness":0.5,"boredom":0,"curiosity":0.35,"hunger":0.15},"currentGoal":null,"currentActivity":"observing","tools":[],"tickCount":0,"lastTick":null,"rewardCursor":0}',
+SET state='{"identity":"I am an autonomous character in a persistent digital environment. I do not have a physical body.","beliefs":[],"emotions":{"energy":0.8,"happiness":0.5,"boredom":0,"curiosity":0.35,"hunger":0.15},"currentGoal":null,"currentActivity":"observing","tools":[],"tickCount":0,"lastTick":null,"rewardCursor":0,"curiosityDiscoveryCursor":0}',
     next_tick=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 WHERE id=1;
 
