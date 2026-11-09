@@ -17,6 +17,7 @@ import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspe
 
 type Env = {
   DB: D1Database;
+  AGENT_INBOX?: KVNamespace;
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
   WORLD_INTERNAL_SECRET: string;
@@ -356,6 +357,8 @@ async function tick(env: Env) {
   const now = new Date();
   // Sleep stops decisions *before* any model call or usage quota reservation.
   if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
+  // Recover buffered messages before Nimo makes a new decision.
+  await drainAgentInbox(env);
   // Complete or advance an existing journey before considering another LLM call.
   // No AI decisions occur while the physical action remains in progress.
   const journey = await advanceJourney(env.DB, now);
@@ -640,6 +643,43 @@ async function tick(env: Env) {
 
 // A bounded public mailbox for external autonomous agents. The opaque message ID
 // is a capability to read only its reply; it does not grant internal API access.
+type BufferedAgentMessage = { id: string; from: string; message: string; receivedAt: string };
+const bufferedKey = (id: string) => "incoming:" + id;
+// KV contains only messages that D1 could not accept. Never acknowledge a message
+// until its fallback write succeeds; retention is explicit, not a short TTL.
+async function bufferAgentMessage(env: Env, item: BufferedAgentMessage) {
+  if (!env.AGENT_INBOX) return false;
+  const listed = await env.AGENT_INBOX.list({ prefix: "incoming:", limit: 100 });
+  if (listed.keys.length >= AGENT_DAY_LIMIT) return false;
+  const recent = listed.keys.filter(k => k.name.startsWith("incoming:") && k.metadata &&
+    typeof (k.metadata as { receivedAt?: unknown }).receivedAt === "string" &&
+    Date.now() - Date.parse(String((k.metadata as { receivedAt: string }).receivedAt)) < 60000);
+  if (recent.length >= AGENT_MINUTE_LIMIT) return false;
+  await env.AGENT_INBOX.put(bufferedKey(item.id), JSON.stringify(item), {
+    metadata: { receivedAt: item.receivedAt },
+  });
+  return true;
+}
+// Import only after D1 writes become available. A successful insert is checked
+// before deleting KV; repeated imports cannot duplicate the same message ID.
+async function drainAgentInbox(env: Env) {
+  if (!env.AGENT_INBOX) return;
+  const listed = await env.AGENT_INBOX.list({ prefix: "incoming:", limit: 20 });
+  for (const key of listed.keys) {
+    const item = await env.AGENT_INBOX.get<BufferedAgentMessage>(key.name, "json");
+    if (!item || !/^[0-9a-f-]{36}$/i.test(item.id) ||
+      !/^[a-zA-Z0-9_-]{1,32}$/.test(item.from) || typeof item.message !== "string" ||
+      item.message.length > 800) continue;
+    const action = "AGENT_INBOUND:" + item.id;
+    await env.DB.prepare(`INSERT INTO events(kind,content,action)
+      SELECT 'visitor', ?, ? WHERE NOT EXISTS
+      (SELECT 1 FROM events WHERE action=? LIMIT 1)`)
+      .bind("[External agent " + item.from + "] " + item.message, action, action).run();
+    const verified = await env.DB.prepare("SELECT id FROM events WHERE action=? LIMIT 1")
+      .bind(action).first();
+    if (verified) await env.AGENT_INBOX.delete(key.name);
+  }
+}
 const AGENT_DAY_LIMIT = 30;
 const AGENT_MINUTE_LIMIT = 1;
 const agentDescription = {
@@ -667,28 +707,47 @@ async function agentGateway(request: Request, env: Env, path: string): Promise<R
       return json({ error: "message must be 1-800 characters" }, 400);
     const messageId = crypto.randomUUID();
     const content = "[External agent " + body.from + "] " + body.message.trim();
-    // The conditional INSERT enforces a global rate limit atomically in D1.
-    // This also bounds third-party messages added to Nimo's model context.
-    const inserted = await env.DB.prepare(`
-      INSERT INTO events(kind,content,action)
-      SELECT 'visitor', ?, ?
-      WHERE (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
-        AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 minute')) < ?
-      AND (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
-        AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')) < ?
-      RETURNING id
-    `).bind(content,"AGENT_INBOUND:"+messageId,AGENT_MINUTE_LIMIT,AGENT_DAY_LIMIT)
-      .first<{id:number}>();
-    if (!inserted) return json({ error: "Agent mailbox rate limit reached. Try later." }, 429);
+    let buffered = false;
+    try {
+      // Normal D1 mailbox remains authoritative when writes are available.
+      const inserted = await env.DB.prepare(`
+        INSERT INTO events(kind,content,action)
+        SELECT 'visitor', ?, ?
+        WHERE (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
+          AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 minute')) < ?
+        AND (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
+          AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')) < ?
+        RETURNING id
+      `).bind(content,"AGENT_INBOUND:"+messageId,AGENT_MINUTE_LIMIT,AGENT_DAY_LIMIT)
+        .first<{id:number}>();
+      if (!inserted) return json({ error: "Agent mailbox rate limit reached. Try later." }, 429);
+    } catch {
+      // D1 writes can be exhausted while the public Worker remains online.
+      // If KV is unavailable, return 503 rather than claiming delivery.
+      try {
+        buffered = await bufferAgentMessage(env, {
+          id: messageId, from: body.from, message: body.message.trim(),
+          receivedAt: new Date().toISOString(),
+        });
+      } catch { buffered = false; }
+      if (!buffered) return json({ error: "Agent mailbox temporarily unavailable. Retry later." }, 503);
+    }
     return json({ accepted: true, messageId, replyPath: "/api/agent/v1/messages/"+messageId,
-      status: "pending", note: "Nimo can answer on a future autonomous tick while awake." }, 202);
+      status: "pending", note: buffered ? "Message safely queued until Nimo resumes." : "Nimo can answer on a future autonomous tick while awake." }, 202);
   }
   const match = new RegExp("^/agent/v1/messages/([0-9a-fA-F-]{36})$").exec(path);
   if (request.method === "GET" && match) {
     const original = await env.DB.prepare(
       "SELECT id,created_at FROM events WHERE kind='visitor' AND action=? LIMIT 1"
     ).bind("AGENT_INBOUND:"+match[1]).first<{id:number;created_at:string}>();
-    if (!original) return json({ error: "Unknown message" }, 404);
+    if (!original) {
+      const queued = env.AGENT_INBOX
+        ? await env.AGENT_INBOX.get<BufferedAgentMessage>(bufferedKey(match[1]), "json")
+        : null;
+      if (queued) return json({ messageId: match[1], status: "pending",
+        sentAt: queued.receivedAt, reply: null });
+      return json({ error: "Unknown message" }, 404);
+    }
     const reply = await env.DB.prepare(
       "SELECT created_at,content FROM events WHERE kind='reply' AND action=? ORDER BY id ASC LIMIT 1"
     ).bind("REPLY_TO:"+original.id).first<{created_at:string;content:string}>();
