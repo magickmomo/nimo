@@ -117,8 +117,7 @@ async function events(db: D1Database, count = 60) {
  * and model context keep the complete records in D1. */
 async function publicEvents(db:D1Database,count=60) {
   const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
-    WHERE kind NOT IN ('visitor','reply','request')
-      AND (action IS NULL OR action <> 'REQUEST')
+    WHERE (kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP'))) AND (action IS NULL OR action <> 'REQUEST')
     ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
   return result.results;
 }
@@ -132,8 +131,7 @@ async function journalPage(db:D1Database,window:string,before:number|null,until:
   const limit=60;
   const since=seconds[window] ? new Date(Date.parse(until)-seconds[window]*1000).toISOString() : null;
   const predicates=[
-    "kind NOT IN ('visitor','reply','request')",
-    "(action IS NULL OR action <> 'REQUEST')",
+    "(kind IN ('thought','tool','belief','identity') OR (kind='system' AND action IN ('WAKE','SLEEP'))) AND (action IS NULL OR action <> 'REQUEST')",
     "created_at <= ?",
   ];
   const bindings:(string|number)[]=[until];
@@ -777,11 +775,21 @@ export default {
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
       }
-      if (path === "/snapshot" && request.method === "GET") {
+      if ((path === "/snapshot" || path === "/snapshot/owner") && request.method === "GET") {
+        const owner = path === "/snapshot/owner";
         const world = await getWorld(env.DB);
-        // Report current capabilities even before a decision or while asleep.
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({ world, events: await publicEvents(env.DB), documents: await documents(env.DB), position: await getPosition(env.DB), journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB), objects: await objectMemory(env.DB), actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS], hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB), autonomousEnabled: await autonomousEnabled(env.DB) });
+        const publicSnapshot = {
+          world, events: await publicEvents(env.DB), position: await getPosition(env.DB),
+          journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB),
+          objects: await objectMemory(env.DB), food: await foodView(env.DB),
+          vending: await vendingSnapshot(env.DB), garden: await gardenSnapshot(env.DB),
+          autonomousEnabled: await autonomousEnabled(env.DB),
+        };
+        if (!owner) return json(publicSnapshot);
+        return json({ ...publicSnapshot, documents: await documents(env.DB),
+          actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS],
+          hungerRate: await hungerRate(env.DB) });
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };
