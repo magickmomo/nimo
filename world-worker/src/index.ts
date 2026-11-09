@@ -390,15 +390,16 @@ async function tick(env: Env) {
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
-  const context = await traced(env.DB,"recall","Read journal, saved observations and documents",
-    async()=>Promise.all([events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
-      environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB)]),
-    ([history,,workspace,,objects])=>`${history.length} events; ${workspace.length} documents; ${objects.filter(o=>o.inspectionCount>0).length} objects with new observations`);
-  const [history,landmarks,workspace,memory,objects,pendingMessage]=context;
+  // Recall and perception are read-side preparation, not meaningful autonomous
+  // actions. Keep them out of D1 action_trace: each start/finish touches indexed
+  // rows and runs for every decision, consuming the daily rows-written quota.
+  const [history,landmarks,workspace,memory,objects,pendingMessage] = await Promise.all([
+    events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
+    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),
+  ]);
   const position = await getPosition(env.DB);
-  const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
-    async()=>{await recordSight(env.DB,position);return modelPerception(position);},
-    result=>`${result.visibleTiles.length} visible tiles, ${result.visibleObjects.length} visible objects`);
+  await recordSight(env.DB,position);
+  const perception = modelPerception(position);
   const rate=await hungerRate(env.DB);
   await refreshFood(env.DB,now.getTime());
   const food=await foodView(env.DB);
@@ -599,9 +600,9 @@ async function tick(env: Env) {
     await recordReward(env.DB,decisionKey,d.action.toLowerCase(),
       d.action==="REPLY"&&pendingMessage?REWARD_POINTS.visitorReply:REWARD_POINTS.passive,
       d.action==="REPLY"&&pendingMessage?"Verified response to visitor":`${d.action}: no independently verified external outcome`);
-    const kind = d.action === "REPLY" ? "reply" : d.action.toLowerCase() as "observe"|"think"|"remember"|"request";
-    await traced(env.DB,kind,`Nimo selected ${d.action}`,
-      async()=>d.monologue, text=>text.slice(0,220));
+    // A passive decision is already recorded below in the journal, so don't
+    // write an additional start+finish pair to action_trace for the same text.
+    // Tool actions and the live model-decision trace remain visible.
   }
   const beliefs = [...state.beliefs];
   const b = d.belief;
