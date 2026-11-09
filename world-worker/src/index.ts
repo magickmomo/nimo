@@ -414,9 +414,13 @@ async function tick(env: Env) {
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId,
     curiosityDiscoveryCursor: curiosity.discoveryCursor, tools: [...AVAILABLE_TOOLS] };
-  // Persist curiosity satisfaction and its cursor before calling the model.
-  // If the model fails, the same discovery must NOT be rewarded again.
-  await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(state)).run();
+  // Persist only curiosity and the processed discovery ID before the model call.
+  // Never persist computed hunger here: lastTick still refers to the previous
+  // completed decision, so retries must calculate elapsed hunger just once.
+  // This also avoids overwriting other state fields with a stale snapshot.
+  await env.DB.prepare(
+    "UPDATE world SET state=json_set(state,'$.emotions.curiosity',?,'$.curiosityDiscoveryCursor',?) WHERE id=1"
+  ).bind(curiosity.value,curiosity.discoveryCursor).run();
   const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
   const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
