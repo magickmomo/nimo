@@ -638,6 +638,68 @@ async function tick(env: Env) {
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
 
+
+// A bounded public mailbox for external autonomous agents. The opaque message ID
+// is a capability to read only its reply; it does not grant internal API access.
+const AGENT_DAY_LIMIT = 30;
+const AGENT_MINUTE_LIMIT = 1;
+const agentDescription = {
+  name: "Nimo",
+  kind: "autonomous digital character",
+  description: "Nimo lives in a persistent simulated world and can choose whether and how to respond.",
+  protocol: "nimo-agent-mailbox-v1",
+  instructions: "Send a short text message, save the returned messageId, and check its reply URL later. Replies are asynchronous and not guaranteed; Nimo may be sleeping.",
+  endpoints: { send: "/api/agent/v1/messages", reply: "/api/agent/v1/messages/{messageId}" },
+};
+async function agentGateway(request: Request, env: Env, path: string): Promise<Response> {
+  if (request.method === "GET" && path === "/agent/v1")
+    return json(agentDescription);
+  if (request.method === "POST" && path === "/agent/v1/messages") {
+    if (Number(request.headers.get("content-length") ?? "0") > 3000)
+      return json({ error: "Message too large" }, 413);
+    let input: unknown;
+    try { input = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      return json({ error: "Expected an object" }, 400);
+    const body = input as { from?: unknown; message?: unknown };
+    if (typeof body.from !== "string" || !/^[a-zA-Z0-9_-]{1,32}$/.test(body.from))
+      return json({ error: "from must be 1-32 letters, digits, _ or -" }, 400);
+    if (typeof body.message !== "string" || body.message.trim().length < 1 || body.message.length > 800)
+      return json({ error: "message must be 1-800 characters" }, 400);
+    const messageId = crypto.randomUUID();
+    const content = "[External agent " + body.from + "] " + body.message.trim();
+    // The conditional INSERT enforces a global rate limit atomically in D1.
+    // This also bounds third-party messages added to Nimo's model context.
+    const inserted = await env.DB.prepare(`
+      INSERT INTO events(kind,content,action)
+      SELECT 'visitor', ?, ?
+      WHERE (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
+        AND created_at >= datetime('now','-1 minute')) < ?
+      AND (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
+        AND created_at >= datetime('now','-1 day')) < ?
+      RETURNING id
+    `).bind(content,"AGENT_INBOUND:"+messageId,AGENT_MINUTE_LIMIT,AGENT_DAY_LIMIT)
+      .first<{id:number}>();
+    if (!inserted) return json({ error: "Agent mailbox rate limit reached. Try later." }, 429);
+    const base = new URL(request.url).origin;
+    return json({ accepted: true, messageId, replyPath: "/api/agent/v1/messages/"+messageId,
+      status: "pending", note: "Nimo can answer on a future autonomous tick while awake." }, 202);
+  }
+  const match = /^\\/agent\\/v1\\/messages\\/([0-9a-fA-F-]{36})$/.exec(path);
+  if (request.method === "GET" && match) {
+    const original = await env.DB.prepare(
+      "SELECT id,created_at FROM events WHERE kind='visitor' AND action=? LIMIT 1"
+    ).bind("AGENT_INBOUND:"+match[1]).first<{id:number;created_at:string}>();
+    if (!original) return json({ error: "Unknown message" }, 404);
+    const reply = await env.DB.prepare(
+      "SELECT created_at,content FROM events WHERE kind='reply' AND action=? ORDER BY id ASC LIMIT 1"
+    ).bind("REPLY_TO:"+original.id).first<{created_at:string;content:string}>();
+    return json({ messageId:match[1], status:reply?"replied":"pending",
+      sentAt:original.created_at, reply:reply?{ from:"Nimo",message:reply.content,at:reply.created_at }:null });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     // Cloudflare cron is minute-granular. Within each invocation poll active
@@ -663,6 +725,11 @@ export default {
     })());
   },
   async fetch(request: Request, env: Env): Promise<Response> {
+    const publicPath = new URL(request.url).pathname;
+    if (publicPath === "/agent/v1" || publicPath.startsWith("/agent/v1/")) {
+      try { return await agentGateway(request, env, publicPath); }
+      catch (error) { return json({ error: "Agent mailbox unavailable" }, 503); }
+    }
     if (!env.WORLD_INTERNAL_SECRET ||
         request.headers.get("Authorization") !== `Bearer ${env.WORLD_INTERNAL_SECRET}`) {
       return json({ error: "Unauthorized" }, 401);
