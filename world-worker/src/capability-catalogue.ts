@@ -16,7 +16,7 @@ export function buildCapabilityCatalogue(
   menu: ActionMenu,
   garden: GardenState,
   food: {inventory:{fruit:string}[]; capacity:number; trees:{id:string;last_seen_stock:number|null}[]},
-  vending: {inspected:boolean;coins:number;items:{id:string;price:number}[]},
+  vending: {inspected:boolean;coins:number;items:readonly {readonly id:string;readonly price:number}[]},
   knownObjectIds: readonly string[],
 ): Capability[] {
   const known = new Set(knownObjectIds);
