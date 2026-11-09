@@ -674,14 +674,13 @@ async function agentGateway(request: Request, env: Env, path: string): Promise<R
       INSERT INTO events(kind,content,action)
       SELECT 'visitor', ?, ?
       WHERE (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
-        AND created_at >= datetime('now','-1 minute')) < ?
+        AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 minute')) < ?
       AND (SELECT count(*) FROM events WHERE action LIKE 'AGENT_INBOUND:%'
-        AND created_at >= datetime('now','-1 day')) < ?
+        AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day')) < ?
       RETURNING id
     `).bind(content,"AGENT_INBOUND:"+messageId,AGENT_MINUTE_LIMIT,AGENT_DAY_LIMIT)
       .first<{id:number}>();
     if (!inserted) return json({ error: "Agent mailbox rate limit reached. Try later." }, 429);
-    const base = new URL(request.url).origin;
     return json({ accepted: true, messageId, replyPath: "/api/agent/v1/messages/"+messageId,
       status: "pending", note: "Nimo can answer on a future autonomous tick while awake." }, 202);
   }
