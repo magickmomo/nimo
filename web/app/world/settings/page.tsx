@@ -45,6 +45,19 @@ export default function WorldSettings() {
   }
 
 
+  async function signOut() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/world/session", { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not sign out");
+      setSignedIn(false);
+      setOwnerToken("");
+      setNotice("Signed out on this device.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not sign out");
+    } finally { setBusy(false); }
+  }
+
   async function setAwake(enabled: boolean) {
     if (!ownerToken || busy) return;
     setBusy(true);
@@ -85,6 +98,7 @@ export default function WorldSettings() {
           placeholder="Same token used to message Nimo" />
 
         <button type="button" disabled={!ownerToken||busy} onClick={()=>void signIn()}>Sign in on this device</button>
+        {signedIn && <button type="button" disabled={busy} onClick={()=>void signOut()}>Sign out on this device</button>}
         <p className="meta">The same token also controls Sleep / Wake below. A signed HttpOnly cookie keeps it out of the chat form.</p>
       </div>
       <div className="world-card">
