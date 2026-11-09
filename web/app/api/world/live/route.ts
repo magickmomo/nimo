@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { hasOwnerSession } from "../../../../lib/world-owner-session";
 
 export const dynamic = "force-dynamic";
 
 /** Small status snapshot only; no journal, documents or observation history. */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const url=process.env.WORLD_WORKER_URL;
   const secret=process.env.WORLD_INTERNAL_SECRET;
   if(!url||!secret)
@@ -15,7 +16,11 @@ export async function GET() {
       signal:AbortSignal.timeout(10000),
     });
     const body=await res.json();
-    return NextResponse.json(body,{status:res.status,headers:{"Cache-Control":"no-store"}});
+    if (res.ok && !(await hasOwnerSession(req)) && body && typeof body === "object") {
+      delete body.hungerRate;
+      if (body.world?.state) delete body.world.state.tools;
+    }
+    return NextResponse.json(body,{status:res.status,headers:{"Cache-Control":"private, no-store"}});
   } catch {
     return NextResponse.json({error:"Unable to reach World Worker"},{status:502});
   }
