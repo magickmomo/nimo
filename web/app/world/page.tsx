@@ -45,6 +45,8 @@ export default function World() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [initialLoading,setInitialLoading]=useState(true);
   const [messagesOpen,setMessagesOpen]=useState(false);
+  // Stable across the once-per-second clock renders: the dialog must not refocus.
+  const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
   const [error, setError] = useState("");
   const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
@@ -245,7 +247,7 @@ export default function World() {
         <a className="world-settings-link" href="/world/settings">Settings — Sleep / Wake</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
-      {messagesOpen && <WorldMessagesPanel onClose={()=>setMessagesOpen(false)}/>}
+      {messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
