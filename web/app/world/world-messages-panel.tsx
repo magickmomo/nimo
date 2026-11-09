@@ -29,7 +29,17 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
   useEffect(()=>{
     const previouslyFocused=document.activeElement instanceof HTMLElement?document.activeElement:null;
     dialogRef.current?.focus();
-    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")onClose();};
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"){onClose();return;}
+      if(event.key!=="Tab")return;
+      const elements=dialogRef.current?.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      );
+      if(!elements?.length){event.preventDefault();dialogRef.current?.focus();return;}
+      const first=elements[0],last=elements[elements.length-1];
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    };
     document.addEventListener("keydown",onKeyDown);
     const oldOverflow=document.body.style.overflow;
     document.body.style.overflow="hidden";
