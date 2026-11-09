@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
+import WorldMessagesPanel from "./world-messages-panel";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type ObjectRecord = {
@@ -42,6 +43,10 @@ type Snapshot = {
 
 export default function World() {
   const [data, setData] = useState<Snapshot | null>(null);
+  const [initialLoading,setInitialLoading]=useState(true);
+  const [messagesOpen,setMessagesOpen]=useState(false);
+  // Stable across the once-per-second clock renders: the dialog must not refocus.
+  const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
   const [error, setError] = useState("");
   const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
@@ -70,6 +75,8 @@ export default function World() {
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to connect");
+    }finally{
+      setInitialLoading(false);
     }
   }, []);
 
@@ -90,7 +97,7 @@ export default function World() {
   }, []);
 
   useEffect(() => {
-    if (document.visibilityState === "visible") void refresh();
+    void refresh();
     const refreshOnVisible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -217,6 +224,10 @@ export default function World() {
   }
 
   const state = data?.world.state;
+  const fruitItems=data?.food?.inventory??[];
+  const supplyItems=data?.garden?.inventory??[];
+  const totalInventory=fruitItems.length+supplyItems.length;
+  const inventoryCapacity=data?.garden?.capacity??data?.food?.capacity??9;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
   const recentActions = data?.actionTrace ?? [];
@@ -232,11 +243,16 @@ export default function World() {
   return (
     <div className="world-page world-dashboard">
       <div className="world-topbar">
-        <a className="world-messages-link" href="/world/messages">Messages</a>
+        <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>
         <a className="world-settings-link" href="/world/settings">Settings — Sleep / Wake</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
-      <div className="world-layout">
+      {messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
+      {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
+        <span className="world-loading-spinner" aria-hidden="true"/>
+        <strong>Loading Nimo’s current world…</strong>
+        <p className="meta">Fetching his latest position and state.</p>
+      </section> : !data ? <section className="world-card" role="status">Unable to load Nimo’s world. <button type="button" onClick={()=>{setInitialLoading(true);void refresh();}}>Retry</button></section> : <div className="world-layout">
         <div className="world-main">
       {state && (
         <>
@@ -271,13 +287,13 @@ export default function World() {
       )}
       <section className="world-card world-food-controls" aria-label="Survival and inventory">
         <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Fullness and curiosity are active</span></div>
-        <div className="world-inventory"><strong>Inventory ({data?.food?.inventory.length??0}/{data?.food?.capacity??9})</strong>
+        <div className="world-inventory"><strong>Inventory ({totalInventory}/{inventoryCapacity})</strong>
           <div className="world-fruits">
-            {data?.food?.inventory.length?data.food.inventory.map(item=><span className={"world-fruit "+item.fruit} key={item.id}>{item.fruit}</span>):
-              <span className="meta">Nothing collected yet</span>}
+            {fruitItems.map(item=><span className={"world-fruit "+item.fruit} key={"fruit-"+item.id}>{item.fruit} fruit</span>)}
+            {supplyItems.map(item=><span className="world-fruit" key={"supply-"+item.id}>{item.kind==="watering_can"?`Watering can (${item.water_units}/3 water)`:item.kind==="seed_packet"?"Seed packet":item.kind==="crop"?"Harvested crop":item.kind}</span>)}
+            {!totalInventory&&<span className="meta">Nothing collected yet</span>}
           </div>
         </div>
-        <p className="meta">Fruit effects must be learned by eating. Trees regenerate gradually, and Nimo can carry nine fruit.</p>
         {!!data?.food?.knowledge.length&&<div className="world-food-knowledge">
           <strong>Learned food effects</strong>
           <ul>{data.food.knowledge.map(entry=><li key={entry.fruit}>
@@ -289,7 +305,6 @@ export default function World() {
       </section>
       {data?.garden&&<section className="world-card" aria-label="Garden and economy">
         <div className="world-journal-head"><h2>Allotment and store</h2><span className="meta">{data.garden.coins} coins · {data.garden.inventoryUsed}/{data.garden.capacity} inventory slots</span></div>
-        <p className="meta">Carried supplies: {data.garden.inventory.length?data.garden.inventory.map(i=>i.kind==="watering_can"?"watering can ("+i.water_units+" water)":i.kind).join(", "):"None yet"}</p>
         <p className="meta">Garden: {data.garden.plots.map(p=>p.id.replace("plot_","Plot ")+" "+p.stage).join(" · ")}</p>
       </section>}
       <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
@@ -430,7 +445,7 @@ export default function World() {
         {journalHasMore&&<button type="button" className="world-journal-more" disabled={journalLoading}
           onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
-      </div>
+      </div>}
     </div>
   );
 }
