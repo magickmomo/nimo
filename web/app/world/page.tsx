@@ -5,6 +5,7 @@ import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
 import WorldMessagesPanel from "./world-messages-panel";
+import WorldRequestAlert from "./world-request-alert";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type ObjectRecord = {
@@ -244,6 +245,7 @@ export default function World() {
     <div className="world-page world-dashboard">
       <div className="world-topbar">
         <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>
+        <WorldRequestAlert onOpen={()=>setMessagesOpen(true)}/>
         <a className="world-settings-link" href="/world/settings">Settings — Sleep / Wake</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}

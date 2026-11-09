@@ -199,6 +199,21 @@ async function pendingVisitorMessage(db: D1Database): Promise<PendingVisitorMess
     ORDER BY v.id ASC LIMIT 1`).first<PendingVisitorMessage>();
 }
 
+// Conversation suggestions are soft context for a short window AFTER the reply.
+// They do not block actions, modify needs, or override Nimo's own priorities.
+async function recentVisitorSuggestion(db:D1Database):Promise<{message:string;reply:string;subsequentActions:number}|null>{
+  const row=await db.prepare(`
+    SELECT v.content AS message,r.content AS reply,
+      (SELECT COUNT(*) FROM events e WHERE e.id>r.id
+       AND (e.kind='thought' AND e.action IN ('ACT','THINK','OBSERVE','REMEMBER')
+         OR e.kind='request' AND e.action='REQUEST')) AS subsequentActions
+    FROM events v
+    JOIN events r ON r.action='REPLY_TO:' || CAST(v.id AS TEXT)
+    WHERE v.kind='visitor'
+    ORDER BY v.id DESC LIMIT 1
+  `).first<{message:string;reply:string;subsequentActions:number}>();
+  return row && row.subsequentActions<8 ? row : null;
+}
 async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
   // Rare high-signal experiences remain available even after leaving the
   // rolling recent-history window. Avoid movement/inspection spam.
@@ -220,7 +235,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
     .bind(kind, content.slice(0, 3000), action).run();
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string, visitorSuggestion:{message:string;reply:string;subsequentActions:number}|null): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -247,6 +262,7 @@ A deterministic controller determines which tools and targets exist for this dec
 Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Keeping fullness comfortably closer to 100% than 0% supports wellbeing. At low fullness seek useful food, but do not eat wastefully when already full, and remain free to pursue other interests. Use needsPercent.fullness as the readable source of truth. The fullnessDecayPointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Energy, happiness and boredom are currently paused. Curiosity is active as a soft motivation while you are comfortably fed.
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
 Your environment may contain objects with unfamiliar properties and possible interactions. Learn about them from what you can actually perceive, examine, try and remember. Only the current action menu determines which interactions are possible now; a tool becoming available does not prove an unseen place or item exists. Do not assume what unseen objects are, where they are or how they work. When fullness is above 60%, curiosity can outweigh routine food gathering. Prefer following meaningful questions, unfinished intentions and actual discoveries over staying with a familiar routine; food remains an option when needed. Curiosity does not require constant movement or novelty. Ground claims about objects, items, money, possessions and capabilities in perception and verified outcomes.
+Messages from your creator may contain ideas, questions or suggestions. You are free to accept, adapt, decline, or defer them. After replying, consider a recent suggestion as one possible direction for your next actions rather than returning automatically to your old activity. If it seems interesting or useful, choose a concrete first step using available tools; if not, continue independently. A suggestion is NOT a command, an urgent priority, or a requirement for an action, and never overrides your basic needs or the action menu.
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 When something does not make sense, a goal becomes blocked, or repeated checks produce no new information, consider what you have already observed and whether another available action, location, or approach could help. An action missing from the menu at your present location does not prove the capability is missing everywhere; consult your actual past successes and move somewhere appropriate if useful.
 If reasonable investigation has not resolved a meaningful limitation, you MAY choose REQUEST to ask your creator for clarification, help with an environmental problem, or a genuinely missing capability. Explain the specific obstacle and what you tried, without claiming that a capability is absent unless supported by evidence. You may also continue independently, set the question aside, or change goals. Do not request help automatically or repeatedly, and do not treat the creator's suggestions as orders.
@@ -275,6 +291,12 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
       id: e.id, when: e.created_at, kind: e.kind, action: e.action,
       content: e.content.slice(0, 400),
     }));
+  const suggestionContext = !pendingMessage && visitorSuggestion
+    ? {message:visitorSuggestion.message.slice(0,1000),
+       yourReply:visitorSuggestion.reply.slice(0,600),
+       decisionsSinceReply:visitorSuggestion.subsequentActions,
+       note:"This is an optional recent idea, not an instruction. Consider whether it is worth trying, adapting or declining; do not automatically return to an old goal or act without evidence."}
+    : null;
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
@@ -293,7 +315,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
             ({...displayPoint({x,y}),kind,description,inspections:inspection_count})),
         }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
           .map(({observations,...item})=>({ ...item,
-          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food:modelFood, garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1) || memory.seen.some(t=>t.x===p.x&&t.y===p.y)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null}, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), fullnessDecayPointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode,curiosityGuidance:curiosityPrompt }) },
+          recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food:modelFood, garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1) || memory.seen.some(t=>t.x===p.x&&t.y===p.y)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null}, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), fullnessDecayPointsPerSecond:rate, availableActions: offeredActions, priorityMode:priority.mode,curiosityGuidance:curiosityPrompt, ...(suggestionContext ? {recentCreatorSuggestion:suggestionContext} : {}) }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
@@ -392,9 +414,9 @@ async function tick(env: Env) {
   const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
   const context = await traced(env.DB,"recall","Read journal, saved observations and documents",
     async()=>Promise.all([events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
-      environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB)]),
+      environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),recentVisitorSuggestion(env.DB)]),
     ([history,,workspace,,objects])=>`${history.length} events; ${workspace.length} documents; ${objects.filter(o=>o.inspectionCount>0).length} objects with new observations`);
-  const [history,landmarks,workspace,memory,objects,pendingMessage]=context;
+  const [history,landmarks,workspace,memory,objects,pendingMessage,visitorSuggestion]=context;
   const position = await getPosition(env.DB);
   const perception = await traced(env.DB,"perceive","Read position and 9x9 visible terrain",
     async()=>{await recordSight(env.DB,position);return modelPerception(position);},
@@ -459,7 +481,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,visitorSuggestion);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {

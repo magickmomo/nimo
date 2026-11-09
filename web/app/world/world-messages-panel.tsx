@@ -84,7 +84,7 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
         <button type="button" onClick={onClose} aria-label="Close messages">Close</button>
       </div>
     </div>
-    <p className="meta">Your conversation with Nimo and his capability requests. Replies arrive during his autonomous decisions.</p>
+    <p className="meta">Your conversation and Nimo's requests. You can suggest something for him to try; he may choose to follow it, adapt it or do something else. Replies arrive during his autonomous decisions.</p>
     {error&&<p className="world-warning" role="alert">{error}</p>}
     {authenticated===false ? <p className="meta">
       Messages are private. <a href="/world/settings">Sign in under Settings</a> to view and send them.
