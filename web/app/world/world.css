@@ -226,3 +226,17 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-loading-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.world-loading-spinner{animation:none}}
 @media(max-width:600px){.world-message-backdrop{padding:8px}.world-messages-panel{max-height:96dvh;padding:15px}}
+
+
+/* Camera-following world viewport and lightweight SVG texture polish. */
+.nimo-map-viewport{position:relative;overflow:hidden;isolation:isolate}
+.nimo-map-canvas{width:100%;height:auto;aspect-ratio:968 / 632;max-height:580px;overflow:hidden}
+.nimo-map-controls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 20px);padding:8px 10px;z-index:2;background:rgba(16,39,33,.88);border:1px solid #4c7162;border-radius:12px;backdrop-filter:blur(8px);box-shadow:0 7px 22px rgba(0,0,0,.18)}
+.nimo-map-controls button{min-width:34px;padding:6px 10px}
+.nimo-map-controls button[aria-pressed=true]{background:#426e55;border-color:#a0c39e}
+.nimo-map-controls button:disabled{opacity:.35;cursor:not-allowed}
+.nimo-map-controls span{font-variant-numeric:tabular-nums;min-width:42px;text-align:center;color:#e5eddf}
+.nimo-water-ripple{transform-box:fill-box;transform-origin:center;animation:nimo-ripple 3s ease-in-out infinite}
+@keyframes nimo-ripple{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:.75;transform:scale(1.1)}}
+@media(max-width:600px){.nimo-map-canvas{aspect-ratio:1 / 1;min-height:290px}.nimo-map-controls{bottom:8px;gap:4px;padding:6px}.nimo-map-controls button{font-size:11px;min-height:32px;padding:5px 7px}}
+@media(prefers-reduced-motion:reduce){.nimo-water-ripple{animation:none}}
