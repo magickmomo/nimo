@@ -7,12 +7,14 @@ const STORAGE_KEY="nimo-world-last-seen-request-v1";
 
 export default function WorldRequestAlert({onOpen}:{onOpen:()=>void}){
   const [requests,setRequests]=useState<RequestMessage[]>([]);
+  const [authorized,setAuthorized]=useState(false);
   const [lastSeen,setLastSeen]=useState<number|null>(null);
 
   const load=useCallback(async()=>{
     try{
       const response=await fetch("/api/world/messages",{cache:"no-store"});
-      if(!response.ok){setRequests([]);return;} // Owner session required; never show private requests to visitors.
+      if(!response.ok){setAuthorized(false);setRequests([]);return;} // Owner session required; never show private requests to visitors.
+      setAuthorized(true);
       const body=await response.json() as {messages?:RequestMessage[]};
       setRequests((body.messages??[]).filter(item=>item.action==="REQUEST"||item.kind==="request"));
     }catch{
@@ -44,6 +46,7 @@ export default function WorldRequestAlert({onOpen}:{onOpen:()=>void}){
     onOpen();
   }
 
+  if(!authorized)return null;
   return <>
     <button type="button" className="world-request-button"
       onClick={openRequests} aria-label={unread.length?`Nimo has ${unread.length} new request${unread.length===1?"":"s"}. Open messages`:"View Nimo's requests"}>
