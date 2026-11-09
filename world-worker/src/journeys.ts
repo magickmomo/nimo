@@ -3,7 +3,7 @@ import { shortestPath, visibleTiles, displayPoint, WORLD_SIZE, type Point } from
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 import { sightInsertSql } from "./sight-sql";
 
-export const WALK_STEP_MS = 3000;
+export const WALK_STEP_MS = 1500;
 export type JourneyStatus = "idle" | "travelling" | "paused";
 export type JourneyRow = {
   id: number;
