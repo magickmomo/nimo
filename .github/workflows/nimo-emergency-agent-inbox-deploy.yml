@@ -1,0 +1,109 @@
+name: Deploy Nimo emergency agent inbox (KV)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY to create/reuse KV and deploy the Worker with Cron disabled'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-world-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm == 'DEPLOY' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check required Cloudflare configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN D1_DATABASE_ID; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error::Missing required secret or variable: $key"
+              exit 1
+            fi
+          done
+          [[ "$D1_DATABASE_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::Invalid D1 database ID"; exit 1; }
+      - name: Install and test World Worker
+        run: |
+          npm install --prefix world-worker --no-audit --no-fund
+          npm run typecheck --prefix world-worker
+          npm test --prefix world-worker
+      - name: Create or reuse Cloudflare KV inbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          # API token needs Workers KV Storage:Edit in addition to Workers Scripts:Edit.
+          if ! curl -fsS -H "$auth" "$base?per_page=100" > "$RUNNER_TEMP/kv-list.json"; then
+            echo "::error::Could not list KV namespaces. Check Cloudflare token Workers KV Storage permissions."
+            exit 1
+          fi
+          existing=$(jq -r '.result[]? | select(.title == "nimo-agent-inbox") | .id' "$RUNNER_TEMP/kv-list.json" | head -n 1)
+          if [[ -n "$existing" ]]; then
+            id="$existing"
+            echo "Using existing nimo-agent-inbox namespace"
+          else
+            if ! curl -fsS -X POST -H "$auth" -H 'Content-Type: application/json' \
+              --data '{"title":"nimo-agent-inbox"}' "$base" > "$RUNNER_TEMP/kv-created.json"; then
+              echo "::error::Could not create KV namespace. Check Cloudflare token permissions."
+              exit 1
+            fi
+            id=$(jq -r '.result.id // empty' "$RUNNER_TEMP/kv-created.json")
+            echo "Created nimo-agent-inbox namespace"
+          fi
+          [[ "$id" =~ ^[0-9a-fA-F]{32}$ ]] || { echo "::error::Cloudflare returned an invalid KV namespace ID"; exit 1; }
+          echo "KV_NAMESPACE_ID=$id" >> "$GITHUB_ENV"
+      - name: Generate safe production Wrangler configuration
+        shell: bash
+        working-directory: world-worker
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          template = Path('wrangler.toml.example').read_text()
+          marker = 'REPLACE_WITH_YOUR_D1_DATABASE_ID'
+          assert template.count(marker) == 1
+          config = template.replace(marker, os.environ['D1_DATABASE_ID'])
+          # Template currently enables the minute-by-minute schedule.
+          config, count = re.subn(r'^crons\s*=\s*\[[^\n]*\]\s*$', 'crons = []', config, flags=re.MULTILINE)
+          assert count == 1, 'Expected exactly one Cron configuration'
+          assert '[[kv_namespaces]]' not in config, 'Review duplicate KV binding before deploying'
+          config += '\n[[kv_namespaces]]\nbinding = "AGENT_INBOX"\nid = "' + os.environ['KV_NAMESPACE_ID'] + '"\n'
+          Path('wrangler.toml').write_text(config)
+          assert 'crons = []' in config
+          print('Configuration generated with KV binding and NO Cron Trigger')
+          PY
+      - name: Deploy only the emergency Worker (no D1 migrations)
+        working-directory: world-worker
+        run: npx wrangler deploy
+      - name: Verify public agent API is responding
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 'https://nimo-world.moamrr.workers.dev/agent/v1' \
+            | jq -e '.protocol == "nimo-agent-mailbox-v1"' > /dev/null
+          echo "Public Nimo mailbox discovery endpoint is responding."
+          echo "Cron is disabled in the deployed configuration. Nimo remains paused."
