@@ -445,7 +445,13 @@ async function tick(env: Env) {
     for(const kind of ["amber","blue","red"] as const)if(food.inventory.some(i=>i.fruit===kind))saleItems.push(kind);
     if(saleItems.length)gardenTools.push("sell_item");
   }
-  // Explain a *local* unmet sale prerequisite without exposing sale as a usable tool.\n  // The store must be adjacent and Nimo must already know it buys produce.\n  const storeFeedback=nearObject(position,"store_001") &&\n    objects.some(item=>item.id==="store_001" && item.inspectionCount>0) && saleItems.length===0\n    ? "The general store buys fruit and harvested crops, but you are carrying no sellable items. No sale can be made here right now."\n    : null;\n  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
+  // Explain a *local* unmet sale prerequisite without exposing sale as a usable tool. 
+  // The store must be adjacent and Nimo must already know it buys produce.
+  const storeFeedback=nearObject(position,"store_001") &&
+    objects.some(item=>item.id==="store_001" && item.inspectionCount>0) && saleItems.length===0
+    ? "The general store buys fruit and harvested crops, but you are carrying no sellable items. No sale can be made here right now."
+    : null;
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems});
   // Perception remains factual; execution opportunities are a separate constrained menu.
