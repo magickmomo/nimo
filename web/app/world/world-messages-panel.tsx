@@ -1,10 +1,11 @@
 "use client";
 
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 
 type Message={id:number;created_at:string;kind:string;content:string;action:string|null};
 
-export default function WorldMessagesPanel(){
+export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
+  const dialogRef=useRef<HTMLDivElement>(null);
   const [messages,setMessages]=useState<Message[]>([]);
   const [authenticated,setAuthenticated]=useState<boolean|null>(null);
   const [draft,setDraft]=useState("");
@@ -24,6 +25,20 @@ export default function WorldMessagesPanel(){
       setAuthenticated(true);setError("");
     }catch(err){setError(err instanceof Error?err.message:"Conversation unavailable");}
   },[]);
+
+  useEffect(()=>{
+    const previouslyFocused=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    dialogRef.current?.focus();
+    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")onClose();};
+    document.addEventListener("keydown",onKeyDown);
+    const oldOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{
+      document.removeEventListener("keydown",onKeyDown);
+      document.body.style.overflow=oldOverflow;
+      previouslyFocused?.focus();
+    };
+  },[onClose]);
 
   useEffect(()=>{
     void load();
@@ -50,10 +65,14 @@ export default function WorldMessagesPanel(){
     finally{setSending(false);}
   }
 
-  return <section id="messages" className="world-card world-messages-panel" aria-label="Messages with Nimo">
+  return <div className="world-message-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
+    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="world-message-title" className="world-card world-messages-panel">
     <div className="world-journal-head">
-      <h2>Messages</h2>
-      <button type="button" onClick={()=>void load()} disabled={sending}>Refresh</button>
+      <h2 id="world-message-title">Messages</h2>
+      <div className="world-message-header-actions">
+        <button type="button" onClick={()=>void load()} disabled={sending}>Refresh</button>
+        <button type="button" onClick={onClose} aria-label="Close messages">Close</button>
+      </div>
     </div>
     <p className="meta">Your conversation with Nimo and his capability requests. Replies arrive during his autonomous decisions.</p>
     {error&&<p className="world-warning" role="alert">{error}</p>}
@@ -85,5 +104,6 @@ export default function WorldMessagesPanel(){
         </div>
       </form>
     </>}
-  </section>;
+    </section>
+  </div>;
 }
