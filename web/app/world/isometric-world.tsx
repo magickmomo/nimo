@@ -7,20 +7,31 @@ const HW = 29;
 const HH = 16;
 const ORIGIN_X = SIZE * HW + 20;
 const ORIGIN_Y = 80;
+const BASE_WIDTH = SIZE * HW * 2 + 40;
+const BASE_HEIGHT = SIZE * HH * 2 + 120;
+// Stable, coordinate-derived texture variation. No changing textures on refresh.
+const noise = (x: number, y: number, seed = 0) => {
+  const n = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453;
+  return n - Math.floor(n);
+};
 const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
 
 function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
   if (kind === "tree") return (
     <g>
-      <ellipse cx="0" cy="3" rx="17" ry="7" fill="#234631" opacity=".25" />
+      <ellipse cx="2" cy="4" rx="21" ry="9" fill="#142d22" opacity=".3" />
       <path d="M-5 -2 L-4 -31 L5 -31 L5 -2 Z" fill="#75553c" stroke="#523d30" strokeWidth="2" />
       <path d="M0 -65 C-16 -64 -24 -50 -20 -38 C-30 -28 -15 -16 0 -20 C16 -14 30 -28 22 -40 C27 -54 14 -67 0 -65Z" fill="#346f4c" stroke="#244f39" strokeWidth="3" />
       <path d="M-15 -44 C-14 -58 -3 -61 7 -58" fill="none" stroke="#65a476" strokeWidth="5" strokeLinecap="round" opacity=".8" />
+      <path d="M-17 -38 Q-20 -28 -9 -24 M9 -59 Q20 -53 19 -43" fill="none" stroke="#24563e" strokeWidth="4" opacity=".6"/>
+      <ellipse cx="11" cy="-31" rx="9" ry="5" fill="#47865c" opacity=".42"/>
+      <circle cx="-9" cy="-50" r="3" fill="#82b78a" opacity=".42"/>
     </g>
   );
   if (kind === "plot") return <g><ellipse cy="0" rx="25" ry="11" fill="#61422d" stroke="#a57847" strokeWidth="2"/><path d="M-18 0 L-8 -5 M-4 5 L6 -2 M10 5 L19 -3" stroke="#a98458" strokeWidth="2" opacity=".8"/>{stage&&stage!=="empty"&&<g><path d="M0 -4 Q-7 -18 -13 -14 Q-13 -7 0 -4 M0 -4 Q4 -22 13 -18 Q14 -10 0 -4" fill={stage==="ready"?"#70b652":"#8ab477"} stroke="#426d3d" strokeWidth="1.5"/><path d="M0 -4 V-17" stroke="#47633c" strokeWidth="2"/>{stage==="ready"&&<ellipse cy="-2" rx="7" ry="5" fill="#deb997"/>}</g>}</g>;
-  if (kind === "well") return <g><ellipse cy="3" rx="23" ry="11" fill="#344c52" opacity=".3"/><path d="M-17 -15 L-17 0 Q0 15 17 0 L17 -15" fill="#8c938d" stroke="#4d615c" strokeWidth="2"/><ellipse cy="-15" rx="17" ry="8" fill="#70b7bc" stroke="#bfc7b6" strokeWidth="5"/><path d="M-16 -20 V-43 M16 -20 V-43 M-20 -43 H20" stroke="#685540" strokeWidth="5"/></g>;
+  if (kind === "well") return <g><ellipse cy="3" rx="23" ry="11" fill="#344c52" opacity=".3"/><path d="M-17 -15 L-17 0 Q0 15 17 0 L17 -15" fill="#8c938d" stroke="#4d615c" strokeWidth="2"/><ellipse cy="-15" rx="17" ry="8" fill="#70b7bc" stroke="#bfc7b6" strokeWidth="5"/>
+      <ellipse className="nimo-water-ripple" cy="-15" rx="9" ry="3" fill="none" stroke="#d1ede3" strokeWidth="1.4" opacity=".6"/><path d="M-16 -20 V-43 M16 -20 V-43 M-20 -43 H20" stroke="#685540" strokeWidth="5"/></g>;
   if (kind === "store") return <g><ellipse cy="2" rx="26" ry="10" fill="#152c24" opacity=".3"/><rect x="-22" y="-38" width="44" height="38" fill="#d7b78c" stroke="#7c5f48" strokeWidth="2"/><path d="M-29 -38 L0 -61 L29 -38Z" fill="#a9684f" stroke="#67473c" strokeWidth="3"/><rect x="-7" y="-25" width="14" height="25" fill="#6f8878"/><rect x="-19" y="-29" width="9" height="10" fill="#9bc4ca"/></g>;
   if (kind === "machine") return (
     <g>
@@ -39,6 +50,8 @@ function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
       <ellipse cx="2" cy="2" rx="18" ry="7" fill="#30413a" opacity=".2" />
       <path d="M-17 -2 L-11 -18 L6 -22 L18 -10 L14 1 L-4 5Z" fill="#879894" stroke="#566e69" strokeWidth="2.5" />
       <path d="M-11 -18 L6 -22 L3 -6 L-4 5 L-17 -2Z" fill="#b7c4bb" opacity=".8" />
+      <path d="M6 -22 L18 -10 L14 1 L-4 5 L3 -6Z" fill="#627d76" opacity=".46"/>
+      <path d="M-8 -13 L-2 -16" stroke="#e1e5d7" strokeWidth="2" strokeLinecap="round" opacity=".7"/>
     </g>
   );
   return (
@@ -54,7 +67,7 @@ function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
 function Character() {
   return (
     <g>
-      <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".3"/>
+      <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".36"/>
       <path d="M-10 -10 L-11 1 M10 -10 L11 1" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
       <rect x="-10" y="-31" width="20" height="14" rx="5" fill="#38354e"/>
@@ -78,6 +91,9 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   journey?: JourneyView; plots?:{id:string;stage:string}[]; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
+  const [zoom, setZoom] = useState(1.3);
+  const [follow, setFollow] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
   useEffect(() => {
     if (!journey || journey.status !== "travelling") return;
     const timer = window.setInterval(() => setClock(Date.now()), 50);
@@ -104,6 +120,12 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     x: from.x + (to.x-from.x)*portion,
     y: from.y + (to.y-from.y)*portion,
   } : authoritative;
+  const focalPoint = project(current);
+  const viewWidth = BASE_WIDTH / zoom;
+  const viewHeight = BASE_HEIGHT / zoom;
+  // Follow Nimo's displayed walking position, not just his last persisted tile.
+  const viewX = follow ? focalPoint.x - viewWidth / 2 : (BASE_WIDTH - viewWidth) / 2;
+  const viewY = follow ? focalPoint.y - viewHeight * .55 : (BASE_HEIGHT - viewHeight) / 2;
   const visitedKeys = new Set(visited.map(p => `${p.x}:${p.y}`));
   const remembered = new Set(seenTiles.map(p => `${p.x}:${p.y}`));
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
@@ -119,7 +141,8 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         <span>WORLD 002 · NIMO'S WORLD</span>
         <span>{SIZE} × {SIZE} · Owner view</span>
       </div>
-      <svg className="nimo-map-canvas" viewBox={`0 0 ${SIZE * HW * 2 + 40} ${SIZE * HH * 2 + 120}`} role="img"
+      <div className="nimo-map-viewport">
+      <svg className="nimo-map-canvas" viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`} role="img"
         aria-label={`Isometric ${SIZE} by ${SIZE} map showing Nimo near column ${Math.round(current.x) + 1}, row ${Math.round(current.y) + 1}, with trees and rocks.`}>
         <defs>
           <linearGradient id="nimo-ground" x1="0" y1="0" x2="0.8" y2="1">
@@ -134,12 +157,24 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
           const isVisible = inSight.has(tileKey);
           const wasSeen = remembered.has(tileKey);
           const points = `0,-${HH} ${HW},0 0,${HH} -${HW},0`;
+          const variation = noise(tile.x, tile.y);
+          const detail = noise(tile.x, tile.y, 3);
+          const grass = isVisible
+            ? ["#a9c98a", "#adc98c", "#b6cd91", "#a5c587", "#b0ca8c"][Math.floor(variation * 5)]
+            : wasSeen ? ["#638675", "#668b78", "#6c8d79"][Math.floor(variation * 3)]
+              : ["#486d5e", "#4e7161", "#527464"][Math.floor(variation * 3)];
           return (
             <g key={`tile-${tile.x}-${tile.y}`} transform={`translate(${p.x} ${p.y})`}>
               <polygon points={points}
-                fill={isVisible ? ((tile.x + tile.y) % 2 ? "#b2cd92" : "#a9ca86") : ((tile.x + tile.y) % 2 ? "#557b65" : "#4e715e")}
-                stroke={isVisible ? "#e2d19c" : "#527963"} strokeWidth={isVisible ? 1.35 : .65} />
-              <path d="M-5 5 l3 -4 m10 0 l3 -4" stroke={isVisible ? "#6a985f" : "#63826e"} strokeWidth="1.4" fill="none" opacity={isVisible ? .8 : .4}/>
+                fill={grass}
+                stroke={showGrid ? (isVisible ? "#e2d19c" : "#779485") : "none"} strokeWidth={showGrid ? 1 : 0} />
+              <path d={detail > .5 ? "M-17 0 l4 -3 m17 11 l3 -4 m7 -10 l4 -3" : "M-11 -5 l3 -4 m14 9 l3 -4 m-6 12 l2 -3"}
+                stroke={isVisible ? "#648f5d" : "#759884"} strokeWidth="1.15" strokeLinecap="round" fill="none" opacity={isVisible ? .52 : .24}/>
+              {variation > .66 && <g opacity={isVisible ? .42 : .18}>
+                <circle cx={-9 + detail * 12} cy={-2} r="1.5" fill="#d9d6a0"/>
+                <circle cx={8 - detail * 7} cy={5} r="1" fill="#e9d8b2"/>
+              </g>}
+              {detail > .78 && <path d="M-3 -3 l-3 -4 m3 4 l3 -5 M12 3 l-2 -4 m2 4 l3 -4" fill="none" stroke={isVisible ? "#508957" : "#527962"} strokeWidth="1.1" opacity=".5"/>}
               <title>{`Column ${tile.x + 1}, row ${tile.y + 1} · ${isVisible ? "currently in Nimo’s field of view" : wasSeen ? "outside view; previously seen by Nimo" : "outside view; not yet seen by Nimo"}${hasVisited ? " · visited" : ""}`}</title>
             </g>
           );
@@ -171,6 +206,15 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
           </g>;
         })}
       </svg>
+      <div className="nimo-map-controls" aria-label="World camera controls">
+        <button type="button" onClick={() => setZoom(value => Math.max(1, Math.round((value - .1) * 10) / 10))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
+        <span aria-live="polite">{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => setZoom(value => Math.min(1.8, Math.round((value + .1) * 10) / 10))} disabled={zoom >= 1.8} aria-label="Zoom in">+</button>
+        <button type="button" aria-pressed={follow} onClick={() => setFollow(value => !value)}>{follow ? "Following Nimo" : "Follow Nimo"}</button>
+        <button type="button" aria-pressed={showGrid} onClick={() => setShowGrid(value => !value)}>{showGrid ? "Hide grid" : "Show grid"}</button>
+        <button type="button" onClick={() => { setZoom(1.3); setFollow(true); }}>Reset view</button>
+      </div>
+      </div>
       <div className="nimo-map-legend" aria-label="Map visibility legend"><span><i className="nimo-map-key nimo-map-key-sight" /> Bright tiles: Nimo’s current 9×9 vision</span><span><i className="nimo-map-key nimo-map-key-outside" /> Muted tiles: outside his vision (objects visible to you)</span></div>
       <div className="nimo-map-footer">
         <span><strong>Nimo</strong> · {moving ?
