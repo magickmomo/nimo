@@ -180,6 +180,7 @@ export default function Nimo006(){
   const outcomes:Prediction006[]=displayed&&phase==="evaluation"?predictions006(displayed):[];
   return <main className="nimo-lab">
     <nav className="lab-nav"><a href="/world/lab/005">Nimo 005</a><span>Independent experiment · no production world access</span></nav>
+    <p><a href="/world/lab/007">Open Nimo 007 — Hunger World Sandbox</a></p>
     <header className="lab-header">
       <p className="lab-eyebrow">NIMO 006 · ACTION EVALUATION</p>
       <h1>Does showing predicted outcomes improve Nimo's choices?</h1>
