@@ -15,8 +15,9 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
   }catch(e){setError(e instanceof Error?e.message:"Memory load failed");}
   finally{setLoading(false);}
  },[]);
- useEffect(()=>{void load();root.current?.focus();
+ useEffect(()=>{
   const previous=document.activeElement instanceof HTMLElement?document.activeElement:null;
+  void load();root.current?.focus();
   const onKey=(e:KeyboardEvent)=>{if(e.key==="Escape")onClose();
    if(e.key!=="Tab")return;
    const elements=root.current?.querySelectorAll<HTMLElement>('button:not([disabled]),summary,[tabindex]:not([tabindex="-1"])');
