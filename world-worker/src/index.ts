@@ -11,7 +11,7 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance } from "./curiosity";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
-import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus } from "./creator-requests";
+import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
 import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
@@ -845,6 +845,15 @@ export default {
         const input=await request.json() as {id?:unknown;status?:unknown};
         try{return json(await changeRequestStatus(env.DB,Number(input.id),String(input.status)));}
         catch(e){return json({error:e instanceof Error?e.message:"Invalid status"},400);}
+      }
+      if (path === "/requests/respond" && request.method === "POST") {
+        const input=await request.json().catch(()=>null) as
+          {id?:unknown;status?:unknown;message?:unknown;idempotencyKey?:unknown}|null;
+        if(!input || typeof input.id!=="number" || typeof input.status!=="string" ||
+          typeof input.message!=="string" || typeof input.idempotencyKey!=="string")
+          return json({error:"Invalid request response"},400);
+        try{return json(await respondToCreatorRequest(env.DB,input.id,input.status,input.message,input.idempotencyKey));}
+        catch(e){return json({error:e instanceof Error?e.message:"Cannot send reply"},400);}
       }
       if (path === "/projects" && request.method === "GET") return json({projects:await projectList(env.DB)});
       if (path === "/messages" && request.method === "GET") {
