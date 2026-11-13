@@ -74,6 +74,32 @@ jobs:
           assert db.execute("SELECT hunger_rate FROM world_settings").fetchone() == (0.2,)
           db.execute("INSERT INTO garden_inventory(kind,water_units) VALUES('watering_can',3)")
           assert db.execute("SELECT water_units FROM garden_inventory").fetchone() == (3,)
+          # Unified memory keeps evidence-linked lessons without generated core beliefs.
+          db.execute("CREATE TABLE world(id INTEGER PRIMARY KEY,state TEXT)")
+          db.execute("INSERT INTO world VALUES(1, ?)", ('{"beliefs":[{"text":"legacy"}],"identity":"Nimo"}',))
+          db.executescript(Path("world-worker/migrations/013_consolidated_memories.sql").read_text())
+          assert db.execute("SELECT json_extract(state,'$.beliefs') FROM world WHERE id=1").fetchone() == (None,)
+          assert db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('consolidated_memories','memory_evidence')").fetchone() == (2,)
+          db.execute("INSERT INTO events(id,kind,action) VALUES(1,'tool','EAT_OK')")
+          db.execute("INSERT INTO consolidated_memories(subject,statement,category,confidence) VALUES('fruit:amber','Amber fruit increased fullness','food',0.7)")
+          db.execute("INSERT INTO memory_evidence(memory_id,event_id) VALUES(1,1)")
+          db.execute("INSERT OR IGNORE INTO memory_evidence(memory_id,event_id) VALUES(1,1)")
+          assert db.execute("SELECT COUNT(*) FROM memory_evidence").fetchone() == (1,)
+          # Simulate the older live consolidated memory schema: migration 013
+          # leaves it intact, and 014 must preserve its memories and evidence.
+          legacy = sqlite3.connect(":memory:")
+          legacy.execute("PRAGMA foreign_keys=ON")
+          legacy.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,created_at TEXT,kind TEXT,action TEXT,content TEXT)")
+          legacy.execute("INSERT INTO events VALUES(3598,'2026-11-07','tool','EAT_OK','Amber fruit fed Nimo')")
+          legacy.execute("CREATE TABLE consolidated_memories(id INTEGER PRIMARY KEY,topic TEXT UNIQUE,category TEXT,summary TEXT,lesson TEXT,evidence_ids TEXT,status TEXT,created_at TEXT,updated_at TEXT)")
+          legacy.execute("INSERT INTO consolidated_memories VALUES(1,'food_effects','food','Amber helped','Amber fruit reliably reduces hunger','[3598]','tentative','2026-11-07','2026-11-07')")
+          legacy.execute("INSERT INTO consolidated_memories VALUES(2,'inventory_capacity','inventory','Inventory full','Free one slot to gather fruit','[]','tentative','2026-11-07','2026-11-07')")
+          legacy.executescript(Path("world-worker/migrations/014_unify_legacy_memories.sql").read_text())
+          assert legacy.execute("SELECT subject,category FROM consolidated_memories_v2 ORDER BY id").fetchall() == [('fruit:amber','food'),('inventory_capacity','experience')]
+          assert legacy.execute("SELECT event_id FROM memory_evidence_v2").fetchall() == [(3598,)]
+          legacy.executescript(Path("world-worker/migrations/014_unify_legacy_memories.sql").read_text())
+          assert legacy.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone() == (2,)
+          assert legacy.execute("SELECT COUNT(*) FROM memory_evidence_v2").fetchone() == (1,)
           db.execute("INSERT INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','one')")
           db.execute("INSERT OR IGNORE INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','duplicate')")
           assert db.execute("SELECT COUNT(*) FROM garden_transactions").fetchone() == (1,)

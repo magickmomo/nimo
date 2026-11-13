@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
+import WorldInventory from "./world-inventory";
 import WorldMessagesPanel from "./world-messages-panel";
+import WorldMemoriesPanel from "./world-memories-panel";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type ObjectRecord = {
@@ -46,8 +48,10 @@ export default function World() {
   const [isOwner, setIsOwner] = useState(false);
   const [initialLoading,setInitialLoading]=useState(true);
   const [messagesOpen,setMessagesOpen]=useState(false);
+  const [memoriesOpen,setMemoriesOpen]=useState(false);
   // Stable across the once-per-second clock renders: the dialog must not refocus.
   const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
+  const closeMemories=useCallback(()=>setMemoriesOpen(false),[]);
   const [error, setError] = useState("");
   const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
@@ -251,11 +255,13 @@ export default function World() {
   return (
     <div className="world-page world-dashboard">
       <div className="world-topbar">
+        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMemoriesOpen(true)}>Memories</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
+      {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
@@ -293,30 +299,11 @@ export default function World() {
           </div>
         </>
       )}
-      <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Fullness and curiosity are active</span></div>
-        <div className="world-inventory"><strong>Inventory ({totalInventory}/{inventoryCapacity})</strong>
-          <div className="world-fruits">
-            {fruitItems.map(item=><span className={"world-fruit "+item.fruit} key={"fruit-"+item.id}>{item.fruit} fruit</span>)}
-            {supplyItems.map(item=><span className="world-fruit" key={"supply-"+item.id}>{item.kind==="watering_can"?`Watering can (${item.water_units}/3 water)`:item.kind==="seed_packet"?"Seed packet":item.kind==="crop"?"Harvested crop":item.kind}</span>)}
-            {!totalInventory&&<span className="meta">Nothing collected yet</span>}
-          </div>
-        </div>
-        {!!data?.food?.knowledge.length&&<div className="world-food-knowledge">
-          <strong>Learned food effects</strong>
-          <ul>{data.food.knowledge.map(entry=><li key={entry.fruit}>
-            <span className={"world-fruit "+entry.fruit}>{entry.fruit}</span>
-            <span>{entry.mean===null?"Not yet measured clearly":`Average fullness change: ${-entry.mean>0?"+":""}${-entry.mean}%`}</span>
-            <small>{entry.count} eaten · {entry.minimum_relief}% maximum observed fullness gain</small>
-          </li>)}</ul>
-        </div>}
-      </section>
-      {data?.garden&&<section className="world-card" aria-label="Garden and economy">
-        <div className="world-journal-head"><h2>Allotment and store</h2><span className="meta">{data.garden.coins} coins · {data.garden.inventoryUsed}/{data.garden.capacity} inventory slots</span></div>
-        <p className="meta">Garden: {data.garden.plots.map(p=>p.id.replace("plot_","Plot ")+" "+p.stage).join(" · ")}</p>
-      </section>}
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
-        selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+      <div className="nimo-game-stage">
+        <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
+          selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+      </div>
       {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
           <h2>Current action</h2>

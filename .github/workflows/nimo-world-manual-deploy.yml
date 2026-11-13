@@ -206,6 +206,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
         run: npx wrangler d1 execute nimo-world --remote --file=migrations/012_fullness_rate.sql
 
+      - name: Apply and verify consolidated memory migration 013
+        if: ${{ inputs.version == 'current-main' }}
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world --remote --file=migrations/013_consolidated_memories.sql
+          npx wrangler d1 execute nimo-world --remote --file=migrations/014_unify_legacy_memories.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('consolidated_memories_v2','memory_evidence_v2')" > "$RUNNER_TEMP/nimo-memory-schema.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-memory-schema.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          names={row.get('name') for entry in entries for row in entry.get('results',[])}
+          if names != {'consolidated_memories_v2','memory_evidence_v2'}:
+              raise SystemExit('Consolidated memory migration incomplete; refusing deployment')
+          print('Verified consolidated memory schema.')
+          PY
+
       - name: Deploy Worker after successful migrations
         working-directory: world-worker
         env:

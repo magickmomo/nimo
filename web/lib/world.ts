@@ -1,6 +1,5 @@
 export type WorldState = {
   identity: string;
-  beliefs: { text: string; evidence: string; confidence: number }[];
   emotions: { energy: number; happiness: number; boredom: number; curiosity?: number; hunger: number };
   currentGoal: string | null;
   currentActivity: string;
@@ -30,7 +29,6 @@ Do not claim to have completed an action unless the environment confirms it.`;
 
 export const INITIAL_STATE: WorldState = {
   identity: "I am an autonomous character in a persistent digital environment. I do not have a physical body.",
-  beliefs: [],
   emotions: { energy: 0.8, happiness: 0.5, boredom: 0, curiosity: 0.35, hunger: 0.15 },
   currentGoal: null,
   currentActivity: "observing",
@@ -86,7 +84,7 @@ export function rewardNovelty(emotions: WorldState["emotions"], novelty: number)
 export function validState(value: unknown): value is WorldState {
   if (!value || typeof value !== "object") return false;
   const v = value as Partial<WorldState>;
-  return typeof v.identity === "string" && Array.isArray(v.beliefs) &&
+  return typeof v.identity === "string" &&
     !!v.emotions && typeof v.emotions.energy === "number" &&
     typeof v.emotions.happiness === "number" && typeof v.emotions.boredom === "number" &&
     Array.isArray(v.tools) && typeof v.tickCount === "number";

@@ -213,7 +213,9 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-messages-panel .world-journal-head{position:static;flex:none;gap:14px}
 .world-messages-panel .world-journal-head h2{margin:0}
 .world-message-header-actions{display:flex;gap:8px}
-.world-message-header-actions button{border:1px solid #cadad1;border-radius:8px;background:#fff;cursor:pointer}
+.world-message-header-actions button{border:1px solid #cadad1;border-radius:8px;background:#fff;color:#294440!important;-webkit-text-fill-color:#294440;padding:9px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.world-message-header-actions button:hover{background:#eaf2ed}
+.world-message-header-actions button:disabled{opacity:.55;cursor:not-allowed}
 .world-messages-panel .world-message-thread{min-height:100px;max-height:none;overflow-y:auto;flex:1;padding:8px 2px}
 .world-messages-panel .world-message-compose{flex:none}
 .world-messages-panel .world-message-compose textarea{box-sizing:border-box}
@@ -240,3 +242,39 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-ripple{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:.75;transform:scale(1.1)}}
 @media(max-width:600px){.nimo-map-canvas{aspect-ratio:1 / 1;min-height:290px}.nimo-map-controls{bottom:8px;gap:4px;padding:6px}.nimo-map-controls button{font-size:11px;min-height:32px;padding:5px 7px}}
 @media(prefers-reduced-motion:reduce){.nimo-water-ripple{animation:none}}
+
+/* Consolidated memories open as a dialog over the existing world. */
+.world-memories-panel .world-message-thread{display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+.world-memory-entry{border:1px solid #dfe8e2;border-radius:10px;padding:14px}
+.world-memory-entry p{margin:8px 0;overflow-wrap:anywhere}
+.world-memory-meta{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:#526b68;text-transform:capitalize}
+.world-memory-evidence{font-size:12px;line-height:1.5;color:#526b68;border-top:1px solid #e5ebe8;padding-top:8px}
+.world-memory-entry summary{cursor:pointer;font-size:13px;color:#294c40}
+
+/* Explicit feedback for manual refresh in both owner dialogs. */
+.world-refresh-label{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:65px}
+.world-refresh-spinner{display:inline-block;width:13px;height:13px;flex:0 0 13px;border:2px solid #aec9bb;border-top-color:#294440;border-radius:50%;animation:nimo-loading-spin .7s linear infinite}
+@media(prefers-reduced-motion:reduce){.world-refresh-spinner{animation:none;border-color:#294440;opacity:.65}}
+
+/* World inventory is part of the game stage, not a separate dashboard card. */
+.nimo-game-stage{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:stretch;gap:0;margin:14px 0 18px;min-width:0}
+.nimo-game-stage>.nimo-map{min-width:0;margin:0;border-radius:0 12px 12px 0}
+.nimo-inventory-rail{z-index:3;position:relative;min-width:0;display:flex;flex-direction:column;align-items:center;background:#213c35;border:1px solid #48675a;border-right:0;border-radius:12px 0 0 12px;padding:13px 8px 15px;color:#e8efdd}
+.nimo-inventory-heading{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:700;letter-spacing:.04em;line-height:1.2}
+.nimo-inventory-heading span{font-size:11px;font-weight:500;color:#bacfbe;font-variant-numeric:tabular-nums}
+.nimo-inventory-slots{display:flex;flex:1;flex-direction:column;justify-content:space-around;align-items:center;gap:6px;width:100%;padding:12px 0 0}
+.nimo-inventory-slot{width:100%;max-width:48px;aspect-ratio:1;position:relative;flex:0 0 auto;border:1px solid #66816f;border-radius:8px;background:#142c26;box-shadow:inset 0 2px 6px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center}
+.nimo-inventory-slot.is-filled{background:#ede4cc;border-color:#a99b78;cursor:help}
+.nimo-inventory-slot svg{display:block;width:77%;height:77%;filter:drop-shadow(0 2px 1px rgba(0,0,0,.15))}
+.nimo-inventory-slot:focus-visible{outline:3px solid #f3d48c;outline-offset:2px}
+.nimo-inventory-tooltip{position:absolute;z-index:40;left:calc(100% + 11px);top:50%;transform:translateY(-50%);display:none;width:max-content;min-width:max-content;max-width:210px;white-space:nowrap;overflow-wrap:normal;word-break:normal;pointer-events:none;background:#f8f5e9;color:#243e34;border:1px solid #d0c5a5;border-radius:7px;box-shadow:0 5px 18px rgba(0,0,0,.25);padding:8px 10px;font-size:12px;font-weight:600;line-height:1.4}
+.nimo-inventory-tooltip::before{content:"";position:absolute;left:-6px;top:calc(50% - 5px);width:9px;height:9px;background:#f8f5e9;border-left:1px solid #d0c5a5;border-bottom:1px solid #d0c5a5;transform:rotate(45deg)}
+.nimo-inventory-slot:hover .nimo-inventory-tooltip,.nimo-inventory-slot:focus-visible .nimo-inventory-tooltip{display:block}
+@media(max-width:650px){
+ .nimo-game-stage{grid-template-columns:54px minmax(0,1fr)}
+ .nimo-inventory-rail{padding:10px 5px}
+ .nimo-inventory-heading{font-size:10px}
+ .nimo-inventory-slots{gap:4px;padding-top:8px}
+ .nimo-inventory-slot{max-width:38px;border-radius:6px}
+ .nimo-inventory-tooltip{font-size:11px}
+}
