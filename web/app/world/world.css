@@ -289,3 +289,18 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-request-actions label{font-size:12px;font-weight:700}
 .nimo-request-actions select{min-width:145px;background:#fff;color:#233e32;border:1px solid #bdd0c4;border-radius:8px;padding:7px}
 .world-requests-panel .world-message-thread,.world-projects-panel .world-message-thread{display:flex;flex-direction:column;gap:12px}
+
+/* Request-specific creator replies with durable history. */
+.nimo-request-reply-label{display:block;margin-top:12px;margin-bottom:6px;font-size:13px;font-weight:700;color:#294440}
+.nimo-request-entry textarea{display:block;width:100%;box-sizing:border-box;min-height:82px;padding:10px 12px;border:1px solid #bdcec3;border-radius:8px;background:#fff;color:#294440;font:inherit;font-size:13px;line-height:1.5;resize:vertical}
+.nimo-request-entry textarea:focus-visible{outline:2px solid #68957e;outline-offset:2px}
+.nimo-request-buttons{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:10px}
+.nimo-request-buttons button{padding:9px 12px;border:1px solid #a5c0b0;border-radius:8px;background:#fff;color:#294440;font-weight:600;cursor:pointer}
+.nimo-request-buttons button:last-child{background:#294c40;color:#fff;border-color:#294c40}
+.nimo-request-buttons button:disabled{opacity:.5;cursor:not-allowed}
+.nimo-request-notice{padding:10px 12px;background:#edf7ef;border-radius:8px;color:#294c40;font-size:13px}
+.nimo-request-responses{margin-top:12px;border-top:1px solid #d8e3dc;padding-top:9px;font-size:13px}
+.nimo-request-responses summary{cursor:pointer;color:#35584b;font-weight:650}
+.nimo-request-previous{border-left:3px solid #94b8a0;margin:9px 0;padding:5px 10px;background:#f0f6f2}
+.nimo-request-previous small{color:#597268}
+.nimo-request-previous p{margin:5px 0}
