@@ -14,7 +14,7 @@ const js = ts.transpileModule(source,{
 const {validateDecision} = await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 const base = (action, toolCall=null) => ({
   action, monologue:"I have considered the evidence.", activity:"considering",
-  goal:"Examine my surroundings", belief:null, identityUpdate:null, toolCall,
+  goal:"Examine my surroundings", identityUpdate:null, toolCall,
 });
 
 test("first-class REPLY acknowledges a pending visitor without executing tools",()=>{
@@ -54,7 +54,7 @@ test("reject malformed travel, inspection and document tool parameters",()=>{
 test("optional goal may be omitted but malformed optional state is rejected",()=>{
   const d=base("OBSERVE");delete d.goal;
   assert.equal(validateDecision(d,false).goal,null);
-  assert.throws(()=>validateDecision({...base("THINK"),belief:{text:"x",evidence:"y",confidence:2}},false));
+  assert.throws(()=>validateDecision({...base("THINK"),identityUpdate:{text:5,evidence:"y"}},false));
 });
 
 test("remember_object accepts genuine object IDs including rock_002",()=>{
