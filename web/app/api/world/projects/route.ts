@@ -1,0 +1,11 @@
+import {NextRequest,NextResponse} from "next/server";
+import {hasOwnerSession} from "../../../../lib/world-owner-session";
+export const dynamic="force-dynamic";
+export async function GET(req:NextRequest){
+ if(!(await hasOwnerSession(req)))return NextResponse.json({error:"Owner login required"},{status:401});
+ const url=process.env.WORLD_WORKER_URL,secret=process.env.WORLD_INTERNAL_SECRET;
+ if(!url||!secret)return NextResponse.json({error:"Worker unavailable"},{status:503});
+ try{const response=await fetch(url.replace(/\/$/,"")+"/projects",{headers:{Authorization:"Bearer "+secret},cache:"no-store",signal:AbortSignal.timeout(10000)});
+ return NextResponse.json(await response.json(),{status:response.status,headers:{"Cache-Control":"private, no-store"}});}
+ catch{return NextResponse.json({error:"Could not load projects"},{status:502});}
+}
