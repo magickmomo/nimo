@@ -100,6 +100,14 @@ jobs:
           legacy.executescript(Path("world-worker/migrations/014_unify_legacy_memories.sql").read_text())
           assert legacy.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone() == (2,)
           assert legacy.execute("SELECT COUNT(*) FROM memory_evidence_v2").fetchone() == (1,)
+          # Additive request and project migration: preserve and backfill historical requests.
+          db.execute("INSERT INTO events(id,kind,action,created_at,content) VALUES(2,'request','REQUEST','2026-11-13','Please add a drawing tool')")
+          db.executescript(Path('world-worker/migrations/015_requests_projects.sql').read_text())
+          assert db.execute('SELECT content,status FROM creator_requests').fetchall() == [('Please add a drawing tool','pending')]
+          db.executescript(Path('world-worker/migrations/015_requests_projects.sql').read_text())
+          assert db.execute('SELECT COUNT(*) FROM creator_requests').fetchone() == (1,)
+          db.execute("INSERT INTO nimo_projects(title,objective,next_step) VALUES('Farming','Sell crops','Visit store')")
+          assert db.execute('SELECT title FROM nimo_projects').fetchone() == ('Farming',)
           db.execute("INSERT INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','one')")
           db.execute("INSERT OR IGNORE INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','duplicate')")
           assert db.execute("SELECT COUNT(*) FROM garden_transactions").fetchone() == (1,)
