@@ -92,7 +92,6 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
     action:{type:"string",enum:hasPendingVisitor?["REPLY"]:["OBSERVE","THINK","REMEMBER","ACT","REQUEST"]},
     monologue:string(1800),activity:string(120),
     goal:nullableString(250),
-    belief:{anyOf:[{type:"null"},obj({text:string(200),evidence:string(250),confidence:{type:"number"}})]},
     identityUpdate:{anyOf:[{type:"null"},obj({text:string(500),evidence:string(250)})]},
     toolCall:{anyOf:variants},
   });
