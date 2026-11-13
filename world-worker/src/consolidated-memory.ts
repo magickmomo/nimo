@@ -44,8 +44,10 @@ export async function recordVerifiedMemory(
   await db.batch([
     db.prepare(`INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status,reviewed_at)
       VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-      ON CONFLICT(subject) DO UPDATE SET statement=excluded.statement,category=excluded.category,
-      confidence=excluded.confidence,status=excluded.status,reviewed_at=excluded.reviewed_at,
+      ON CONFLICT(subject) DO UPDATE SET
+      confidence=MAX(consolidated_memories_v2.confidence,excluded.confidence),
+      status=CASE WHEN consolidated_memories_v2.status='retired' THEN 'tentative' ELSE consolidated_memories_v2.status END,
+      reviewed_at=excluded.reviewed_at,
       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
       .bind(subject,statement,category,confidence,status),
     db.prepare(`INSERT OR IGNORE INTO memory_evidence_v2(memory_id,event_id)
