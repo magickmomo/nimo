@@ -3,9 +3,9 @@ import type {Point} from "../../web/lib/world-map";
 /** Physical vending state, not a suggested quest or prompt reward. */
 export const VENDING_MACHINE_ID="vending_001";
 export const VENDING_ITEMS=[
-  {id:"seed_packet",label:"Unfamiliar seed packet",price:2,description:"A sealed packet showing a small seed."},
-  {id:"sketchpad",label:"Small sketchpad",price:3,description:"A pad of blank paper."},
-  {id:"mystery_box",label:"Mysterious box",price:5,description:"A sealed box whose contents are not visible."},
+  {id:"seed_packet",label:"Seed packet",price:2,available:true,description:"Plantable seeds; costs 2 coins."},
+  {id:"sketchpad",label:"Small sketchpad",price:3,available:false,description:"Coming soon. Not for sale until drawing is implemented."},
+  {id:"mystery_box",label:"Mysterious box",price:5,available:false,description:"Coming soon. Contents are not yet defined; coins cannot be spent on it."},
 ] as const;
 export type VendingItemId=typeof VENDING_ITEMS[number]["id"];
 const MACHINE_POSITION:Point={x:7,y:3};
@@ -30,6 +30,7 @@ export async function attemptPurchase(db:D1Database,position:Point,itemId:string
   if(!isAdjacentToVending(position))throw Error("Stand beside the machine to buy an item");
   const item=vendingItem(itemId);
   if(!item)throw Error("Unknown vending item");
+  if(item.available)throw Error("Use the seed purchase flow for available items");
   const state=await vendingSnapshot(db);
   if(!state.inspected)throw Error("Inspect the vending machine before buying anything");
   const previous=await db.prepare("SELECT id,success,message FROM vending_attempts WHERE source_key=?")
@@ -37,8 +38,7 @@ export async function attemptPurchase(db:D1Database,position:Point,itemId:string
   if(previous)return {item,coins:state.coins,success:!!previous.success,message:previous.message,firstAttempt:false};
   const count=await db.prepare("SELECT COUNT(*) AS n FROM vending_attempts WHERE item_id=?")
     .bind(itemId).first<{n:number}>();
-  // This experiment deliberately provides no coin source or item acquisition.
-  // Even if future code grants coins, unavailable item functionality must not be faked.
+  // Sketchpad and mystery box are intentionally not purchasable until usable.
   const message=state.coins<item.price
     ? `PURCHASE FAILED: ${item.label} costs ${item.price} coins. Current balance: ${state.coins}.`
     : `PURCHASE UNAVAILABLE: ${item.label} cannot yet be dispensed. Coins not deducted.`;
