@@ -11,6 +11,8 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance } from "./curiosity";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
+import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus } from "./creator-requests";
+import { projectList, createProject, updateProject } from "./projects";
 import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
@@ -27,7 +29,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
@@ -224,7 +226,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -245,13 +247,13 @@ These are your ONLY actual external actions. ACT without toolCall does not creat
 You cannot execute code, send email, spend money, browse the internet, or add tools.
 REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
-Avoid endlessly planning: when a goal involves writing, actually write something concrete.
+Avoid endlessly planning: when a goal involves writing, actually write something concrete. You can create up to three unfinished self-directed projects and update their progress, next step, or status via the provided project tools. These are persistent intentions, not compulsory tasks; only claim completed steps backed by events. Maintain projects deliberately and do not create duplicate or trivial projects.
 If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Keeping fullness comfortably closer to 100% than 0% supports wellbeing. At low fullness seek useful food, but do not eat wastefully when already full, and remain free to pursue other interests. Use needsPercent.fullness as the readable source of truth. The fullnessDecayPointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Energy, happiness and boredom are currently paused. Curiosity is active as a soft motivation while you are comfortably fed.
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
 Your environment may contain objects with unfamiliar properties and possible interactions. Learn about them from what you can actually perceive, examine, try and remember. Only the current action menu determines which interactions are possible now; a tool becoming available does not prove an unseen place or item exists. Do not assume what unseen objects are, where they are or how they work. When fullness is above 60%, curiosity can outweigh routine food gathering. Prefer following meaningful questions, unfinished intentions and actual discoveries over staying with a familiar routine; food remains an option when needed. Curiosity does not require constant movement or novelty. Ground claims about objects, items, money, possessions and capabilities in perception and verified outcomes.
-Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
+Your capability requests appear in the owner Requests inbox, separate from conversation messages. REQUEST does not grant a tool. You can see request status in creatorRequests; do not repeat acknowledged, accepted, rejected or implemented requests unless there is new evidence or a substantially different obstacle.
 When something does not make sense, a goal becomes blocked, or repeated checks produce no new information, consider what you have already observed and whether another available action, location, or approach could help. An action missing from the menu at your present location does not prove the capability is missing everywhere; consult your actual past successes and move somewhere appropriate if useful.
 If reasonable investigation has not resolved a meaningful limitation, you MAY choose REQUEST to ask your creator for clarification, help with an environmental problem, or a genuinely missing capability. Explain the specific obstacle and what you tried, without claiming that a capability is absent unless supported by evidence. You may also continue independently, set the question aside, or change goals. Do not request help automatically or repeatedly, and do not treat the creator's suggestions as orders.
 Long-term memory is consolidated from verified events, not from unsupported assertions. Do not create core beliefs; retain your existing identity and learn from evidence.
@@ -268,6 +270,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     name==="pick_fruit"?{name,treeIds:menu.pickTreeIds}:
     name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:
     name==="buy_item"?{name,itemIds:menu.vendingItemIds}:
+    name==="update_project"?{name,projectIds:menu.projectIds}:
     name==="plant_seed"||name==="water_plot"||name==="harvest_crop"?{name,plotIds:menu.gardenPlotIds}:
     name==="sell_item"?{name,items:menu.saleItems}:{name});
   const experience = buildExperienceContext(history);
@@ -291,7 +294,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -400,9 +403,9 @@ async function tick(env: Env) {
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
-  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories] = await Promise.all([
+  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests] = await Promise.all([
     events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
-    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),
+    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),projectList(env.DB),requestContext(env.DB),
   ]);
   const position = await getPosition(env.DB);
   await recordSight(env.DB,position);
@@ -454,8 +457,9 @@ async function tick(env: Env) {
     if(saleItems.length)gardenTools.push("sell_item");
   }
   const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
-    {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.map(item=>item.id)},
-    {plotIds:adjacentPlots,tools:gardenTools,saleItems});
+    {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.filter(item=>item.available).map(item=>item.id)},
+    {plotIds:adjacentPlots,tools:gardenTools,saleItems},
+    {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)});
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -467,7 +471,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
@@ -526,7 +530,7 @@ async function tick(env: Env) {
         const machine=found.objectId==="vending_001" ? await inspectVending(env.DB) : null;
         toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
           (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "") +
-          (machine ? ` Display: ${machine.items.map(item=>`${item.label} (${item.price} coins) — ${item.description}`).join("; ")}. Coins: ${machine.coins}.` : "");
+          (machine ? ` Display: ${machine.items.map(item=>`${item.label} (${item.price} coins; ${item.available?"available":"not for sale"}) — ${item.description}`).join("; ")}. Coins: ${machine.coins}.` : "");
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
         verifiedExperience={type:"inspection",subject:found.objectId,comparison:found.comparison,fruitRevealed:fruit!==null};
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
@@ -577,6 +581,14 @@ async function tick(env: Env) {
         },v=>v);
         toolOutcome=`${call.name.toUpperCase()} OK: ${result}`;
         await log(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
+      } else if (call.name === "create_project") {
+        if(!menu.tools.includes("create_project"))throw Error("Project limit reached");
+        toolOutcome=await createProject(env.DB,call.title,call.objective,call.nextStep);
+        await log(env.DB,"tool",toolOutcome,"PROJECT_CREATED");
+      } else if (call.name === "update_project") {
+        if(!menu.projectIds.includes(call.projectId))throw Error("Project not editable");
+        toolOutcome=await updateProject(env.DB,call.projectId,call.nextStep,call.progressNote,call.status);
+        await log(env.DB,"tool",toolOutcome,"PROJECT_UPDATED");
       } else if (call.name === "buy_item") {
         if(!menu.vendingItemIds.includes(call.itemId))throw Error("Purchase not available at this position");
         const purchase=await traced(env.DB,"vending",`Attempt to buy ${call.itemId}`,
@@ -639,7 +651,11 @@ async function tick(env: Env) {
     // Subsequent decisions can reliably find the next unanswered visitor message.
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
   } else {
-    await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
+    const eventId=await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
+    if(d.action==="REQUEST"){
+      try{await recordCreatorRequest(env.DB,eventId,d.monologue);}
+      catch(e){console.error("Request inbox indexing failed",e);}
+    }
   }
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
   await releaseDecisionSlot();
@@ -824,9 +840,16 @@ export default {
         const memories=await Promise.all(entries.map(async m=>({...m,evidence:await memoryEvidence(env.DB,m.id)})));
         return json({memories,limit:24});
       }
+      if (path === "/requests" && request.method === "GET") return json(await requestInbox(env.DB));
+      if (path === "/requests/status" && request.method === "POST") {
+        const input=await request.json() as {id?:unknown;status?:unknown};
+        try{return json(await changeRequestStatus(env.DB,Number(input.id),String(input.status)));}
+        catch(e){return json({error:e instanceof Error?e.message:"Invalid status"},400);}
+      }
+      if (path === "/projects" && request.method === "GET") return json({projects:await projectList(env.DB)});
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
-          "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply','request') OR action='REQUEST' ORDER BY id DESC LIMIT 250"
+          "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply') ORDER BY id DESC LIMIT 250"
         ).all<EventRow>();
         return json({messages:history.results.reverse()});
       }
