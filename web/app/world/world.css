@@ -250,3 +250,8 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-memory-meta{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:#526b68;text-transform:capitalize}
 .world-memory-evidence{font-size:12px;line-height:1.5;color:#526b68;border-top:1px solid #e5ebe8;padding-top:8px}
 .world-memory-entry summary{cursor:pointer;font-size:13px;color:#294c40}
+
+/* Explicit feedback for manual refresh in both owner dialogs. */
+.world-refresh-label{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:65px}
+.world-refresh-spinner{display:inline-block;width:13px;height:13px;flex:0 0 13px;border:2px solid #aec9bb;border-top-color:#294440;border-radius:50%;animation:nimo-loading-spin .7s linear infinite}
+@media(prefers-reduced-motion:reduce){.world-refresh-spinner{animation:none;border-color:#294440;opacity:.65}}
