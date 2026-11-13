@@ -307,6 +307,7 @@ export default function World() {
             {!totalInventory&&<span className="meta">Nothing collected yet</span>}
           </div>
         </div>
+      </section>
       {data?.garden&&<section className="world-card" aria-label="Garden and economy">
         <div className="world-journal-head"><h2>Allotment and store</h2><span className="meta">{data.garden.coins} coins · {data.garden.inventoryUsed}/{data.garden.capacity} inventory slots</span></div>
         <p className="meta">Garden: {data.garden.plots.map(p=>p.id.replace("plot_","Plot ")+" "+p.stage).join(" · ")}</p>
