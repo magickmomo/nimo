@@ -45,7 +45,7 @@ export default function WorldInventory({fruits,supplies,capacity}:{fruits:Fruit[
         className={"nimo-inventory-slot"+(item?" is-filled":"")}
         tabIndex={item?0:undefined}
         aria-label={item?("Slot "+(index+1)+": "+item.name):("Slot "+(index+1)+": empty")}
-        title={item?.name??"Empty slot"}>
+        >
         {item&&<><ItemIcon item={item}/><span className="nimo-inventory-tooltip" role="tooltip">{item.name}</span></>}
       </div>)}
     </div>
