@@ -240,3 +240,11 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-ripple{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:.75;transform:scale(1.1)}}
 @media(max-width:600px){.nimo-map-canvas{aspect-ratio:1 / 1;min-height:290px}.nimo-map-controls{bottom:8px;gap:4px;padding:6px}.nimo-map-controls button{font-size:11px;min-height:32px;padding:5px 7px}}
 @media(prefers-reduced-motion:reduce){.nimo-water-ripple{animation:none}}
+
+/* Consolidated memories open as a dialog over the existing world. */
+.world-memories-panel .world-message-thread{display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+.world-memory-entry{border:1px solid #dfe8e2;border-radius:10px;padding:14px}
+.world-memory-entry p{margin:8px 0;overflow-wrap:anywhere}
+.world-memory-meta{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:#526b68;text-transform:capitalize}
+.world-memory-evidence{font-size:12px;line-height:1.5;color:#526b68;border-top:1px solid #e5ebe8;padding-top:8px}
+.world-memory-entry summary{cursor:pointer;font-size:13px;color:#294c40}
