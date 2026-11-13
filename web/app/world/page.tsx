@@ -7,6 +7,8 @@ import IsometricWorld, { type JourneyView } from "./isometric-world";
 import WorldInventory from "./world-inventory";
 import WorldMessagesPanel from "./world-messages-panel";
 import WorldMemoriesPanel from "./world-memories-panel";
+import WorldRequestsPanel from "./world-requests-panel";
+import WorldProjectsPanel from "./world-projects-panel";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type ObjectRecord = {
@@ -31,7 +33,7 @@ type Snapshot = {
   autonomousEnabled?: boolean;
   availableTools?: string[];
   hungerRate?:number;
-  vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;description:string}[]};
+  vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;available:boolean;description:string}[]};
   garden?:{coins:number;inventoryUsed:number;capacity:number;inventory:{id:number;kind:string;water_units:number}[];plots:{id:string;x:number;y:number;stage:string;ready:boolean}[]};
   food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
@@ -49,9 +51,21 @@ export default function World() {
   const [initialLoading,setInitialLoading]=useState(true);
   const [messagesOpen,setMessagesOpen]=useState(false);
   const [memoriesOpen,setMemoriesOpen]=useState(false);
+  const [requestsOpen,setRequestsOpen]=useState(false);
+  const [projectsOpen,setProjectsOpen]=useState(false);
+  const [pendingRequests,setPendingRequests]=useState(0);
   // Stable across the once-per-second clock renders: the dialog must not refocus.
   const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
   const closeMemories=useCallback(()=>setMemoriesOpen(false),[]);
+  const closeRequests=useCallback(()=>setRequestsOpen(false),[]);
+  const closeProjects=useCallback(()=>setProjectsOpen(false),[]);
+  const refreshRequestCount=useCallback(async()=>{
+    try{const response=await fetch("/api/world/requests",{cache:"no-store"});
+      if(!response.ok)return;
+      const data=await response.json() as {pending?:number};
+      setPendingRequests(Math.max(0,Number(data.pending)||0));
+    }catch{/* Notification is best effort; inbox displays fetch errors. */}
+  },[]);
   const [error, setError] = useState("");
   const [settingRate,setSettingRate]=useState(false);
   const [exporting, setExporting] = useState(false);
@@ -108,6 +122,7 @@ export default function World() {
       .then(async response => {
         const body = await response.json() as { authenticated?: boolean };
         setIsOwner(Boolean(body.authenticated));
+        if(body.authenticated)void refreshRequestCount();
       }).catch(() => setIsOwner(false))
       .finally(() => { void refresh(); });
     const refreshOnVisible = () => {
@@ -115,6 +130,9 @@ export default function World() {
     };
     document.addEventListener("visibilitychange", refreshOnVisible);
     const liveInterval = window.setInterval(() => { void refreshLive(); }, 10000);
+    const requestInterval=window.setInterval(()=>{
+      if(document.visibilityState==="visible")void refreshRequestCount();
+    },30000);
     const fullInterval = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, 60000);
@@ -124,9 +142,10 @@ export default function World() {
       document.removeEventListener("visibilitychange", refreshOnVisible);
       window.clearInterval(liveInterval);
       window.clearInterval(fullInterval);
+      window.clearInterval(requestInterval);
       window.clearInterval(clockInterval);
     };
-  }, [refresh, refreshLive]);
+  }, [refresh, refreshLive, refreshRequestCount]);
 
   async function loadJournal(range:JournalWindow,older=false) {
     if(older && (journalLoading || !journalHasMore || journalCursor===null || journalUntil===null))return;
@@ -257,11 +276,15 @@ export default function World() {
       <div className="world-topbar">
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMemoriesOpen(true)}>Memories</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
+        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
+        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>}
         <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
+      {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
+      {isOwner && projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
@@ -339,7 +362,7 @@ export default function World() {
           <p className="meta">Environment ID: <code>{selectedObject.id}</code> · {selectedObject.inspectionCount} recorded observations</p>
           {selectedObject.id === data?.vending?.machineId && data.vending.inspected && <div className="world-vending-items">
             <p><strong>Machine balance:</strong> {data.vending.coins} coins</p>
-            <ul>{data.vending.items.map(item=><li key={item.id}>{item.label} · {item.price} coins · {item.description}</li>)}</ul>
+            <ul>{data.vending.items.map(item=><li key={item.id}>{item.label} · {item.price} coins · {item.available?"Available":"Coming soon"} · {item.description}</li>)}</ul>
           </div>}
           {selectedFood&&<p><strong>Last observed fruit:</strong> {selectedFood.seen_fruit??"Not inspected since fruit was introduced"}
             {selectedFood.seen_fruit&&` · ${selectedFood.last_seen_stock??"?"} fruit last seen`}
@@ -417,7 +440,7 @@ export default function World() {
             </div>
           </div>
         </div>
-        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages and requests stay in Messages. The complete export requires owner access.</p>
+        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages stay in Messages; creator requests are in Requests. The complete export requires owner access.</p>
         {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
         {isOwner && exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
           <label htmlFor="world-export-token">Owner access token</label>
