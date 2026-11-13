@@ -11,8 +11,16 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
   const [draft,setDraft]=useState("");
   const [sending,setSending]=useState(false);
   const [error,setError]=useState("");
+  const [refreshing,setRefreshing]=useState(false);
+  const [refreshed,setRefreshed]=useState(false);
+  const feedbackTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
 
-  const load=useCallback(async()=>{
+  const load=useCallback(async(manual=false)=>{
+    if(manual){
+      if(feedbackTimer.current)clearTimeout(feedbackTimer.current);
+      setRefreshed(false);setRefreshing(true);
+    }
+    let succeeded=false;
     try{
       const response=await fetch("/api/world/messages",{cache:"no-store"});
       if(response.status===401){
@@ -22,8 +30,14 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
       const data=await response.json() as {messages?:Message[];error?:string};
       if(!response.ok)throw Error(data.error||"Conversation unavailable");
       setMessages(data.messages||[]);
-      setAuthenticated(true);setError("");
+      setAuthenticated(true);setError("");succeeded=true;
     }catch(err){setError(err instanceof Error?err.message:"Conversation unavailable");}
+    finally{
+      if(manual){
+        setRefreshing(false);
+        if(succeeded){setRefreshed(true);feedbackTimer.current=setTimeout(()=>setRefreshed(false),1800);}
+      }
+    }
   },[]);
 
   useEffect(()=>{
@@ -46,6 +60,7 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
     return()=>{
       document.removeEventListener("keydown",onKeyDown);
       document.body.style.overflow=oldOverflow;
+      if(feedbackTimer.current)clearTimeout(feedbackTimer.current);
       previouslyFocused?.focus();
     };
   },[onClose]);
@@ -80,7 +95,7 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
     <div className="world-journal-head">
       <h2 id="world-message-title">Messages</h2>
       <div className="world-message-header-actions">
-        <button type="button" onClick={()=>void load()} disabled={sending}>Refresh</button>
+        <button type="button" onClick={()=>void load(true)} disabled={sending||refreshing} aria-busy={refreshing}><span className="world-refresh-label">{refreshing&&<span className="world-refresh-spinner" aria-hidden="true"/>}{refreshing?"Refreshing…":refreshed?"Updated":"Refresh"}</span></button>
         <button type="button" onClick={onClose} aria-label="Close messages">Close</button>
       </div>
     </div>
