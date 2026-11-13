@@ -108,6 +108,17 @@ jobs:
           assert db.execute('SELECT content,status FROM creator_requests').fetchall() == [('Please add a drawing tool','pending')]
           db.executescript(Path('world-worker/migrations/015_requests_projects.sql').read_text())
           assert db.execute('SELECT COUNT(*) FROM creator_requests').fetchone() == (1,)
+          db.executescript(Path('world-worker/migrations/016_creator_request_responses.sql').read_text())
+          assert db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='creator_request_responses'").fetchone() == (1,)
+          # Idempotent owner response: exactly one persisted reply and one queued visitor message.
+          key='12345678-1234-4123-8123-123456789012'
+          for _ in range(2):
+              db.execute("INSERT OR IGNORE INTO creator_request_responses(request_id,idempotency_key,status,message) VALUES(1,?,'implemented','The drawing tool is available')", (key,))
+              db.execute("INSERT INTO events(kind,content,action) SELECT 'visitor','Regarding your request #' || CAST(request_id AS TEXT) || ' (status: ' || status || '). Creator says: ' || message,? FROM creator_request_responses WHERE idempotency_key=? AND NOT EXISTS(SELECT 1 FROM events WHERE action=?)", ('REQUEST_RESPONSE:'+key,key,'REQUEST_RESPONSE:'+key))
+          assert db.execute('SELECT COUNT(*) FROM creator_request_responses').fetchone() == (1,)
+          assert db.execute("SELECT COUNT(*) FROM events WHERE action=?",('REQUEST_RESPONSE:'+key,)).fetchone() == (1,)
+          assert 'The drawing tool is available' in db.execute("SELECT content FROM events WHERE action=?",('REQUEST_RESPONSE:'+key,)).fetchone()[0]
+          db.executescript(Path('world-worker/migrations/016_creator_request_responses.sql').read_text())
           db.execute("INSERT INTO nimo_projects(title,objective,next_step) VALUES('Farming','Sell crops','Visit store')")
           assert db.execute('SELECT title FROM nimo_projects').fetchone() == ('Farming',)
           db.execute("INSERT INTO garden_transactions(source_key,action,detail) VALUES('test','plant_seed','one')")
