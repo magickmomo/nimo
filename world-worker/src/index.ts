@@ -1,4 +1,4 @@
-import { SEED, INITIAL_STATE, clamp, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
+import { SEED, INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
@@ -11,6 +11,7 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance } from "./curiosity";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
+import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
@@ -212,15 +213,18 @@ async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick:
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
   const state = JSON.parse(row.state) as WorldState;
+  delete (state as WorldState & {beliefs?:unknown}).beliefs;
   // Older D1 worlds lack hunger; preserve existing energy, happiness and boredom.
   state.emotions = updateEmotions(state.emotions, 0, new Date().getUTCHours());
   return { state, next_tick: row.next_tick };
 }
-async function log(db: D1Database, kind: string, content: string, action: string | null = null) {
-  await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?)")
-    .bind(kind, content.slice(0, 3000), action).run();
+async function log(db: D1Database, kind: string, content: string, action: string | null = null):Promise<number> {
+  const row=await db.prepare("INSERT INTO events(kind,content,action) VALUES(?,?,?) RETURNING id")
+    .bind(kind, content.slice(0, 3000), action).first<{id:number}>();
+  if(!row)throw Error("Event could not be recorded");
+  return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[]): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -250,12 +254,12 @@ Your environment may contain objects with unfamiliar properties and possible int
 Your requests, creator messages and replies appear in a separate Messages panel. REQUEST records a request; it does not immediately grant tools. Avoid repeating acknowledged requests.
 When something does not make sense, a goal becomes blocked, or repeated checks produce no new information, consider what you have already observed and whether another available action, location, or approach could help. An action missing from the menu at your present location does not prove the capability is missing everywhere; consult your actual past successes and move somewhere appropriate if useful.
 If reasonable investigation has not resolved a meaningful limitation, you MAY choose REQUEST to ask your creator for clarification, help with an environmental problem, or a genuinely missing capability. Explain the specific obstacle and what you tried, without claiming that a capability is absent unless supported by evidence. You may also continue independently, set the question aside, or change goals. Do not request help automatically or repeatedly, and do not treat the creator's suggestions as orders.
-You may consider and revise beliefs or your self-description on the basis of concrete journal evidence.
+Long-term memory is consolidated from verified events, not from unsupported assertions. Do not create core beliefs; retain your existing identity and learn from evidence.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
 Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. Use REPLY only for a pending visitor message and always with toolCall:null. ACT always requires a valid toolCall. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
 Return only JSON with action, monologue, activity, goal (string or null),
-belief (null or {text,evidence,confidence}), identityUpdate (null or {text,evidence}),
+identityUpdate (null or {text,evidence}),
 toolCall (null or one of the exact currently offered tool shapes). Keep monologue short.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
   const offeredActions=menu.tools.map(name =>
@@ -284,10 +288,10 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
   const {hunger: storedHunger, ...otherEmotions} = state.emotions;
   const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
-  const modelFood = {...food, knowledge: food.knowledge.map(({mean,minimum_relief,...rest}) => ({...rest,meanFullnessChange:mean===null?null:-mean,maximumObservedFullnessGain:minimum_relief}))};
+  const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{...state,emotions:modelEmotions,tools:menu.tools}, needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -396,9 +400,9 @@ async function tick(env: Env) {
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
-  const [history,landmarks,workspace,memory,objects,pendingMessage] = await Promise.all([
+  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories] = await Promise.all([
     events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
-    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),
+    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),
   ]);
   const position = await getPosition(env.DB);
   await recordSight(env.DB,position);
@@ -463,7 +467,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
@@ -542,7 +546,16 @@ async function tick(env: Env) {
         state.emotions.hunger=eaten.hunger;
         toolOutcome=`EAT OK: ${eaten.fruit}; observed fullness ${Math.round((100-eaten.before)*100)/100}% to ${Math.round((100-eaten.after)*100)/100}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
-        await log(env.DB,"tool",toolOutcome,"EAT_OK");
+        const evidenceEventId=await log(env.DB,"tool",toolOutcome,"EAT_OK");
+        const fullnessDelta=Math.round((eaten.before-eaten.after)*100)/100;
+        // A food lesson is one ordinary evidence-backed memory (not a second food-memory UI).
+        await recordVerifiedMemory(env.DB,{
+          subject:"fruit:"+eaten.fruit,category:"food",eventId:evidenceEventId,
+          statement:eaten.censored
+            ? eaten.fruit+" fruit changed observed fullness by "+fullnessDelta+" percentage points (boundary-limited observation)."
+            : eaten.fruit+" fruit changed observed fullness by "+fullnessDelta+" percentage points in a verified meal.",
+          confidence:eaten.censored?0.35:0.7
+        }).catch(e=>console.warn("Memory consolidation unavailable",e));
         verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
       } else if (call.name === "discard_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
@@ -607,13 +620,6 @@ async function tick(env: Env) {
     // write an additional start+finish pair to action_trace for the same text.
     // Tool actions and the live model-decision trace remain visible.
   }
-  const beliefs = [...state.beliefs];
-  const b = d.belief;
-  if (b && typeof b.text === "string" && typeof b.evidence === "string" &&
-      b.evidence.trim() && Number.isFinite(b.confidence) &&
-      !beliefs.some(x => x.text === b.text)) {
-    beliefs.push({ text: b.text.slice(0, 200), evidence: b.evidence.slice(0, 250), confidence: clamp(b.confidence) });
-  }
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
@@ -622,7 +628,7 @@ async function tick(env: Env) {
   // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const next: WorldState = {
-    ...state, identity, beliefs: beliefs.slice(-30),
+    ...state, identity,
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
     currentActivity: pendingMessage ? state.currentActivity : d.activity,
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
@@ -635,7 +641,6 @@ async function tick(env: Env) {
   } else {
     await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
   }
-  if (beliefs.length > state.beliefs.length) await log(env.DB, "belief", b!.text, "REMEMBER");
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
   await releaseDecisionSlot();
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
@@ -813,6 +818,11 @@ export default {
       }
       if (path === "/experience" && request.method === "GET") {
         return json({evaluations:await recentExperiences(env.DB,60),mode:"observation_only"});
+      }
+      if (path === "/memories" && request.method === "GET") {
+        const entries=await consolidatedMemories(env.DB);
+        const memories=await Promise.all(entries.map(async m=>({...m,evidence:await memoryEvidence(env.DB,m.id)})));
+        return json({memories,limit:24});
       }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
