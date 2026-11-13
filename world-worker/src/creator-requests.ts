@@ -73,7 +73,7 @@ export async function respondToCreatorRequest(
      (request_id,idempotency_key,status,message) VALUES(?,?,?,?)`)
      .bind(id,idempotencyKey,status,content),
   db.prepare(`INSERT INTO events(kind,content,action)
-     SELECT 'visitor','Regarding my request #' || CAST(request_id AS TEXT) ||
+     SELECT 'visitor','Regarding your request #' || CAST(request_id AS TEXT) ||
        ' (status: ' || status || '). Creator says: ' || message,?
      FROM creator_request_responses
      WHERE idempotency_key=?
