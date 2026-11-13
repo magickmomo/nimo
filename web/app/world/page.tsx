@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldEvent, WorldState } from "../../lib/world";
 import "./world.css";
 import IsometricWorld, { type JourneyView } from "./isometric-world";
+import WorldInventory from "./world-inventory";
 import WorldMessagesPanel from "./world-messages-panel";
 import WorldMemoriesPanel from "./world-memories-panel";
 import { groupJournalEvents } from "../../lib/world-journal";
@@ -298,22 +299,11 @@ export default function World() {
           </div>
         </>
       )}
-      <section className="world-card world-food-controls" aria-label="Survival and inventory">
-        <div className="world-journal-head"><h2>Fullness &amp; inventory</h2><span className="meta">Fullness and curiosity are active</span></div>
-        <div className="world-inventory"><strong>Inventory ({totalInventory}/{inventoryCapacity})</strong>
-          <div className="world-fruits">
-            {fruitItems.map(item=><span className={"world-fruit "+item.fruit} key={"fruit-"+item.id}>{item.fruit} fruit</span>)}
-            {supplyItems.map(item=><span className="world-fruit" key={"supply-"+item.id}>{item.kind==="watering_can"?`Watering can (${item.water_units}/3 water)`:item.kind==="seed_packet"?"Seed packet":item.kind==="crop"?"Harvested crop":item.kind}</span>)}
-            {!totalInventory&&<span className="meta">Nothing collected yet</span>}
-          </div>
-        </div>
-      </section>
-      {data?.garden&&<section className="world-card" aria-label="Garden and economy">
-        <div className="world-journal-head"><h2>Allotment and store</h2><span className="meta">{data.garden.coins} coins · {data.garden.inventoryUsed}/{data.garden.capacity} inventory slots</span></div>
-        <p className="meta">Garden: {data.garden.plots.map(p=>p.id.replace("plot_","Plot ")+" "+p.stage).join(" · ")}</p>
-      </section>}
-      <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
-        selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+      <div className="nimo-game-stage">
+        <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
+          selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+      </div>
       {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
         <div className="world-journal-head">
           <h2>Current action</h2>
