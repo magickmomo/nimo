@@ -215,14 +215,15 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute nimo-world --remote --file=migrations/013_consolidated_memories.sql
-          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('consolidated_memories','memory_evidence')" > "$RUNNER_TEMP/nimo-memory-schema.json"
+          npx wrangler d1 execute nimo-world --remote --file=migrations/014_unify_legacy_memories.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('consolidated_memories_v2','memory_evidence_v2')" > "$RUNNER_TEMP/nimo-memory-schema.json"
           python3 - <<'PY'
           import json, os
           from pathlib import Path
           data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-memory-schema.json').read_text())
           entries=data if isinstance(data,list) else [data]
           names={row.get('name') for entry in entries for row in entry.get('results',[])}
-          if names != {'consolidated_memories','memory_evidence'}:
+          if names != {'consolidated_memories_v2','memory_evidence_v2'}:
               raise SystemExit('Consolidated memory migration incomplete; refusing deployment')
           print('Verified consolidated memory schema.')
           PY
