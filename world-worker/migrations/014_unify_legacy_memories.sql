@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS memory_evidence_v2_event ON memory_evidence_v2(event_
 -- Each legacy topic maps to one long-term subject; no legacy table is modified.
 INSERT OR IGNORE INTO consolidated_memories_v2
   (subject,statement,category,confidence,status,created_at,updated_at)
-SELECT topic, lesson,
+SELECT CASE WHEN topic='food_effects' AND category='food' THEN 'fruit:amber' ELSE topic END, lesson,
   CASE category
     WHEN 'food' THEN 'food'
     WHEN 'exploration' THEN 'place'
@@ -44,7 +44,7 @@ FROM consolidated_memories;
 INSERT OR IGNORE INTO memory_evidence_v2 (memory_id,event_id)
 SELECT newer.id,old_event.id
 FROM consolidated_memories old
-JOIN consolidated_memories_v2 newer ON newer.subject=old.topic
+JOIN consolidated_memories_v2 newer ON newer.subject=(CASE WHEN old.topic='food_effects' AND old.category='food' THEN 'fruit:amber' ELSE old.topic END)
 JOIN json_each(CASE WHEN json_valid(old.evidence_ids) THEN old.evidence_ids ELSE '[]' END) evidence
 JOIN events old_event ON old_event.id=CAST(evidence.value AS INTEGER)
 WHERE evidence.type='integer';
