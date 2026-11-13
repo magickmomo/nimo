@@ -101,6 +101,8 @@ jobs:
           assert legacy.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone() == (2,)
           assert legacy.execute("SELECT COUNT(*) FROM memory_evidence_v2").fetchone() == (1,)
           # Additive request and project migration: preserve and backfill historical requests.
+          db.execute("ALTER TABLE events ADD COLUMN created_at TEXT")
+          db.execute("ALTER TABLE events ADD COLUMN content TEXT")
           db.execute("INSERT INTO events(id,kind,action,created_at,content) VALUES(2,'request','REQUEST','2026-11-13','Please add a drawing tool')")
           db.executescript(Path('world-worker/migrations/015_requests_projects.sql').read_text())
           assert db.execute('SELECT content,status FROM creator_requests').fetchall() == [('Please add a drawing tool','pending')]
