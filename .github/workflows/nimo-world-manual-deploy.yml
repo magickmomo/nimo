@@ -237,14 +237,15 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute nimo-world --remote --file=migrations/015_requests_projects.sql
-          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('creator_requests','nimo_projects')" > "$RUNNER_TEMP/nimo-new-schema.json"
+          npx wrangler d1 execute nimo-world --remote --file=migrations/016_creator_request_responses.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('creator_requests','nimo_projects','creator_request_responses')" > "$RUNNER_TEMP/nimo-new-schema.json"
           python3 - <<'PY'
           import json,os
           from pathlib import Path
           data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-new-schema.json').read_text())
           entries=data if isinstance(data,list) else [data]
           names={r.get('name') for e in entries for r in e.get('results',[])}
-          if names != {'creator_requests','nimo_projects'}:
+          if names != {'creator_requests','nimo_projects','creator_request_responses'}:
               raise SystemExit('Request/project schema incomplete; refusing deployment')
           print('Verified requests and projects.')
           PY
