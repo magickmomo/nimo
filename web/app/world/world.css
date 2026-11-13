@@ -278,3 +278,14 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
  .nimo-inventory-slot{max-width:38px;border-radius:6px}
  .nimo-inventory-tooltip{font-size:11px}
 }
+
+/* Owner request and self-directed project panels. */
+.nimo-unread-count{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 6px;margin-left:5px;border-radius:999px;background:#f0c86e;color:#213a32;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.nimo-request-entry{padding:15px;background:#f7faf8;border:1px solid #d8e3dc;border-radius:10px;color:#294440}
+.nimo-request-entry p{white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0;line-height:1.55}
+.nimo-request-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;text-transform:capitalize}
+.nimo-request-meta time{color:#61756c}
+.nimo-request-actions{display:flex;align-items:center;gap:12px;margin-top:12px}
+.nimo-request-actions label{font-size:12px;font-weight:700}
+.nimo-request-actions select{min-width:145px;background:#fff;color:#233e32;border:1px solid #bdd0c4;border-radius:8px;padding:7px}
+.world-requests-panel .world-message-thread,.world-projects-panel .world-message-thread{display:flex;flex-direction:column;gap:12px}
