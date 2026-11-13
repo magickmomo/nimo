@@ -20,7 +20,6 @@ export type Decision = {
   monologue: string;
   activity: string;
   goal: string | null;
-  belief?: { text: string; evidence: string; confidence: number } | null;
   identityUpdate?: { text: string; evidence: string } | null;
   toolCall: DecisionTool | null;
 };
@@ -119,16 +118,6 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else fail("unknown tool name");
   }
 
-  let belief: Decision["belief"] = null;
-  if (d.belief !== undefined && d.belief !== null) {
-    if (!object(d.belief) || !string(d.belief.text, 200) ||
-        !string(d.belief.evidence, 250) ||
-        typeof d.belief.confidence !== "number" ||
-        !Number.isFinite(d.belief.confidence) ||
-        d.belief.confidence < 0 || d.belief.confidence > 1)
-      fail("belief must contain text, evidence and confidence in 0–1");
-    belief = {text:d.belief.text, evidence:d.belief.evidence, confidence:d.belief.confidence};
-  }
   let identityUpdate: Decision["identityUpdate"] = null;
   if (d.identityUpdate !== undefined && d.identityUpdate !== null) {
     if (!object(d.identityUpdate) || !string(d.identityUpdate.text, 500) ||
@@ -142,6 +131,6 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     monologue: d.monologue as string,
     activity: d.activity as string,
     goal: d.goal === undefined ? null : d.goal as string | null,
-    belief, identityUpdate, toolCall,
+    identityUpdate, toolCall,
   };
 }
