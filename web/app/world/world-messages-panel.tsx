@@ -1,11 +1,14 @@
 "use client";
 
-import {useCallback,useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useLayoutEffect,useRef,useState} from "react";
 
 type Message={id:number;created_at:string;kind:string;content:string;action:string|null};
 
 export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
   const dialogRef=useRef<HTMLDivElement>(null);
+  const threadRef=useRef<HTMLDivElement>(null);
+  const keepLatestVisible=useRef(true);
+  const firstMessagesLoaded=useRef(false);
   const [messages,setMessages]=useState<Message[]>([]);
   const [authenticated,setAuthenticated]=useState<boolean|null>(null);
   const [draft,setDraft]=useState("");
@@ -29,6 +32,12 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
       }
       const data=await response.json() as {messages?:Message[];error?:string};
       if(!response.ok)throw Error(data.error||"Conversation unavailable");
+      const thread=threadRef.current;
+      // Only follow new messages if already at the bottom. Opening always
+      // starts at the newest entry; historical browsing should not jump.
+      keepLatestVisible.current=!firstMessagesLoaded.current || !thread ||
+        thread.scrollHeight-thread.scrollTop-thread.clientHeight<90;
+      firstMessagesLoaded.current=true;
       setMessages(data.messages||[]);
       setAuthenticated(true);setError("");succeeded=true;
     }catch(err){setError(err instanceof Error?err.message:"Conversation unavailable");}
@@ -39,6 +48,12 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
       }
     }
   },[]);
+
+  useLayoutEffect(()=>{
+    if(!keepLatestVisible.current)return;
+    const thread=threadRef.current;
+    if(thread)thread.scrollTop=thread.scrollHeight;
+  },[messages]);
 
   useEffect(()=>{
     const previouslyFocused=document.activeElement instanceof HTMLElement?document.activeElement:null;
@@ -104,7 +119,7 @@ export default function WorldMessagesPanel({onClose}:{onClose:()=>void}){
     {authenticated===false ? <p className="meta">
       Messages are private. <a href="/world/settings">Sign in under Settings</a> to view and send them.
     </p> : <>
-      <div className="world-message-thread" role="log" aria-label="Conversation history" aria-live="polite">
+      <div ref={threadRef} className="world-message-thread" role="log" aria-label="Conversation history" aria-live="polite">
         {messages.length===0?<p className="meta">{authenticated===null?"Loading conversation…":"No messages yet."}</p>:
           messages.map(item=>{
             const isYou=item.kind==="visitor",isRequest=item.action==="REQUEST";
