@@ -85,7 +85,7 @@ jobs:
           test -n "$ACCOUNT" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
           test -n "$DATABASE" || { echo "::error::Missing NIMO_D1_DATABASE_ID repository secret"; exit 1; }
 
-      - name: Create temporary Wrangler config
+      - name: Verify tracked Wrangler configuration
         if: inputs.operation != 'verify'
         working-directory: world-worker
         env:
@@ -94,14 +94,12 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          template=Path("wrangler.toml.example").read_text()
-          assert template.count("REPLACE_WITH_YOUR_D1_DATABASE_ID") == 1
-          database=os.environ["DATABASE"]
-          # A D1 ID is a UUID, never interpret secret text as TOML.
-          import re
-          if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", database):
-              raise SystemExit("NIMO_D1_DATABASE_ID must be a D1 UUID")
-          Path("wrangler.toml").write_text(template.replace("REPLACE_WITH_YOUR_D1_DATABASE_ID",database))
+          config=Path("wrangler.toml").read_text()
+          expected='database_id = "'+database+'"'
+          if expected not in config:
+            raise SystemExit("Tracked Wrangler config has unexpected D1 database ID")
+          if '[triggers]' not in config or 'crons = ["* * * * *"]' not in config:
+            raise SystemExit("Tracked Wrangler config is missing required cron schedule")
           PY
 
       - name: Check migration 007 has not already run
