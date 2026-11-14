@@ -1,6 +1,6 @@
 /** Archives the latest completed 24-hour UTC window ending 06:00 UTC.
  * The window is [yesterday 06:00, today 06:00); no "oldest 10000 rows" cap.
- * Records are paged by SQLite rowid; R2 storage is private and write-once.
+ * Immutable events and timestamped revisions are paged by SQLite rowid.\n * Mutable current-state tables are never misrepresented as historical events.
  */
 export const ARCHIVE_HOUR_UTC=6;
 export const ARCHIVE_START_MINUTE=5;
@@ -15,29 +15,17 @@ export function archiveWindow(now:Date) {
 type Ledger={name:string;table:string;column:string};
 const LEDGERS:readonly Ledger[]=[
  {name:"events",table:"events",column:"created_at"},
+ {name:"revisions",table:"world_revision_history",column:"recorded_at"},
  {name:"decisions",table:"decisions",column:"created_at"},
  {name:"actionTrace",table:"action_trace",column:"started_at"},
  {name:"rewards",table:"world_rewards",column:"created_at"},
  {name:"objectObservations",table:"object_observations",column:"observed_at"},
- {name:"objectNotesUpdated",table:"object_notes",column:"updated_at"},
- {name:"memoriesCreated",table:"consolidated_memories_v2",column:"created_at"},
- {name:"memoriesUpdated",table:"consolidated_memories_v2",column:"updated_at"},
  {name:"memoryEvidence",table:"memory_evidence_v2",column:"created_at"},
- {name:"newPlacesVisited",table:"world_visited",column:"first_visited"},
- {name:"placesRevisited",table:"world_visited",column:"last_visited"},
  {name:"newSight",table:"world_seen",column:"first_seen"},
- {name:"objectsInspected",table:"world_inspected",column:"last_inspected"},
  {name:"experienceEvaluations",table:"experience_evaluations",column:"created_at"},
  {name:"vendingAttempts",table:"vending_attempts",column:"created_at"},
  {name:"gardenTransactions",table:"garden_transactions",column:"created_at"},
- {name:"creatorRequests",table:"creator_requests",column:"created_at"},
  {name:"creatorRequestResponses",table:"creator_request_responses",column:"created_at"},
- {name:"projectsCreated",table:"nimo_projects",column:"created_at"},
- {name:"projectsUpdated",table:"nimo_projects",column:"updated_at"},
- {name:"sketchesCreated",table:"nimo_sketches",column:"created_at"},
- {name:"sketchesUpdated",table:"nimo_sketches",column:"updated_at"},
- {name:"documentsCreated",table:"documents",column:"created_at"},
- {name:"documentsUpdated",table:"documents",column:"updated_at"},
  {name:"gardenItems",table:"garden_inventory",column:"created_at"},
 ];
 export async function readWindowLedger(db:D1Database,ledger:Ledger,start:string,end:string){
@@ -64,22 +52,28 @@ export async function buildDailyArchive(db:D1Database,start:string,end:string){
   for(const ledger of LEDGERS) ledgers[ledger.name]=await readWindowLedger(db,ledger,start,end);
   // Snapshot is identified as the state at ARCHIVE time, not misrepresented as
   // state exactly at the 06:00 cutoff.
-  const [world,position,control,journey]=await Promise.all([
+  const [world,position,control,journey,revisionHistorySetup]=await Promise.all([
     db.prepare("SELECT state,next_tick FROM world WHERE id=1").first(),
     db.prepare("SELECT x,y FROM world_position WHERE id=1").first(),
     db.prepare("SELECT autonomous_enabled,updated_at FROM world_control WHERE id=1").first(),
     db.prepare("SELECT * FROM world_journey WHERE id=1").first(),
+    db.prepare("SELECT installed_at FROM world_revision_history_config WHERE id=1").first<{installed_at:string}>(),
   ]);
-  return {format:"nimo-daily-24h-v1",window:{start,end,durationHours:24,timezone:"UTC",inclusiveStart:true,exclusiveEnd:true},
-    generatedAt:new Date().toISOString(),complete:true,ledgers,
-    snapshotAtExport:{world,position,control,journey}};
+  // Legacy mutable revisions overwritten before migration 018 are unrecoverable.
+  // Do not present a partial history as a complete research archive.
+  const revisionsComplete=Boolean(revisionHistorySetup?.installed_at && revisionHistorySetup.installed_at<=start);
+  return {format:"nimo-daily-24h-v2",window:{start,end,durationHours:24,timezone:"UTC",inclusiveStart:true,exclusiveEnd:true},
+    generatedAt:new Date().toISOString(),complete:revisionsComplete,
+    revisionHistoryAvailableSince:revisionHistorySetup?.installed_at??null,
+    incompleteReason:revisionsComplete?null:"Revision tracking began during or after this window; earlier edits to mutable records cannot be reconstructed.",
+    ledgers,snapshotAtExport:{world,position,control,journey}};
 }
 export async function archiveLatestCompletedDay(db:D1Database,bucket:R2Bucket,now:Date){
   const {start,end,key}=archiveWindow(now);
   if(await bucket.head(key))return {status:"exists" as const,key};
   const payload=await buildDailyArchive(db,start,end);
   const serialized=JSON.stringify(payload);
-  await bucket.put(key,serialized,{httpMetadata:{contentType:"application/json"},customMetadata:{start,end,format:"nimo-daily-24h-v1"}});
+  await bucket.put(key,serialized,{httpMetadata:{contentType:"application/json"},customMetadata:{start,end,format:"nimo-daily-24h-v2"}});
   return {status:"created" as const,key,bytes:serialized.length};
 }
 export function shouldArchiveNow(now:Date):boolean {
