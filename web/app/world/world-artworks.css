@@ -1,0 +1,7 @@
+.world-artworks-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.world-artworks-tabs button{border:1px solid var(--world-border,#666);border-radius:8px;padding:8px 12px;background:transparent;color:inherit;cursor:pointer}
+.world-artworks-tabs button[aria-selected="true"]{font-weight:700;background:rgba(128,128,128,.15)}
+.world-artworks-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.world-artwork-entry{display:flex;flex-direction:column;gap:7px;border:1px solid rgba(128,128,128,.3);border-radius:10px;padding:12px;min-width:0}
+.world-artwork-entry p{margin:0;overflow-wrap:anywhere}
+.world-artwork-canvas{width:100%;height:auto;aspect-ratio:4/3;border:1px solid #e0d8c8;border-radius:6px;background:#faf5e9}

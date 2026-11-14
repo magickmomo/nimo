@@ -44,6 +44,9 @@ export function buildCapabilityCatalogue(
         "A seed packet costs "+seedCost+" coins; current balance is "+coins,
       "Have sufficient coins and free inventory capacity",
     ]],
+    ["start_sketch","Begin a new drawing in your sketchbook",["Purchase the reusable sketchpad at the vending machine","Finish an existing sketch before opening another"]],
+    ["draw_strokes","Draw vector pencil strokes on the current page",["Own the sketchpad","Have an unfinished sketch","Canvas 240×180; up to eight strokes per turn"]],
+    ["finish_sketch","Finish or abandon the drawing on the current page",["Own the sketchpad","Have an unfinished sketch"]],
     ["take_can","Collect a watering can from the well",[
       known.has("well_001") ? "Stand adjacent to well_001" : "Find the well",
       hasCan ? "Already carrying a watering can" : "Have room to carry a watering can",

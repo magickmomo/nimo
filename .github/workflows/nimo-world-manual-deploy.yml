@@ -252,6 +252,27 @@ jobs:
           print('Verified requests and projects.')
           PY
 
+      - name: Apply and verify sketchbook migration 017
+        if: ${{ inputs.version == 'current-main' }}
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world --remote --file=migrations/017_sketchbook.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('nimo_sketchbook','nimo_sketches')" > "$RUNNER_TEMP/nimo-sketchbook-schema.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-sketchbook-schema.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          names={r.get('name') for e in entries for r in e.get('results',[])}
+          if names != {'nimo_sketchbook','nimo_sketches'}:
+              raise SystemExit('Sketchbook migration incomplete; refusing Worker deployment')
+          print('Verified sketchbook schema.')
+          PY
+
       - name: Deploy Worker after successful migrations
         working-directory: world-worker
         env:

@@ -4,7 +4,7 @@ import type {Point} from "../../web/lib/world-map";
 export const VENDING_MACHINE_ID="vending_001";
 export const VENDING_ITEMS=[
   {id:"seed_packet",label:"Seed packet",price:2,available:true,description:"Plantable seeds; costs 2 coins."},
-  {id:"sketchpad",label:"Small sketchpad",price:3,available:false,description:"Coming soon. Not for sale until drawing is implemented."},
+  {id:"sketchpad",label:"Small sketchpad",price:3,available:true,description:"A reusable sketchbook. After buying it, you can draw with pencil strokes."},
   {id:"mystery_box",label:"Mysterious box",price:5,available:false,description:"Coming soon. Contents are not yet defined; coins cannot be spent on it."},
 ] as const;
 export type VendingItemId=typeof VENDING_ITEMS[number]["id"];

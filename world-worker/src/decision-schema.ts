@@ -1,9 +1,13 @@
 // Validate the model's public decision contract before any tool can run.
 // Only narrow, unambiguous compatibility repairs are allowed.
+import {validateStrokes} from "./sketchbook";
 import { WORLD_SIZE } from "../../web/lib/world-map";
 
 export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
 export type DecisionTool =
+  | { name:"start_sketch";title:string;intention:string }
+  | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
+  | { name:"finish_sketch";sketchId:number;status:"finished"|"abandoned" }
   | { name: "write_document"; path: string; content: string }
   | { name: "travel_to"; x: number; y: number }
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
@@ -27,7 +31,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -100,6 +104,17 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
       if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
       toolCall={name:tool.name,fruit:tool.fruit as "amber"|"blue"|"red"};
+    } else if (tool.name === "start_sketch") {
+      if(!string(tool.title,100)||!tool.title.trim()||!string(tool.intention,300)||!tool.intention.trim())fail("Invalid sketch intention");
+      toolCall={name:"start_sketch",title:tool.title,intention:tool.intention};
+    } else if (tool.name === "draw_strokes") {
+      if(!Number.isSafeInteger(tool.sketchId)||(tool.sketchId as number)<1)fail("Invalid sketch ID");
+      // Validation is repeated by the storage boundary before any database mutation.
+      const strokes=validateStrokes(tool.strokes);
+      toolCall={name:"draw_strokes",sketchId:tool.sketchId as number,strokes};
+    } else if (tool.name === "finish_sketch") {
+      if(!Number.isSafeInteger(tool.sketchId)||(tool.sketchId as number)<1||!["finished","abandoned"].includes(String(tool.status)))fail("Invalid finish sketch action");
+      toolCall={name:"finish_sketch",sketchId:tool.sketchId as number,status:tool.status as "finished"|"abandoned"};
     } else if (tool.name === "create_project") {
       if(!string(tool.title,100)||!tool.title.trim()||!string(tool.objective,400)||!tool.objective.trim()||
         !string(tool.nextStep,300)||!tool.nextStep.trim())fail("Invalid new project");
