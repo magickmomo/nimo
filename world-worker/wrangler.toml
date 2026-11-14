@@ -1,0 +1,15 @@
+name = "nimo-world"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Cron is required for autonomous decisions even when no one visits the site.
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nimo-world"
+database_id = "adf7b04a-0a03-40b7-8389-b02d7339a31f"
+
+[vars]
+OPENAI_MODEL = "gpt-6-luna"
