@@ -4,65 +4,46 @@ import {test} from "node:test";
 import ts from "typescript";
 const source=readFileSync(new URL("../src/curiosity.ts",import.meta.url),"utf8");
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {curiosityStep,curiosityGuidance}=await import("data:text/javascript;base64,"+Buffer.from(compiled).toString("base64"));
-const fruitLoop=["EAT_OK","PICK_OK","EAT_OK","PICK_OK","EAT_OK","PICK_OK"]
-  .map((action,i)=>({id:6-i,action,content:""}));
-test("above 60% fullness, repetitive fruit exploitation increases curiosity",()=>{
- const r=curiosityStep(0.35,0.61,fruitLoop,3,0);
- assert.equal(r.active,true);
- assert.equal(r.foodLoop,true);
- assert.ok(r.value>=0.49);
- assert.equal(r.newDiscoveries,0);
- assert.match(curiosityGuidance(0.61,r.value,3,r.foodLoop),/curiosity should usually take priority/);
+const {curiosityStep,curiosityGuidance,choiceName,recentChoices}=await import("data:text/javascript;base64,"+Buffer.from(compiled).toString("base64"));
+
+test("repeating any action type raises curiosity, including farming",()=>{
+ const recent=["sell_item","harvest_crop","water_plot","plant_seed","buy_item","sell_item","harvest_crop","water_plot","plant_seed","buy_item"];
+ const next=curiosityStep(0.35,recent,"sell_item");
+ assert.equal(next.repeatCount,2);
+ assert.ok(next.value>0.35);
+ assert.equal(next.history.length,10);
+ assert.equal(next.history[0],"sell_item");
 });
-test("60% fullness and below prioritises food",()=>{
- for(const fullness of [0,0.3,0.6]){
-  const r=curiosityStep(0.95,fullness,fruitLoop,5,0);
-  assert.equal(r.active,false);
-  assert.match(curiosityGuidance(fullness,r.value,5,r.foodLoop),/Food and other priorities/);
- }
+test("an action absent from the recent ten lowers curiosity without blocking familiar actions",()=>{
+ const recent=Array(10).fill("plant_seed");
+ const next=curiosityStep(0.8,recent,"write_document");
+ assert.equal(next.repeatCount,0);
+ assert.ok(Math.abs(next.value-0.7)<1e-9);
+ assert.equal(next.history[0],"write_document");
+ const hint=curiosityGuidance(0.9,0.8,recent,["plant_seed","write_document"]);
+ assert.match(hint,/unused in that window: write_document/);
+ assert.match(hint,/continuing a meaningful routine is always valid/);
 });
-test("one discovery reduces curiosity once, not every tick it remains in the journal",()=>{
- const history=[{id:12,action:"INSPECT_OK",content:"Comparison: first"},{id:11,action:"TRAVEL_OK",content:"arrived"}];
- const first=curiosityStep(0.7,0.92,history,2,11);
- assert.equal(first.newDiscoveries,1);
- assert.ok(first.value<0.7);
- assert.equal(first.discoveryCursor,12);
- const second=curiosityStep(first.value,0.92,history,2,first.discoveryCursor);
- assert.equal(second.newDiscoveries,0);
- assert.equal(second.value,first.value+0.035);
+test("curiosity only suggests actions currently available",()=>{
+ const hint=curiosityGuidance(0.8,0.95,["sell_item"],["sell_item","inspect"]);
+ assert.match(hint,/unused in that window: inspect/);
+ assert.doesNotMatch(hint,/unused in that window: buy_item/);
+ assert.match(hint,/never a command/);
 });
-test("distinct verified discoveries each count once, including when several arrive together",()=>{
- const history=[{id:15,action:"PURCHASE_OK",content:"completed"},
-                {id:14,action:"INSPECT_OK",content:"Comparison: unchanged"},
-                {id:13,action:"HARVEST_CROP_OK",content:"completed"},
-                {id:12,action:"INSPECT_OK",content:"Comparison: first"}];
- const r=curiosityStep(0.9,0.91,history,1,11);
- assert.equal(r.newDiscoveries,3);
- assert.equal(r.discoveryCursor,15);
- assert.ok(r.value<0.9);
- assert.equal(curiosityStep(r.value,0.91,history,1,r.discoveryCursor).newDiscoveries,0);
+test("ten most recent choices are bounded and case-normalized",()=>{
+ const h=Array(10).fill("inspect");
+ const next=curiosityStep(0.1,h,"inspect");
+ assert.equal(next.history.length,10);
+ assert.equal(next.value,0.22);
+ assert.equal(choiceName("ACT","buy_item"),"buy_item");
+ assert.equal(choiceName("THINK"),"think");
+ assert.deepEqual(recentChoices(["x","BUY","harvest_crop",4]),["x","harvest_crop"]);
 });
-test("minimum curiosity is 10%, and can recover after a discovery",()=>{
- const history=[{id:2,action:"INSPECT_OK",content:"Comparison: first"}];
- const first=curiosityStep(0.11,0.95,history,1,1);
- assert.equal(first.value,0.1);
- assert.equal(first.newDiscoveries,1);
- const again=curiosityStep(first.value,0.95,history,1,first.discoveryCursor);
- assert.equal(again.newDiscoveries,0);
- assert.equal(again.value,0.135);
+test("curiosity remains within zero and one",()=>{
+ assert.equal(curiosityStep(1,Array(10).fill("inspect"),"inspect").value,1);
+ assert.equal(curiosityStep(0,[],"write_document").value,0);
 });
-test("legacy states without a cursor don't replay old discoveries",()=>{
- const history=[{id:188,action:"INSPECT_OK",content:"Comparison: first"}];
- const r=curiosityStep(0,0.95,history,1,NaN);
- assert.equal(r.newDiscoveries,0);
- assert.equal(r.discoveryCursor,188);
- assert.equal(r.value,0.1);
-});
-test("curiosity remains a soft motivation with no compulsory movement or food ban",()=>{
- assert.equal(curiosityStep(0.99,0.9,fruitLoop,2,0).value,1);
- assert.equal(curiosityStep(-100,0.9,[],0,0).value,0.1);
- const guidance=curiosityGuidance(0.9,0.85,1,true);
- assert.match(guidance,/Food actions remain possible/);
- assert.match(guidance,/Do not wander merely/);
+test("essential nutrition is not overridden by curiosity",()=>{
+ const hint=curiosityGuidance(0.2,0.9,[],["inspect","eat_fruit"]);
+ assert.match(hint,/Prioritise food when needed/);
 });

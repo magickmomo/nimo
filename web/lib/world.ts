@@ -7,7 +7,8 @@ export type WorldState = {
   tickCount: number;
   lastTick: string | null;
   rewardCursor?: number;
-  curiosityDiscoveryCursor?: number; // Last journal event examined for one-time curiosity satisfaction.
+  curiosityDiscoveryCursor?: number; // Legacy cursor, retained for backward-compatible state loading.
+  curiosityActionHistory?: string[]; // Last ten completed decision choices, newest first.
 };
 
 export type WorldEvent = {
