@@ -68,7 +68,7 @@ test("archive is separate from scheduled loop and never restricted to oldest 100
  assert.match(archive,/rowid>\?/);
  assert.match(archive,/ORDER BY rowid ASC LIMIT 500/);
  assert.doesNotMatch(archive,/LIMIT 10000/);
- assert.match(archive,/window:\{start,end,durationHours:24/);
+ assert.match(archive,/window:\{start,end,durationHours:\(Date.parse\(end\)-Date.parse\(start\)\)\/HOUR_MS/);
 });
 
 test("day export paginates every recent event and excludes boundary/outside records",async()=>{
