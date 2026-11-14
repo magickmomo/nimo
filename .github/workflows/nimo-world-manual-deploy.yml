@@ -65,7 +65,7 @@ jobs:
         run: |
           npm run typecheck
           npm test
-      - name: Create private Wrangler configuration
+      - name: Verify tracked Wrangler configuration
         working-directory: world-worker
         shell: bash
         run: |
@@ -73,10 +73,12 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          template = Path('wrangler.toml.example').read_text()
-          placeholder = 'REPLACE_WITH_YOUR_D1_DATABASE_ID'
-          assert template.count(placeholder) == 1, 'Wrangler template must contain the expected D1 placeholder once'
-          Path('wrangler.toml').write_text(template.replace(placeholder, os.environ['D1_DATABASE_ID']))
+          config = Path('wrangler.toml').read_text()
+          expected = 'database_id = "' + os.environ['D1_DATABASE_ID'] + '"'
+          if expected not in config:
+            raise SystemExit('Tracked wrangler.toml has unexpected D1 database ID; refusing deployment')
+          if '[triggers]' not in config or 'crons = ["* * * * *"]' not in config:
+            raise SystemExit('Tracked Wrangler config missing autonomous cron trigger')
           PY
       - name: Verify Nimo is asleep before migrating
         working-directory: world-worker
