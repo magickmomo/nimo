@@ -10,7 +10,7 @@ const MAX_QUESTION=500;
 
 export function adjacentToOracle(position:Point):boolean {
   // The physical monument occupies a 2x2 footprint. Its edges are reachable.
-  for(const x of [12,13])for(const y of [12,13]){
+  for(const x of [1,2])for(const y of [13,14]){
     if(Math.abs(position.x-x)+Math.abs(position.y-y)===1)return true;
   }
   return false;
