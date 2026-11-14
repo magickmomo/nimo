@@ -5,6 +5,8 @@ import "../world.css";
 
 type WorldSnapshot = {
   autonomousEnabled: boolean;
+  manualAutonomousEnabled?:boolean;
+  scheduledAsleep?:boolean;
   journey?: { status: "idle" | "travelling" | "paused"; stepIndex: number; path: {x:number;y:number}[] };
   world: { state: { tickCount: number; lastTick: string | null } };
 };
@@ -75,8 +77,8 @@ export default function WorldSettings() {
         throw new Error(data.error || "Could not change setting");
       }
       if (typeof data.autonomousEnabled !== "boolean") throw new Error("Invalid Worker response");
-      setSnapshot(s => s && ({ ...s, autonomousEnabled: data.autonomousEnabled }));
-      setNotice(data.autonomousEnabled ? "Nimo is awake. A paused journey resumes, or a new decision becomes eligible at the next scheduled check." :
+      setSnapshot(s => s && ({ ...s, autonomousEnabled: data.autonomousEnabled,manualAutonomousEnabled:data.manualAutonomousEnabled,scheduledAsleep:data.scheduledAsleep }));
+      setNotice(enabled ? (data.scheduledAsleep ? "Owner pause removed. Nimo will wake at 06:00 UK time." : "Nimo is awake. A paused journey resumes, or a new decision becomes eligible at the next scheduled check.") :
         "Nimo is sleeping. Decisions and active travel are paused.");
       await refresh();
     } catch (err) {
@@ -108,16 +110,16 @@ export default function WorldSettings() {
         <h2>Autonomous loop</h2>
         {snapshot?.journey && snapshot.journey.status !== "idle" && <p className="meta">Journey: {snapshot.journey.status} · {snapshot.journey.stepIndex} of {Math.max(0,snapshot.journey.path.length-1)} steps completed.</p>}
         <p><strong>Current status: </strong>
-          {snapshot ? snapshot.autonomousEnabled ? "Awake — enabled" : "Sleeping — paused" : "Loading…"}
+          {snapshot ? snapshot.scheduledAsleep ? "Sleeping — nightly rest" : snapshot.autonomousEnabled ? "Awake — enabled" : "Sleeping — owner pause" : "Loading…"}
         </p>
         <p className="meta">
-          Cloudflare uses a minute-level cron with faster checks while awake. Sleep pauses walking and skips new OpenAI calls.
+          Nimo rests daily from 22:00 to 06:00 Europe/London time, including daylight-saving changes. Your manual pause persists across mornings. Sleep pauses walking and skips new OpenAI calls.
           A request already in progress may still be billed.
         </p>
         <div className="voice-controls">
-          <button type="button" disabled={busy || !snapshot?.autonomousEnabled || !signedIn}
+          <button type="button" disabled={busy || !snapshot?.manualAutonomousEnabled || !signedIn}
             onClick={() => void setAwake(false)}>Put Nimo to sleep</button>
-          <button type="button" disabled={busy || !snapshot || snapshot.autonomousEnabled || !signedIn}
+          <button type="button" disabled={busy || !snapshot || snapshot.manualAutonomousEnabled!==false || !signedIn}
             onClick={() => void setAwake(true)}>Wake Nimo up</button>
           <button type="button" onClick={() => void refresh()} disabled={busy}>Refresh status</button>
         </div>
