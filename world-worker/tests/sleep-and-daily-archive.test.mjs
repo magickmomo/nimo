@@ -8,7 +8,7 @@ const toModule=async path=>{
  return import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 };
 const {scheduledAsleep,awakeElapsedSeconds}=await toModule("../src/sleep-schedule.ts");
-const {archiveWindow,shouldArchiveNow}=await toModule("../src/daily-archive.ts");
+const {archiveWindow,shouldArchiveNow,latestArchiveKeys}=await toModule("../src/daily-archive.ts");
 
 test("Nimo sleeps 22:00–06:00 UK time, including BST",()=>{
  for(const [iso,sleeping] of [
@@ -22,17 +22,45 @@ test("night sleep does not cause a large hunger spike at waking",()=>{
  assert.equal(awakeElapsedSeconds(new Date("2026-01-10T21:59:00Z"),new Date("2026-01-11T06:01:00Z")),120);
  assert.equal(awakeElapsedSeconds(new Date("2026-07-10T20:59:00Z"),new Date("2026-07-11T05:01:00Z")),120);
 });
-test("daily archive covers exact latest completed 24h, including all rows in range",()=>{
- const at=new Date("2026-11-14T06:05:10Z");
+test("daily archive runs after UK bedtime and keeps completed local-day boundaries",()=>{
+ const at=new Date("2026-11-14T22:05:10Z");
  assert.deepEqual(archiveWindow(at),{
-  start:"2026-11-13T06:00:00.000Z",
-  end:"2026-11-14T06:00:00.000Z",
-  key:"daily/2026-11-14.json",
+  start:"2026-11-13T22:00:00.000Z",
+  end:"2026-11-14T22:00:00.000Z",
+  key:"daily/uk-2200/2026-11-14.json",
  });
  assert.equal(shouldArchiveNow(at),true);
- assert.equal(shouldArchiveNow(new Date("2026-11-14T05:59:59Z")),false);
- assert.equal(archiveWindow(new Date("2026-11-14T06:04:00Z")).key,"daily/2026-11-13.json");
+ assert.equal(shouldArchiveNow(new Date("2026-11-14T22:04:00Z")),false);
+ assert.equal(shouldArchiveNow(new Date("2026-11-14T06:05:00Z")),false);
+ assert.equal(archiveWindow(new Date("2026-11-14T22:04:00Z")).key,"daily/uk-2200/2026-11-13.json");
+ assert.deepEqual(latestArchiveKeys(at),[
+  "daily/uk-2200/2026-11-14.json",
+  "daily/uk-2200/2026-11-13.json",
+  "daily/2026-11-14.json",
+ ]);
 });
+test("UK archive fires 21:05 UTC during BST, 22:05 UTC in winter",()=>{
+ assert.equal(shouldArchiveNow(new Date("2026-07-14T21:05:00Z")),true);
+ assert.equal(shouldArchiveNow(new Date("2026-07-14T22:05:00Z")),false);
+ assert.deepEqual(archiveWindow(new Date("2026-07-14T21:05:00Z")),{
+  start:"2026-07-13T21:00:00.000Z",
+  end:"2026-07-14T21:00:00.000Z",
+  key:"daily/uk-2200/2026-07-14.json",
+ });
+});
+test("DST change days use consecutive UK 22:00 boundaries without gaps or overlap",()=>{
+ const spring=archiveWindow(new Date("2026-03-29T21:05:00Z"));
+ assert.equal(spring.start,"2026-03-28T22:00:00.000Z");
+ assert.equal(spring.end,"2026-03-29T21:00:00.000Z");
+ assert.equal((Date.parse(spring.end)-Date.parse(spring.start))/3600000,23);
+ const autumn=archiveWindow(new Date("2026-10-25T22:05:00Z"));
+ assert.equal(autumn.start,"2026-10-24T21:00:00.000Z");
+ assert.equal(autumn.end,"2026-10-25T22:00:00.000Z");
+ assert.equal((Date.parse(autumn.end)-Date.parse(autumn.start))/3600000,25);
+ const next=archiveWindow(new Date("2026-10-26T22:05:00Z"));
+ assert.equal(next.start,autumn.end);
+});
+
 test("archive is separate from scheduled loop and never restricted to oldest 10000",()=>{
  const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
  const archive=readFileSync(new URL("../src/daily-archive.ts",import.meta.url),"utf8");
