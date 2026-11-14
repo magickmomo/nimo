@@ -9,7 +9,7 @@ import { recordExperience, recentExperiences, type VerifiedOutcome } from "./exp
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
-import { scheduledAsleep } from "./sleep-schedule";
+import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import { archiveLatestCompletedDay, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
@@ -417,7 +417,7 @@ async function tick(env: Env) {
   }
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
-  const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
+  const elapsed = Number.isFinite(last) ? awakeElapsedSeconds(new Date(last),now) : 60;
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
