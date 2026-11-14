@@ -259,6 +259,7 @@ export default function World() {
   const supplyItems=data?.garden?.inventory??[];
   const totalInventory=fruitItems.length+supplyItems.length;
   const inventoryCapacity=data?.garden?.capacity??data?.food?.capacity??9;
+  const coins=data?.garden?.coins??data?.vending?.coins;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
   const recentActions = data?.actionTrace ?? [];
@@ -323,6 +324,11 @@ export default function World() {
         </>
       )}
       <div className="nimo-game-stage">
+        <div className="nimo-coin-counter" role="status" aria-label={coins===undefined?"Coin balance unavailable":`Nimo has ${coins} coins`}>
+          <span className="nimo-coin-symbol" aria-hidden="true" />
+          <span className="nimo-coin-amount">{coins===undefined?"—":coins.toLocaleString()}</span>
+          <span className="nimo-coin-label">coins</span>
+        </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
         <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
           selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
