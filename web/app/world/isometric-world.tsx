@@ -18,6 +18,25 @@ const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: M
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
 
 function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
+  if(kind==="oracle")return (
+    <g aria-label="Ancient Oracle monument">
+      <ellipse cx="20" cy="5" rx="47" ry="19" fill="#102f35" opacity=".43"/>
+      <path d="M-30 -9 L-33 -21 L-26 -81 L-13 -106 L1 -99 L13 -104 L28 -77 L34 -19 L27 -8 Z"
+        fill="#657b78" stroke="#2c454b" strokeWidth="4"/>
+      <path d="M-30 -20 L-41 -38 L-38 -81 L-25 -103 L-17 -95 L-23 -55 L-17 -19Z"
+        fill="#83948a" stroke="#354f50" strokeWidth="3"/>
+      <path d="M28 -20 L42 -34 L39 -80 L27 -102 L18 -91 L24 -52 L17 -17Z"
+        fill="#435f62" stroke="#30494c" strokeWidth="3"/>
+      <path d="M-17 -86 L-7 -99 L10 -99 L20 -86 L13 -56 L-12 -56Z"
+        fill="#30484d" stroke="#a2b1a4" strokeWidth="2"/>
+      <path d="M-9 -79 Q0 -84 9 -79 L6 -68 L-6 -68Z" fill="#8ce0d5" className="nimo-oracle-glow"/>
+      <path d="M-12 -53 L-6 -41 L-12 -30 M12 -53 L6 -41 L12 -30 M0 -52 V-20"
+        fill="none" stroke="#a1e4d8" strokeWidth="2.5" strokeLinecap="round" className="nimo-oracle-glow"/>
+      <path d="M-35 -8 L34 -8 L43 2 L-43 2Z" fill="#667a70" stroke="#304d4c" strokeWidth="3"/>
+      <path d="M-35 -32 L-27 -36 M25 -40 L34 -45" stroke="#8fa68b" strokeWidth="5" strokeLinecap="round"/>
+      <path d="M-22 -60 Q-31 -59 -35 -48 M24 -60 Q31 -55 33 -44" fill="none" stroke="#68846e" strokeWidth="4"/>
+    </g>
+  );
   if (kind === "tree") return (
     <g>
       <ellipse cx="2" cy="4" rx="21" ry="9" fill="#142d22" opacity=".3" />
