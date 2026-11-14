@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasOwnerSession } from "../../../../lib/world-owner-session";
 
 export async function POST(req: NextRequest) {
-  const owner = process.env.WORLD_OWNER_TOKEN;
   const worker = process.env.WORLD_WORKER_URL;
   const secret = process.env.WORLD_INTERNAL_SECRET;
-  if (!owner || !worker || !secret || req.headers.get("x-world-owner-token") !== owner) {
-    return NextResponse.json({ error: "Owner access token required" }, { status: 401 });
+  if (!(await hasOwnerSession(req))) {
+    return NextResponse.json({ error: "Owner sign-in required" }, { status: 401 });
+  }
+  if (!worker || !secret) {
+    return NextResponse.json({ error: "World Worker is not configured" }, { status: 503 });
   }
   try {
     const body = await req.json() as { enabled?: unknown };
