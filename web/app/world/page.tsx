@@ -33,6 +33,7 @@ type Snapshot = {
   events: WorldEvent[];
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
+  scheduledAsleep?:boolean;
   availableTools?: string[];
   hungerRate?:number;
   vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;available:boolean;description:string}[]};
@@ -201,12 +202,12 @@ export default function World() {
     finally{setSettingRate(false);}
   }
 
-  async function exportWorld() {
+  async function exportWorld(path="/api/world/export") {
     if(exporting)return;
     setExporting(true);
     setExportError("");
     try{
-      const response=await fetch("/api/world/export",{cache:"no-store"});
+      const response=await fetch(path,{cache:"no-store"});
       if(response.status===401){
         setExportLoginRequired(true);
         setExportError("Please sign in once with your owner token to download the world log.");
@@ -221,7 +222,7 @@ export default function World() {
       const url=URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
-      link.download="nimo-world-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+      link.download=(path.includes("/archive/")?"nimo-latest-completed-24h-":"nimo-world-")+new Date().toISOString().replace(/[:.]/g,"-")+".json";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -336,7 +337,7 @@ export default function World() {
           <span className="nimo-coin-label">coins</span>
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
-        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
           selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
       {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
@@ -449,6 +450,7 @@ export default function World() {
             <div className="world-journal-buttons">
               <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
               {isOwner && <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>}
+              {isOwner && <button type="button" title="Download latest completed 24-hour experience archive" disabled={exporting} onClick={()=>void exportWorld("/api/world/archive/latest")}>{exporting ? "Downloading…" : "Latest 24h archive"}</button>}
             </div>
           </div>
         </div>
