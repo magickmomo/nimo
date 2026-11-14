@@ -64,15 +64,14 @@ function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
   );
 }
 
-function Character() {
+function Character({sleeping=false}: {sleeping?:boolean}) {
   return (
-    <g>
+    <g className={sleeping?"nimo-character-sleeping":"nimo-character-awake"}>
       <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".36"/>
       <path d="M-10 -10 L-11 1 M10 -10 L11 1" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
       <rect x="-10" y="-31" width="20" height="14" rx="5" fill="#38354e"/>
-      <circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/>
-      <circle cx="5" cy="-24" r="2" fill="#f6e5a6"/>
+      {sleeping ? <g className="nimo-sleep-face"><path d="M-7 -24 Q-4 -21 -1 -24 M2 -24 Q5 -21 8 -24" stroke="#f6e5a6" strokeWidth="2" fill="none" strokeLinecap="round"/><text x="16" y="-37" fill="#e7ede4" fontSize="11" className="nimo-sleep-z">z</text></g> : <g className="nimo-awake-eyes"><circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/><circle cx="5" cy="-24" r="2" fill="#f6e5a6"/></g>}
       <path d="M-6 -5 L-6 3 M6 -5 L6 3" stroke="#534762" strokeWidth="4" strokeLinecap="round"/>
     </g>
   );
@@ -86,9 +85,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; plots?:{id:string;stage:string}[]; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   const [zoom, setZoom] = useState(1.3);
@@ -197,7 +196,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character/> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping}/> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <Scenery kind={sprite.kind} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
