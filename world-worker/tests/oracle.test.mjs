@@ -18,7 +18,7 @@ test("Oracle is an optional action offered only when adjacent and not researchin
 });
 test("Oracle source record has no deduplication gate, preserves references in existing memories",()=>{
  const src=read("../src/oracle.ts");
- assert.doesNotMatch(src,/similarity|embedding|question_hash|deduplicat/);
+ assert.doesNotMatch(src,/question_hash|embedding|SELECT .*question=/);
  assert.match(src,/recordVerifiedMemory\(env\.DB/);
  assert.match(src,/category:"knowledge"/);
  assert.match(src,/url_citation/);
@@ -45,7 +45,7 @@ CREATE TABLE world_revision_history(
 sql=(root/"migrations/019_oracle.sql").read_text()
 db.executescript(sql)
 db.execute("INSERT INTO oracle_queries(question) VALUES(?)",("Why do trees have fruit?",))
-db.execute("UPDATE oracle_queries SET status='answered',answer='Fruit helps disperse seeds',sources_json='[{\"title\":\"Example\",\"url\":\"https://example.com\"}]' WHERE id=1")
+db.execute("UPDATE oracle_queries SET status=?,answer=?,sources_json=? WHERE id=1",("answered","Fruit helps disperse seeds",json.dumps([{"title":"Example","url":"https://example.com"}])))
 rows=db.execute("SELECT operation,payload_json FROM world_revision_history WHERE source_table='oracle_queries' ORDER BY id").fetchall()
 assert len(rows)==2,rows
 assert [r[0] for r in rows]==['insert','update']
