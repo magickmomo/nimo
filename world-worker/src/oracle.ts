@@ -74,7 +74,7 @@ export async function researchOracleQuestion(env:{
       method:"POST",
       headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},
       body:JSON.stringify({
-        model:env.ORACLE_MODEL||"gpt-6-astra",
+        model:env.ORACLE_MODEL||"gpt-6-luna",
         reasoning:{effort:"low"},
         tools:[{type:"web_search",search_context_size:"low"}],
         input:[
