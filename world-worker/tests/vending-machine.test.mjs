@@ -28,7 +28,7 @@ test("catalog is finite and never invents coins or purchased items",()=>{
   assert.match(schema,/INSERT OR IGNORE INTO vending_state\(id,coins\) VALUES\(1,0\)/);
   assert.match(moduleSource,/PURCHASE FAILED/);
   assert.match(moduleSource,/available:false/);
-  assert.match(index,/vending.items.filter\(item=>item.available\)/);
+  assert.match(index,/vending.items.filter\(item=>item.available && \(item.id!=="sketchpad"\|\|!sketchbook.owned\)\)/);
   assert.match(moduleSource,/PURCHASE UNAVAILABLE/);
   assert.doesNotMatch(moduleSource,/UPDATE vending_state SET coins=coins\+/);
 });
