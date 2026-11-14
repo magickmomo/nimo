@@ -32,6 +32,7 @@ export function buildActionMenu(
   garden:{plotIds:string[];tools:string[];saleItems:string[]}={plotIds:[],tools:[],saleItems:[]},
   projects:{canCreate:boolean;editableIds:number[]}={canCreate:false,editableIds:[]},
   sketchbook:{owned:boolean;activeId:number|null}={owned:false,activeId:null},
+  oracle:{adjacent:boolean;busy:boolean}={adjacent:false,busy:false},
 ):ActionMenu {
   if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[]};
   const inspectDirections = directions
@@ -51,6 +52,7 @@ export function buildActionMenu(
   const vendingItemIds=vending.adjacent&&vending.inspected?vending.itemIds:[];
   if(vendingItemIds.length)tools.push("buy_item");
   tools.push(...garden.tools);
+  if(oracle.adjacent&&!oracle.busy)tools.push("ask_oracle");
   if(projects.canCreate)tools.push("create_project");
   if(projects.editableIds.length)tools.push("update_project");
   if(sketchbook.owned){if(sketchbook.activeId===null)tools.push("start_sketch");else tools.push("draw_strokes","finish_sketch");}
@@ -68,6 +70,7 @@ const obj=(properties:Record<string,unknown>)=>({
 export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false) {
   const variants:unknown[]=[{type:"null"}];
   if(!hasPendingVisitor) {
+    if(menu.tools.includes("ask_oracle"))variants.push(obj({name:{type:"string",enum:["ask_oracle"]},question:string(500)}));
     if(menu.tools.includes("write_document"))variants.push(obj({
       name:{type:"string",enum:["write_document"]},
       path:string(44),content:string(2000),

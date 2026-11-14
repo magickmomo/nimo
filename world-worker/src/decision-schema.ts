@@ -8,6 +8,7 @@ export type DecisionTool =
   | { name:"start_sketch";title:string;intention:string }
   | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
   | { name:"finish_sketch";sketchId:number;status:"finished"|"abandoned" }
+  | { name: "ask_oracle";question:string }
   | { name: "write_document"; path: string; content: string }
   | { name: "travel_to"; x: number; y: number }
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
@@ -31,7 +32,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","ask_oracle"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -82,7 +83,10 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   let toolCall: DecisionTool | null = null;
   if (tool !== null) {
     if (!object(tool) || typeof tool.name !== "string") fail("invalid toolCall");
-    if (tool.name === "write_document") {
+    if (tool.name === "ask_oracle") {
+      if(!string(tool.question,500)||!tool.question.trim())fail("Oracle question must be 1–500 characters");
+      toolCall={name:"ask_oracle",question:tool.question.trim()};
+    } else if (tool.name === "write_document") {
       if (!string(tool.path, 44) || !/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(tool.path))
         fail("write_document requires a safe lowercase .txt filename");
       if (!string(tool.content, 2000))
@@ -93,7 +97,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
         fail("inspect direction must be north/south/east/west");
       toolCall = { name: "inspect", direction: tool.direction as "north" | "south" | "east" | "west" };
     } else if (tool.name === "remember_object") {
-      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub|vending|well|store|plot)_\d{3}$/.test(tool.objectId) ||
+      if (!string(tool.objectId, 80) || !/^(tree|rock|shrub|vending|well|store|plot|oracle)_\d{3}$/.test(tool.objectId) ||
           !string(tool.label, 80) || !string(tool.note, 500) ||
           (!tool.label.trim() && !tool.note.trim()))
         fail("remember_object requires an object ID, a label (max 80) or note (max 500)");
