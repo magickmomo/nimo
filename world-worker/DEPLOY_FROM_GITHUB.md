@@ -57,3 +57,7 @@ This release changes **both** the website map and the persistent D1 coordinate c
 4. Verify his old position, visits, observations and fruit stock are preserved; test a walk to an expanded tile. Check the hunger model log uses the readable `needsPercent` field.
 
 The migration rebuilds four coordinate tables and is **not directly idempotent**: do not run its SQL file twice. Repeated deployments must use the guarded workflow. Existing objects remain at their original coordinates; the new space is intentionally empty until world-content features are added. New mood/energy dynamics and hourly consolidation are not included in this migration.
+
+## Sketchbook release 017
+
+PR #71 adds persistent, stroke-based vector drawing and an owner-only Artworks viewer. **Before deploying the new Worker**, put Nimo to sleep and back up D1. Use the manual `current-main` deployment: it applies `017_sketchbook.sql` and verifies `nimo_sketchbook` and `nimo_sketches` before deploying. Do not deploy via bare `npm run deploy` against an unmigrated production database. Merge the corresponding web changes first, or deploy both while Nimo remains asleep. Wake Nimo only after verifying the gallery and purchase schema. Existing artworks cannot appear until Nimo independently buys the sketchpad and starts drawing.
