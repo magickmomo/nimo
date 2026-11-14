@@ -16,7 +16,7 @@ export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"plot_002",x:11,y:10,kind:"plot"},
   {id:"plot_003",x:12,y:10,kind:"plot"},
   // Monument is visually anchored here and occupies four collision tiles.
-  {id:"oracle_001",x:12,y:12,kind:"oracle"},
+  {id:"oracle_001",x:1,y:13,kind:"oracle"},
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
 export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
@@ -26,7 +26,7 @@ export function inBounds(p: Point) {
 }
 export function objectById(id: string) { return WORLD_OBJECTS.find(o => o.id === id); }
 export function objectAt(p: Point) {
-  if((p.x===12||p.x===13)&&(p.y===12||p.y===13))return WORLD_OBJECTS.find(o=>o.id==="oracle_001");
+  if((p.x===1||p.x===2)&&(p.y===13||p.y===14))return WORLD_OBJECTS.find(o=>o.id==="oracle_001");
   return WORLD_OBJECTS.find(o => o.x === p.x && o.y === p.y);
 }
 export function isWalkable(p: Point) {
