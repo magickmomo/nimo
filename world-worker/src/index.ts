@@ -497,6 +497,8 @@ async function tick(env: Env) {
   // Tool execution is authoritative; journal records verified results, never claims.
   let toolOutcome: string | null = null;
   let verifiedExperience:VerifiedOutcome|null=null;
+  // Unsuccessful attempts remain in the journal, but do not satisfy curiosity.
+  let toolFailed=false;
   const decisionKey = `decision:${state.tickCount+1}`;
   if (d.toolCall) {
     const call = d.toolCall;
@@ -605,6 +607,7 @@ async function tick(env: Env) {
           ()=>call.itemId==="seed_packet" ? buySeeds(env.DB,position,decisionKey).then(message=>({message,success:true,item:{id:"seed_packet",price:2},coins:vending.coins-2,firstAttempt:true})) : call.itemId==="sketchpad" ? buySketchbook(env.DB,decisionKey).then(message=>({message,success:true,item:{id:"sketchpad",price:3},coins:vending.coins-3,firstAttempt:true})) : attemptPurchase(env.DB,position,call.itemId,decisionKey),
           result=>result.message);
         toolOutcome=purchase.message;
+        if(!purchase.success)toolFailed=true;
         await log(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
         if(!purchase.success)verifiedExperience={type:"purchase_blocked",subject:purchase.item.id,
           price:purchase.item.price,coins:purchase.coins,firstAttempt:purchase.firstAttempt};
@@ -622,6 +625,7 @@ async function tick(env: Env) {
           `${saved.objectId}: ${beforeNote?"revised":"first"} note`);
       }
     } catch (err) {
+      toolFailed=true;
       toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : call.name === "buy_item" ? "PURCHASE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
       await recordReward(env.DB,decisionKey,call.name,REWARD_POINTS.failedAction,toolOutcome);
       await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : call.name === "buy_item" ? "PURCHASE_ERROR" : "WRITE_ERROR");
@@ -651,7 +655,7 @@ async function tick(env: Env) {
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const chosen=choiceName(d.action,d.toolCall?.name);
   // Replies to visitors are mandatory conversation turns, not voluntary choices.
-  const curiosity=d.action==="REPLY" ? null : curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen);
+  const curiosity=d.action==="REPLY" || toolFailed ? null : curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen);
   const next: WorldState = {
     ...state, identity,
     emotions:curiosity?{...state.emotions,curiosity:curiosity.value}:state.emotions,
