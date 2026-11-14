@@ -13,6 +13,7 @@ import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, se
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
+import { sketchbookSnapshot, buySketchbook, beginSketch, drawStrokes, closeSketch } from "./sketchbook";
 import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
@@ -29,7 +30,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
+const AVAILABLE_TOOLS = ["write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
@@ -161,6 +162,7 @@ async function exportLedger(db:D1Database, model:string) {
     ["objectObservations","SELECT id,object_id,observed_at,properties_json,comparison,changed_properties FROM object_observations ORDER BY id ASC LIMIT ?"],
     ["experienceEvaluations","SELECT id,source_key,event_id,created_at,action,subject,repetition,learning,surprise,progress,evidence FROM experience_evaluations ORDER BY id ASC LIMIT ?"],
     ["vendingAttempts","SELECT id,source_key,created_at,item_id,price,coins_at_attempt,success,message FROM vending_attempts ORDER BY id ASC LIMIT ?"],
+    ["sketches","SELECT id,title,intention,status,strokes_json,stroke_count,created_at,updated_at,finished_at FROM nimo_sketches ORDER BY id ASC LIMIT ?"],
   ] as const;
   const tables=await Promise.all(ledgers.map(async ([name,sql])=>{
     const result=await db.prepare(sql).bind(MAX_ROWS+1).all<Record<string,unknown>>();
@@ -174,7 +176,7 @@ async function exportLedger(db:D1Database, model:string) {
   const result:Record<string,unknown>={
     format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
     world,position,journey,autonomousEnabled:control,
-    documents:workspace,environmentMemory:memory,objects,food:await foodView(db),hungerRate:await hungerRate(db),vending:await vendingSnapshot(db),
+    documents:workspace,environmentMemory:memory,objects,sketchbook:await sketchbookSnapshot(db,true),food:await foodView(db),hungerRate:await hungerRate(db),vending:await vendingSnapshot(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
@@ -226,7 +228,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -238,7 +240,7 @@ Inspect only if the currently offered action menu includes inspect and choose an
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
 To travel, choose any reachable walkable destination using one-based coordinates: ACT with toolCall: {name:"travel_to",x:5,y:6}. The environment calculates the entire shortest obstacle-aware route. You make NO new decisions during travel; your next decision happens after arrival. A tree, rock or shrub occupies its tile and cannot be a destination, so travel next to it to inspect. You can also remain still, write, observe, think or request capabilities. Exploration is possible but not compulsory.
-The write_document tool creates or fully replaces a plain text document in your virtual workspace.
+If you buy the small sketchpad from the vending machine, it permanently unlocks creative drawing. You alone choose WHAT to draw. start_sketch records a title and a clear intention, draw_strokes draws actual pencil strokes (no image generator), and finish_sketch completes or abandons the page. Canvas is 240 wide by 180 high; points are integer [x,y] pairs from [0,0] top left to [240,180] bottom right. Each draw_strokes action accepts 1–8 strokes; each stroke has 2–24 points, #RRGGBB color and integer width 1–8. Plan deliberate shapes with several small batches; simple line sketches are fine. Your saved strokes and current progress are in sketchbook. Drawing is optional; do it when genuinely interested, not as a mandatory daily task. Finished work appears in your art gallery. The view does not provide visual image understanding yet, so do not claim you have inspected the finished appearance.\nThe write_document tool creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
 Your current workspace is provided with this request. Read it before writing.
@@ -271,6 +273,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:
     name==="buy_item"?{name,itemIds:menu.vendingItemIds}:
     name==="update_project"?{name,projectIds:menu.projectIds}:
+    name==="draw_strokes"||name==="finish_sketch"?{name,sketchIds:menu.sketchIds}:
     name==="plant_seed"||name==="water_plot"||name==="harvest_crop"?{name,plotIds:menu.gardenPlotIds}:
     name==="sell_item"?{name,items:menu.saleItems}:{name});
   const experience = buildExperienceContext(history);
@@ -294,7 +297,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,sketchbook,consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -403,9 +406,9 @@ async function tick(env: Env) {
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
-  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests] = await Promise.all([
+  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests,sketchbook] = await Promise.all([
     events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
-    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),projectList(env.DB),requestContext(env.DB),
+    environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),projectList(env.DB),requestContext(env.DB),sketchbookSnapshot(env.DB),
   ]);
   const position = await getPosition(env.DB);
   await recordSight(env.DB,position);
@@ -459,7 +462,8 @@ async function tick(env: Env) {
   const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.filter(item=>item.available).map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
-    {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)});
+    {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
+     {owned:sketchbook.owned,activeId:sketchbook.active?.id??null});
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -471,7 +475,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook);
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
   }catch(error) {
@@ -581,6 +585,18 @@ async function tick(env: Env) {
         },v=>v);
         toolOutcome=`${call.name.toUpperCase()} OK: ${result}`;
         await log(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
+      } else if (call.name === "start_sketch") {
+        if(!menu.tools.includes("start_sketch"))throw Error("Sketchbook unavailable or page already open");
+        toolOutcome=await beginSketch(env.DB,call.title,call.intention);
+        await log(env.DB,"tool",toolOutcome,"SKETCH_STARTED");
+      } else if (call.name === "draw_strokes") {
+        if(!menu.sketchIds.includes(call.sketchId))throw Error("Sketch unavailable");
+        toolOutcome=await drawStrokes(env.DB,call.sketchId,call.strokes);
+        await log(env.DB,"tool",toolOutcome,"SKETCH_DRAWN");
+      } else if (call.name === "finish_sketch") {
+        if(!menu.sketchIds.includes(call.sketchId))throw Error("Sketch unavailable");
+        toolOutcome=await closeSketch(env.DB,call.sketchId,call.status);
+        await log(env.DB,"tool",toolOutcome,"SKETCH_FINISHED");
       } else if (call.name === "create_project") {
         if(!menu.tools.includes("create_project"))throw Error("Project limit reached");
         toolOutcome=await createProject(env.DB,call.title,call.objective,call.nextStep);
@@ -592,7 +608,7 @@ async function tick(env: Env) {
       } else if (call.name === "buy_item") {
         if(!menu.vendingItemIds.includes(call.itemId))throw Error("Purchase not available at this position");
         const purchase=await traced(env.DB,"vending",`Attempt to buy ${call.itemId}`,
-          ()=>call.itemId==="seed_packet" ? buySeeds(env.DB,position,decisionKey).then(message=>({message,success:true,item:{id:"seed_packet",price:2},coins:vending.coins-2,firstAttempt:true})) : attemptPurchase(env.DB,position,call.itemId,decisionKey),
+          ()=>call.itemId==="seed_packet" ? buySeeds(env.DB,position,decisionKey).then(message=>({message,success:true,item:{id:"seed_packet",price:2},coins:vending.coins-2,firstAttempt:true})) : call.itemId==="sketchpad" ? buySketchbook(env.DB,decisionKey).then(message=>({message,success:true,item:{id:"sketchpad",price:3},coins:vending.coins-3,firstAttempt:true})) : attemptPurchase(env.DB,position,call.itemId,decisionKey),
           result=>result.message);
         toolOutcome=purchase.message;
         await log(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
@@ -856,6 +872,7 @@ export default {
         catch(e){return json({error:e instanceof Error?e.message:"Cannot send reply"},400);}
       }
       if (path === "/projects" && request.method === "GET") return json({projects:await projectList(env.DB)});
+       if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true));
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
           "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply') ORDER BY id DESC LIMIT 250"
