@@ -33,6 +33,7 @@ type Snapshot = {
   events: WorldEvent[];
   documents?: { path: string; content: string; revision: number; updated_at: string }[];
   autonomousEnabled?: boolean;
+  scheduledAsleep?:boolean;
   availableTools?: string[];
   hungerRate?:number;
   vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;available:boolean;description:string}[]};
@@ -336,7 +337,7 @@ export default function World() {
           <span className="nimo-coin-label">coins</span>
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
-        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots}
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
           selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
       {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
