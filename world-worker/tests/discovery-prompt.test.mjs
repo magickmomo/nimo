@@ -11,7 +11,8 @@ test("world prompt does not give away the garden and economy",()=>{
   assert.doesNotMatch(prompt,/Planting consumes a seed packet/i);
   assert.doesNotMatch(prompt,/general store purchases|vending machine sells seed packets/i);
   assert.match(prompt,/Learn about them from what you can actually perceive, examine, try and remember/);
-  assert.match(prompt,/When fullness is above 60%, curiosity can outweigh routine food gathering/);
+  assert.match(prompt,/Curiosity increases when you repeat action types/);
+  assert.match(prompt,/never prohibits productive routines or overrides essential needs/);
 });
 
 test("garden interactions and visibility-constrained context are retained",()=>{
