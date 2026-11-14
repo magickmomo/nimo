@@ -32,7 +32,7 @@ UPDATE world_journey
 SET status='idle',path='[]',step_index=0,started_at=NULL,paused_at=NULL
 WHERE id=1 AND (
   EXISTS (
-    SELECT 1 FROM json_each(path) waypoint
+    SELECT 1 FROM json_each(world_journey.path) waypoint
     WHERE CAST(json_extract(waypoint.value,'$.x') AS INTEGER) BETWEEN 1 AND 2
       AND CAST(json_extract(waypoint.value,'$.y') AS INTEGER) BETWEEN 13 AND 14
   )
