@@ -238,6 +238,9 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map-controls button[aria-pressed=true]{background:#426e55;border-color:#a0c39e}
 .nimo-map-controls button:disabled{opacity:.35;cursor:not-allowed}
 .nimo-map-controls span{font-variant-numeric:tabular-nums;min-width:42px;text-align:center;color:#e5eddf}
+.nimo-oracle-glow{animation:nimo-oracle-pulse 3.4s ease-in-out infinite}
+@keyframes nimo-oracle-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.nimo-oracle-glow{animation:none}}
 .nimo-water-ripple{transform-box:fill-box;transform-origin:center;animation:nimo-ripple 3s ease-in-out infinite}
 @keyframes nimo-ripple{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:.75;transform:scale(1.1)}}
 @media(max-width:600px){.nimo-map-canvas{aspect-ratio:1 / 1;min-height:290px}.nimo-map-controls{bottom:8px;gap:4px;padding:6px}.nimo-map-controls button{font-size:11px;min-height:32px;padding:5px 7px}}
