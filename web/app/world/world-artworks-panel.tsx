@@ -22,14 +22,14 @@ export default function WorldArtworksPanel({onClose}:{onClose:()=>void}){
   document.addEventListener("keydown",key);
   return()=>{document.removeEventListener("keydown",key);previous?.focus();};
  },[load,onClose]);
- const visible=drawings.filter(s=>shelf==="intentions"?s.status==="drawing":s.status!=="drawing");
+ const visible=drawings.filter(s=>shelf==="intentions" ? true : s.status!=="drawing");
  return <div className="world-message-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
   <section className="world-card world-messages-panel world-artworks-panel" role="dialog" aria-modal="true" aria-label="Nimo's sketchbook" tabIndex={-1} ref={root}>
    <div className="world-journal-head"><h2>Nimo's sketchbook</h2><div className="world-message-header-actions"><button type="button" onClick={()=>void load()}>Refresh</button><button type="button" onClick={onClose}>Close</button></div></div>
    <p className="meta">Every line is drawn from Nimo's own coordinates. No image-generation service creates these pictures.</p>
    <div className="world-artworks-tabs" role="tablist" aria-label="Sketchbook pages">
     <button type="button" role="tab" aria-selected={shelf==="artworks"} onClick={()=>setShelf("artworks")}>Artworks ({drawings.filter(x=>x.status!=="drawing").length})</button>
-    <button type="button" role="tab" aria-selected={shelf==="intentions"} onClick={()=>setShelf("intentions")}>What he wants to draw ({drawings.filter(x=>x.status==="drawing").length})</button>
+    <button type="button" role="tab" aria-selected={shelf==="intentions"} onClick={()=>setShelf("intentions")}>What he decided to draw ({drawings.length})</button>
    </div>
    {error&&<p className="world-warning" role="alert">{error}</p>}
    <div className="world-message-thread">
