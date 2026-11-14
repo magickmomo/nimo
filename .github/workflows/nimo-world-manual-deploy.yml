@@ -65,7 +65,7 @@ jobs:
         run: |
           npm run typecheck
           npm test
-      - name: Create private Wrangler configuration
+      - name: Verify tracked Wrangler configuration
         working-directory: world-worker
         shell: bash
         run: |
@@ -73,10 +73,12 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          template = Path('wrangler.toml.example').read_text()
-          placeholder = 'REPLACE_WITH_YOUR_D1_DATABASE_ID'
-          assert template.count(placeholder) == 1, 'Wrangler template must contain the expected D1 placeholder once'
-          Path('wrangler.toml').write_text(template.replace(placeholder, os.environ['D1_DATABASE_ID']))
+          config = Path('wrangler.toml').read_text()
+          expected = 'database_id = "' + os.environ['D1_DATABASE_ID'] + '"'
+          if expected not in config:
+            raise SystemExit('Tracked wrangler.toml has unexpected D1 database ID; refusing deployment')
+          if '[triggers]' not in config or 'crons = ["* * * * *"]' not in config:
+            raise SystemExit('Tracked Wrangler config missing autonomous cron trigger')
           PY
       - name: Verify Nimo is asleep before migrating
         working-directory: world-worker
@@ -226,6 +228,28 @@ jobs:
           if names != {'consolidated_memories_v2','memory_evidence_v2'}:
               raise SystemExit('Consolidated memory migration incomplete; refusing deployment')
           print('Verified consolidated memory schema.')
+          PY
+
+      - name: Apply and verify request/project migration 015
+        if: ${{ inputs.version == 'current-main' }}
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world --remote --file=migrations/015_requests_projects.sql
+          npx wrangler d1 execute nimo-world --remote --file=migrations/016_creator_request_responses.sql
+          npx wrangler d1 execute nimo-world --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('creator_requests','nimo_projects','creator_request_responses')" > "$RUNNER_TEMP/nimo-new-schema.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'nimo-new-schema.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          names={r.get('name') for e in entries for r in e.get('results',[])}
+          if names != {'creator_requests','nimo_projects','creator_request_responses'}:
+              raise SystemExit('Request/project schema incomplete; refusing deployment')
+          print('Verified requests and projects.')
           PY
 
       - name: Deploy Worker after successful migrations

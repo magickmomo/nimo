@@ -39,7 +39,7 @@ export default function WorldSettings() {
       const response=await fetch("/api/world/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:ownerToken})});
       const body=await response.json() as {error?:string};
       if(!response.ok)throw Error(body.error||"Unable to sign in");
-      setSignedIn(true);setNotice("This browser is signed in for Messages, hunger settings and exports. No token is needed when messaging.");
+      setSignedIn(true);setOwnerToken("");setNotice("Signed in on this device. You can use Sleep / Wake, Messages, and other owner controls without re-entering your token.");
     }catch(err){setError(err instanceof Error?err.message:"Sign-in failed");}
     finally{setBusy(false);}
   }
@@ -59,18 +59,21 @@ export default function WorldSettings() {
   }
 
   async function setAwake(enabled: boolean) {
-    if (!ownerToken || busy) return;
+    if (!signedIn || busy) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const res = await fetch("/api/world/control", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-world-owner-token": ownerToken },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not change setting");
+      if (!res.ok) {
+        if (res.status === 401) setSignedIn(false);
+        throw new Error(data.error || "Could not change setting");
+      }
       if (typeof data.autonomousEnabled !== "boolean") throw new Error("Invalid Worker response");
       setSnapshot(s => s && ({ ...s, autonomousEnabled: data.autonomousEnabled }));
       setNotice(data.autonomousEnabled ? "Nimo is awake. A paused journey resumes, or a new decision becomes eligible at the next scheduled check." :
@@ -99,7 +102,7 @@ export default function WorldSettings() {
 
         <button type="button" disabled={!ownerToken||busy} onClick={()=>void signIn()}>Sign in on this device</button>
         {signedIn && <button type="button" disabled={busy} onClick={()=>void signOut()}>Sign out on this device</button>}
-        <p className="meta">The same token also controls Sleep / Wake below. A signed HttpOnly cookie keeps it out of the chat form.</p>
+        <p className="meta">Your signed-in session also authorizes Sleep / Wake. The owner token is not stored in the page after signing in.</p>
       </div>
       <div className="world-card">
         <h2>Autonomous loop</h2>
@@ -112,9 +115,9 @@ export default function WorldSettings() {
           A request already in progress may still be billed.
         </p>
         <div className="voice-controls">
-          <button type="button" disabled={busy || !snapshot?.autonomousEnabled || !ownerToken}
+          <button type="button" disabled={busy || !snapshot?.autonomousEnabled || !signedIn}
             onClick={() => void setAwake(false)}>Put Nimo to sleep</button>
-          <button type="button" disabled={busy || !snapshot || snapshot.autonomousEnabled || !ownerToken}
+          <button type="button" disabled={busy || !snapshot || snapshot.autonomousEnabled || !signedIn}
             onClick={() => void setAwake(true)}>Wake Nimo up</button>
           <button type="button" onClick={() => void refresh()} disabled={busy}>Refresh status</button>
         </div>

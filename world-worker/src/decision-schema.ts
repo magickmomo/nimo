@@ -12,6 +12,8 @@ export type DecisionTool =
   | { name: "eat_fruit"; fruit: "amber"|"blue"|"red" }
   | { name: "discard_fruit"; fruit: "amber"|"blue"|"red" }
   | { name: "buy_item"; itemId: "seed_packet"|"sketchpad"|"mystery_box" }
+  | { name: "create_project"; title:string; objective:string; nextStep:string }
+  | { name: "update_project"; projectId:number; nextStep:string; progressNote:string; status:"active"|"paused"|"completed"|"abandoned" }
   | { name:"take_can"|"fill_can" }
   | { name:"plant_seed"|"water_plot"|"harvest_crop"; plotId:string }
   | { name:"sell_item"; item:"crop"|"amber"|"blue"|"red" };
@@ -25,7 +27,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -98,6 +100,16 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
       if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
       toolCall={name:tool.name,fruit:tool.fruit as "amber"|"blue"|"red"};
+    } else if (tool.name === "create_project") {
+      if(!string(tool.title,100)||!tool.title.trim()||!string(tool.objective,400)||!tool.objective.trim()||
+        !string(tool.nextStep,300)||!tool.nextStep.trim())fail("Invalid new project");
+      toolCall={name:"create_project",title:tool.title,objective:tool.objective,nextStep:tool.nextStep};
+    } else if (tool.name === "update_project") {
+      if(!Number.isSafeInteger(tool.projectId)||(tool.projectId as number)<1||
+         !string(tool.nextStep,300)||!string(tool.progressNote,500)||
+         !["active","paused","completed","abandoned"].includes(String(tool.status)))
+        fail("Invalid project update");
+      toolCall={name:"update_project",projectId:tool.projectId as number,nextStep:tool.nextStep,progressNote:tool.progressNote,status:tool.status as "active"|"paused"|"completed"|"abandoned"};
     } else if (tool.name === "buy_item") {
       if (!["seed_packet","sketchpad","mystery_box"].includes(String(tool.itemId)))fail("Unknown vending item");
       toolCall={name:"buy_item",itemId:tool.itemId as "seed_packet"|"sketchpad"|"mystery_box"};

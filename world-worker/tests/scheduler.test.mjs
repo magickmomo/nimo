@@ -37,3 +37,13 @@ test("journey arrival must not shorten an already persisted completion-based dea
   assert.doesNotMatch(arrivalSection, /lastDecision \+ DECISION_INTERVAL_MS/);
   assert.match(worker, /if \(Date.parse\(world.next_tick\) > now.getTime\(\)\) return \{ status: "not_due" \}/);
 });
+
+test("tracked production Wrangler config preserves the every-minute schedule",()=>{
+  const production=readFileSync(new URL("../wrangler.toml",import.meta.url),"utf8");
+  const pkg=JSON.parse(readFileSync(new URL("../package.json",import.meta.url),"utf8"));
+  for(const settings of [production,wrangler]){
+    assert.match(settings,/\[triggers\]\s*\ncrons\s*=\s*\["\* \* \* \* \*"\]/);
+    assert.match(settings,/binding\s*=\s*"DB"/);
+  }
+  assert.match(pkg.scripts.deploy,/check-wrangler-config\.mjs/);
+});

@@ -7,7 +7,7 @@ const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
 test("preparation reads don't create expensive D1 action traces",()=>{
   assert.doesNotMatch(worker,/traced\(env\.DB,"recall"/);
   assert.doesNotMatch(worker,/traced\(env\.DB,"perceive"/);
-  assert.match(worker,/const \[history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories\] = await Promise\.all/);
+  assert.match(worker,/const \[history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests\] = await Promise\.all/);
   assert.match(worker,/await recordSight\(env\.DB,position\)/);
   assert.match(worker,/const perception = modelPerception\(position\)/);
 });
