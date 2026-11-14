@@ -42,3 +42,17 @@ test("archive is separate from scheduled loop and never restricted to oldest 100
  assert.doesNotMatch(archive,/LIMIT 10000/);
  assert.match(archive,/window:\{start,end,durationHours:24/);
 });
+
+test("day export paginates every recent event and excludes boundary/outside records",async()=>{
+ const {readWindowLedger}=await toModule("../src/daily-archive.ts");
+ const rows=Array.from({length:503},(_,i)=>({
+  archive_rowid:i+1,id:i+1,created_at:i===0?"2026-11-13T05:59:59.999Z":i===502?"2026-11-14T06:00:00.000Z":"2026-11-13T12:00:00.000Z"
+ }));
+ const calls=[];
+ const db={prepare(sql){return {bind(start,end,cursor){calls.push({sql,start,end,cursor});return {async all(){return {results:rows.filter(r=>r.created_at>=start&&r.created_at<end&&r.archive_rowid>cursor).slice(0,500)};}};}}}};
+ const result=await readWindowLedger(db,{name:"events",table:"events",column:"created_at"},"2026-11-13T06:00:00.000Z","2026-11-14T06:00:00.000Z");
+ assert.equal(result.length,501);
+ assert.equal(result[0].id,2);
+ assert.equal(result.at(-1).id,502);
+ assert.ok(calls.length>=2,"large daily logs must page past the first 500 events");
+});
