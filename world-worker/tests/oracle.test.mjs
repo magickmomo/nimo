@@ -26,8 +26,8 @@ test("Oracle source record has no deduplication gate, preserves references in ex
 });
 test("Oracle 2 by 2 footprint is blocked and can be inspected",()=>{
  const src=read("../../web/lib/world-map.ts");
- assert.match(src,/id:"oracle_001",x:12,y:12,kind:"oracle"/);
- assert.match(src,/p\.x===12\|\|p\.x===13/);
+ assert.match(src,/id:"oracle_001",x:1,y:13,kind:"oracle"/);
+ assert.match(src,/p\.x===1\|\|p\.x===2/);
  assert.match(src,/An enormous ancient stone-and-metal monument/);
 });
 test("Oracle DB migration and revision archiving are valid in SQLite",()=>{
