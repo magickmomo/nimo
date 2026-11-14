@@ -9,6 +9,8 @@ import { recordExperience, recentExperiences, type VerifiedOutcome } from "./exp
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
+import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
+import { archiveLatestCompletedDay, archiveWindow, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
@@ -21,6 +23,7 @@ import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspe
 
 type Env = {
   DB: D1Database;
+  ARCHIVES?: R2Bucket;
   AGENT_INBOX?: KVNamespace;
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
@@ -106,11 +109,23 @@ async function writeDocument(db: D1Database, input: { path: string; content: str
 }
 
 // Control lives outside the AI-editable personality state.
-async function autonomousEnabled(db: D1Database): Promise<boolean> {
+async function manualAutonomousEnabled(db: D1Database): Promise<boolean> {
   const row = await db.prepare("SELECT autonomous_enabled FROM world_control WHERE id=1")
     .first<{ autonomous_enabled: number }>();
   if (!row) throw new Error("World control missing. Run the sleep-toggle migration.");
   return row.autonomous_enabled === 1;
+}
+async function autonomousEnabled(db: D1Database): Promise<boolean> {
+  return !scheduledAsleep(new Date()) && await manualAutonomousEnabled(db);
+}
+// Manual sleep is an independent owner override. The 22:00–06:00 UK schedule
+// pauses journeys without changing the stored owner setting.
+async function syncScheduledRest(db:D1Database,now:Date) {
+  const ownerEnabled=await manualAutonomousEnabled(db);
+  const rest=scheduledAsleep(now);
+  const journey=await journeyRow(db);
+  if((rest || !ownerEnabled) && journey.status==="travelling")await pauseJourney(db,now);
+  else if(!rest && ownerEnabled && journey.status==="paused")await resumeJourney(db,now);
 }
 
 
@@ -402,7 +417,7 @@ async function tick(env: Env) {
   }
 
   const last = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
-  const elapsed = Number.isFinite(last) ? Math.min(86400, Math.max(0, (now.getTime() - last) / 1000)) : 60;
+  const elapsed = Number.isFinite(last) ? awakeElapsedSeconds(new Date(last),now) : 60;
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
@@ -801,8 +816,9 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     // Cloudflare cron is minute-granular. Within each invocation poll active
     // journeys at shorter intervals; make LLM decisions only when idle and due.
-    // Journey completion, not a fixed number of step actions, unlocks the model.
+    // The UK sleep clock is independent of owner pause and of daily archiving.
     ctx.waitUntil((async () => {
+      await syncScheduledRest(env.DB,new Date());
       const began = Date.now();
       let nextCheck = began;
       while (Date.now() - began < 55000) {
@@ -820,6 +836,12 @@ export default {
         nextCheck = Date.now() + interval;
       }
     })());
+    // Archive even if Nimo is asleep or the owner has paused him. Write only
+    // one private R2 object for the latest completed 24-hour UTC window.
+    if(env.ARCHIVES && shouldArchiveNow(new Date())) {
+      ctx.waitUntil(archiveLatestCompletedDay(env.DB,env.ARCHIVES,new Date())
+        .catch(err=>console.error("Daily archive failed",err)));
+    }
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     const publicPath = new URL(request.url).pathname;
@@ -893,10 +915,21 @@ export default {
           getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled,hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
+        return json({world,position,journey,autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
+      }
+      if (path === "/archive/latest" && request.method === "GET") {
+        if(!env.ARCHIVES)return json({error:"Daily archive bucket not configured"},503);
+        const key=archiveWindow(new Date()).key;
+        const object=await env.ARCHIVES.get(key);
+        if(!object)return json({error:"Latest completed 24h archive is not available yet",key},404);
+        return new Response(object.body,{headers:{
+          "Content-Type":"application/json; charset=utf-8",
+          "Content-Disposition":'attachment; filename="'+key.split("/").at(-1)+'"',
+          "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+        }});
       }
       if ((path === "/snapshot" || path === "/snapshot/owner") && request.method === "GET") {
         const owner = path === "/snapshot/owner";
@@ -907,7 +940,7 @@ export default {
           journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB),
           objects: await objectMemory(env.DB), food: await foodView(env.DB),
           vending: await vendingSnapshot(env.DB), garden: await gardenSnapshot(env.DB),
-          autonomousEnabled: await autonomousEnabled(env.DB),
+          autonomousEnabled: await autonomousEnabled(env.DB), manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),
         };
         if (!owner) return json(publicSnapshot);
         return json({ ...publicSnapshot, documents: await documents(env.DB),
@@ -927,12 +960,12 @@ export default {
         await env.DB.prepare(
           "UPDATE world_control SET autonomous_enabled=?, updated_at=? WHERE id=1"
         ).bind(body.enabled ? 1 : 0, changedAt.toISOString()).run();
-        if (body.enabled) await resumeJourney(env.DB,changedAt);
+        if (body.enabled && !scheduledAsleep(changedAt)) await resumeJourney(env.DB,changedAt);
         else await pauseJourney(env.DB,changedAt);
         await log(env.DB, "system",
           body.enabled ? "Autonomous loop enabled by owner." : "Autonomous loop paused by owner.",
           body.enabled ? "WAKE" : "SLEEP");
-        return json({ ok: true, autonomousEnabled: await autonomousEnabled(env.DB) });
+        return json({ ok: true, autonomousEnabled: await autonomousEnabled(env.DB), manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()) });
       }
       if (path === "/message" && request.method === "POST") {
         const data = await request.json() as { message?: unknown };

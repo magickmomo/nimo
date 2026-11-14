@@ -316,3 +316,12 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-coin-amount{font-size:14px;color:#fff3c8}
 .nimo-coin-label{font-size:11px;color:#d2c79c;font-weight:500}
 @media(max-width:650px){.nimo-coin-counter{top:48px;right:8px;padding:6px 8px;gap:5px;max-width:calc(100% - 72px)}}
+
+/* Nimo sleeps in place: preserve his current design, switch to closed eyes. */
+.nimo-character-sleeping{transform:translateY(5px);animation:nimo-rest 3.5s ease-in-out infinite;transform-box:fill-box;transform-origin:center bottom}
+.nimo-character-awake .nimo-awake-eyes{animation:nimo-blink 6s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.nimo-sleep-z{animation:nimo-dream 2.8s ease-in-out infinite}
+@keyframes nimo-rest{0%,100%{transform:translateY(5px) scaleY(.97)}50%{transform:translateY(6px) scaleY(.94)}}
+@keyframes nimo-blink{0%,93%,97%,100%{transform:scaleY(1)}95%{transform:scaleY(.13)}}
+@keyframes nimo-dream{0%,100%{opacity:.15;transform:translateY(1px)}50%{opacity:.85;transform:translateY(-5px)}}
+@media(prefers-reduced-motion:reduce){.nimo-character-sleeping,.nimo-character-awake .nimo-awake-eyes,.nimo-sleep-z{animation:none}}
