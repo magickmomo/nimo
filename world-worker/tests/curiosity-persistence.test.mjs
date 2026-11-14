@@ -17,8 +17,15 @@ test("curiosity only updates after a successful decision, never before the model
 });
 
 test("replies do not change curiosity or action preferences",()=>{
- assert.match(worker,/d\.action==="REPLY" \? null : curiosityStep/);
+ assert.match(worker,/d\.action==="REPLY" \|\| toolFailed \? null : curiosityStep/);
  assert.match(worker,/curiosityActionHistory:curiosity\?\.history\?\?actionHistory/);
+});
+
+test("failed tools and unsuccessful purchases cannot satisfy curiosity",()=>{
+ assert.match(worker,/let toolFailed=false;/);
+ assert.match(worker,/if\(!purchase\.success\)toolFailed=true;/);
+ assert.match(worker,/catch \(err\) \{\s*toolFailed=true;/);
+ assert.match(worker,/d\.action==="REPLY" \|\| toolFailed \? null : curiosityStep/);
 });
 
 test("failed model calls do not double-apply elapsed hunger",()=>{
