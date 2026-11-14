@@ -10,5 +10,11 @@ binding = "DB"
 database_name = "nimo-world"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
+# Private R2 bucket for complete 24-hour experience archives.
+# Create with: npx wrangler r2 bucket create nimo-daily-archives
+[[r2_buckets]]
+binding = "ARCHIVES"
+bucket_name = "nimo-daily-archives"
+
 [vars]
 OPENAI_MODEL = "gpt-6-luna"
