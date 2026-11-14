@@ -8,7 +8,7 @@ import { buildExperienceContext, type ExperienceEvent } from "./experience-conte
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
-import { curiosityStep, curiosityGuidance } from "./curiosity";
+import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
@@ -254,7 +254,7 @@ If you receive a pending visitor message, choose REPLY with toolCall:null. Put t
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Keeping fullness comfortably closer to 100% than 0% supports wellbeing. At low fullness seek useful food, but do not eat wastefully when already full, and remain free to pursue other interests. Use needsPercent.fullness as the readable source of truth. The fullnessDecayPointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Energy, happiness and boredom are currently paused. Curiosity is active as a soft motivation while you are comfortably fed.
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
-Your environment may contain objects with unfamiliar properties and possible interactions. Learn about them from what you can actually perceive, examine, try and remember. Only the current action menu determines which interactions are possible now; a tool becoming available does not prove an unseen place or item exists. Do not assume what unseen objects are, where they are or how they work. When fullness is above 60%, curiosity can outweigh routine food gathering. Prefer following meaningful questions, unfinished intentions and actual discoveries over staying with a familiar routine; food remains an option when needed. Curiosity does not require constant movement or novelty. Ground claims about objects, items, money, possessions and capabilities in perception and verified outcomes.
+Your environment may contain objects with unfamiliar properties and possible interactions. Learn about them from what you can actually perceive, examine, try and remember. Only the current action menu determines which interactions are possible now; a tool becoming available does not prove an unseen place or item exists. Do not assume what unseen objects are, where they are or how they work. Curiosity increases when you repeat action types and creates a soft preference for less-recently-used available actions; it never prohibits productive routines or overrides essential needs. Ground claims about objects, items, money, possessions and capabilities in perception and verified outcomes.
 Your capability requests appear in the owner Requests inbox, separate from conversation messages. REQUEST records a request; it does not immediately grant tools. You can see request status in creatorRequests; do not repeat acknowledged, accepted, rejected or implemented requests unless there is new evidence or a substantially different obstacle.
 When something does not make sense, a goal becomes blocked, or repeated checks produce no new information, consider what you have already observed and whether another available action, location, or approach could help. An action missing from the menu at your present location does not prove the capability is missing everywhere; consult your actual past successes and move somewhere appropriate if useful.
 If reasonable investigation has not resolved a meaningful limitation, you MAY choose REQUEST to ask your creator for clarification, help with an environmental problem, or a genuinely missing capability. Explain the specific obstacle and what you tried, without claiming that a capability is absent unless supported by evidence. You may also continue independently, set the question aside, or change goals. Do not request help automatically or repeatedly, and do not treat the creator's suggestions as orders.
@@ -419,24 +419,16 @@ async function tick(env: Env) {
   const vending=await vendingSnapshot(env.DB);
   const garden=await gardenSnapshot(env.DB,now.getTime());
   let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
-  const unseenObjects=objects.filter(o=>o.inspectionCount===0).length;
-  const curiosity=curiosityStep(emotions.curiosity??0.35,fullnessFromHunger(emotions.hunger),history,unseenObjects,world.state.curiosityDiscoveryCursor ?? NaN);
-  emotions.curiosity=curiosity.value;
-  const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),curiosity.value,unseenObjects,curiosity.foodLoop);
+  const actionHistory=recentChoices(world.state.curiosityActionHistory);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
   // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
   const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId,
-    curiosityDiscoveryCursor: curiosity.discoveryCursor, tools: [...AVAILABLE_TOOLS] };
-  // Persist only curiosity and the processed discovery ID before the model call.
-  // Never persist computed hunger here: lastTick still refers to the previous
-  // completed decision, so retries must calculate elapsed hunger just once.
-  // This also avoids overwriting other state fields with a stale snapshot.
-  await env.DB.prepare(
-    "UPDATE world SET state=json_set(state,'$.emotions.curiosity',?,'$.curiosityDiscoveryCursor',?) WHERE id=1"
-  ).bind(curiosity.value,curiosity.discoveryCursor).run();
+    curiosityActionHistory: actionHistory, tools: [...AVAILABLE_TOOLS] };
+  // Update curiosity only after a completed decision; errors and rejected actions
+  // must not mutate the meter or the ten-choice history.
   const priority = computePriorityPolicy({...state.emotions,boredom:0}, objects, pendingMessage !== null);
   const seenObjectIds = objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y)).map(item=>item.id);
   const adjacentTreeIds=perception.directions.filter(d=>d.canInspect && d.objectId?.startsWith("tree_")).map(d=>d.objectId!);
@@ -464,6 +456,8 @@ async function tick(env: Env) {
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
     {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
      {owned:sketchbook.owned,activeId:sketchbook.active?.id??null});
+  // Only offer novelty among actions the deterministic controller currently permits.
+  const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
@@ -655,8 +649,13 @@ async function tick(env: Env) {
   const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
   // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
+  const chosen=choiceName(d.action,d.toolCall?.name);
+  // Replies to visitors are mandatory conversation turns, not voluntary choices.
+  const curiosity=d.action==="REPLY" ? null : curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen);
   const next: WorldState = {
     ...state, identity,
+    emotions:curiosity?{...state.emotions,curiosity:curiosity.value}:state.emotions,
+    curiosityActionHistory:curiosity?.history??actionHistory,
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
     currentActivity: pendingMessage ? state.currentActivity : d.activity,
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
