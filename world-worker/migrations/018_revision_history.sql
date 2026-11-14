@@ -183,3 +183,87 @@ BEGIN
  INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
  VALUES('world_inspected',CAST(OLD.x AS TEXT)||':'||CAST(OLD.y AS TEXT),'delete',json_object('x',OLD.x,'y',OLD.y,'kind',OLD.kind,'description',OLD.description,'inspection_count',OLD.inspection_count,'last_inspected',OLD.last_inspected));
 END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_action_trace_insert
+AFTER INSERT ON action_trace
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('action_trace',CAST(NEW.id AS TEXT),'insert',json_object('id',NEW.id,'started_at',NEW.started_at,'finished_at',NEW.finished_at,'kind',NEW.kind,'status',NEW.status,'detail',NEW.detail,'result',NEW.result,'metadata',NEW.metadata));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_action_trace_update
+AFTER UPDATE ON action_trace
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('action_trace',CAST(NEW.id AS TEXT),'update',json_object('id',NEW.id,'started_at',NEW.started_at,'finished_at',NEW.finished_at,'kind',NEW.kind,'status',NEW.status,'detail',NEW.detail,'result',NEW.result,'metadata',NEW.metadata));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_action_trace_delete
+AFTER DELETE ON action_trace
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('action_trace',CAST(OLD.id AS TEXT),'delete',json_object('id',OLD.id,'started_at',OLD.started_at,'finished_at',OLD.finished_at,'kind',OLD.kind,'status',OLD.status,'detail',OLD.detail,'result',OLD.result,'metadata',OLD.metadata));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_inventory_insert
+AFTER INSERT ON garden_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_inventory',CAST(NEW.id AS TEXT),'insert',json_object('id',NEW.id,'kind',NEW.kind,'water_units',NEW.water_units,'created_at',NEW.created_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_inventory_update
+AFTER UPDATE ON garden_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_inventory',CAST(NEW.id AS TEXT),'update',json_object('id',NEW.id,'kind',NEW.kind,'water_units',NEW.water_units,'created_at',NEW.created_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_inventory_delete
+AFTER DELETE ON garden_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_inventory',CAST(OLD.id AS TEXT),'delete',json_object('id',OLD.id,'kind',OLD.kind,'water_units',OLD.water_units,'created_at',OLD.created_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_world_food_inventory_insert
+AFTER INSERT ON world_food_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('world_food_inventory',CAST(NEW.id AS TEXT),'insert',json_object('id',NEW.id,'fruit',NEW.fruit,'picked_at',NEW.picked_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_world_food_inventory_update
+AFTER UPDATE ON world_food_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('world_food_inventory',CAST(NEW.id AS TEXT),'update',json_object('id',NEW.id,'fruit',NEW.fruit,'picked_at',NEW.picked_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_world_food_inventory_delete
+AFTER DELETE ON world_food_inventory
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('world_food_inventory',CAST(OLD.id AS TEXT),'delete',json_object('id',OLD.id,'fruit',OLD.fruit,'picked_at',OLD.picked_at));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_plots_insert
+AFTER INSERT ON garden_plots
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_plots',NEW.id,'insert',json_object('id',NEW.id,'x',NEW.x,'y',NEW.y,'planted_at',NEW.planted_at,'watered_at',NEW.watered_at,'crop',NEW.crop));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_plots_update
+AFTER UPDATE ON garden_plots
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_plots',NEW.id,'update',json_object('id',NEW.id,'x',NEW.x,'y',NEW.y,'planted_at',NEW.planted_at,'watered_at',NEW.watered_at,'crop',NEW.crop));
+END;
+
+CREATE TRIGGER IF NOT EXISTS nimo_revision_garden_plots_delete
+AFTER DELETE ON garden_plots
+BEGIN
+ INSERT INTO world_revision_history(source_table,source_key,operation,payload_json)
+ VALUES('garden_plots',OLD.id,'delete',json_object('id',OLD.id,'x',OLD.x,'y',OLD.y,'planted_at',OLD.planted_at,'watered_at',OLD.watered_at,'crop',OLD.crop));
+END;
