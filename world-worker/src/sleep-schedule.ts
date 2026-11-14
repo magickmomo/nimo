@@ -14,3 +14,18 @@ export function scheduledAsleep(at:Date):boolean {
 }
 export const SLEEP_START="22:00";
 export const WAKE_TIME="06:00";
+
+/** Only awake time counts toward hunger after an overnight sleep.
+ * Iterate minute boundaries so DST transitions are treated in real elapsed time.
+ */
+export function awakeElapsedSeconds(start:Date,end:Date):number {
+  const from=start.getTime(),to=end.getTime();
+  if(!Number.isFinite(from)||!Number.isFinite(to)||to<=from)return 0;
+  let cursor=Math.max(from,to-86_400_000),seconds=0;
+  while(cursor<to){
+    const next=Math.min(to,Math.floor(cursor/60000)*60000+60000);
+    if(!scheduledAsleep(new Date(cursor)))seconds+=(next-cursor)/1000;
+    cursor=next;
+  }
+  return seconds;
+}
