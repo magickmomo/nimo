@@ -1,6 +1,7 @@
 /** Archives the latest completed 24-hour UTC window ending 06:00 UTC.
  * The window is [yesterday 06:00, today 06:00); no "oldest 10000 rows" cap.
- * Immutable events and timestamped revisions are paged by SQLite rowid.\n * Mutable current-state tables are never misrepresented as historical events.
+ * Immutable events and timestamped revisions are paged by SQLite rowid.
+ * Mutable current-state tables are never misrepresented as historical events.
  */
 export const ARCHIVE_HOUR_UTC=6;
 export const ARCHIVE_START_MINUTE=5;
@@ -17,7 +18,6 @@ const LEDGERS:readonly Ledger[]=[
  {name:"events",table:"events",column:"created_at"},
  {name:"revisions",table:"world_revision_history",column:"recorded_at"},
  {name:"decisions",table:"decisions",column:"created_at"},
- {name:"actionTrace",table:"action_trace",column:"started_at"},
  {name:"rewards",table:"world_rewards",column:"created_at"},
  {name:"objectObservations",table:"object_observations",column:"observed_at"},
  {name:"memoryEvidence",table:"memory_evidence_v2",column:"created_at"},
@@ -26,7 +26,6 @@ const LEDGERS:readonly Ledger[]=[
  {name:"vendingAttempts",table:"vending_attempts",column:"created_at"},
  {name:"gardenTransactions",table:"garden_transactions",column:"created_at"},
  {name:"creatorRequestResponses",table:"creator_request_responses",column:"created_at"},
- {name:"gardenItems",table:"garden_inventory",column:"created_at"},
 ];
 export async function readWindowLedger(db:D1Database,ledger:Ledger,start:string,end:string){
   const rows:Record<string,unknown>[]=[];
