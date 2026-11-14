@@ -9,6 +9,8 @@ import WorldMessagesPanel from "./world-messages-panel";
 import WorldMemoriesPanel from "./world-memories-panel";
 import WorldRequestsPanel from "./world-requests-panel";
 import WorldProjectsPanel from "./world-projects-panel";
+import WorldArtworksPanel from "./world-artworks-panel";
+import "./world-artworks.css";
 import { groupJournalEvents } from "../../lib/world-journal";
 
 type ObjectRecord = {
@@ -53,12 +55,14 @@ export default function World() {
   const [memoriesOpen,setMemoriesOpen]=useState(false);
   const [requestsOpen,setRequestsOpen]=useState(false);
   const [projectsOpen,setProjectsOpen]=useState(false);
+  const [artworksOpen,setArtworksOpen]=useState(false);
   const [pendingRequests,setPendingRequests]=useState(0);
   // Stable across the once-per-second clock renders: the dialog must not refocus.
   const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
   const closeMemories=useCallback(()=>setMemoriesOpen(false),[]);
   const closeRequests=useCallback(()=>setRequestsOpen(false),[]);
   const closeProjects=useCallback(()=>setProjectsOpen(false),[]);
+  const closeArtworks=useCallback(()=>setArtworksOpen(false),[]);
   const refreshRequestCount=useCallback(async()=>{
     try{const response=await fetch("/api/world/requests",{cache:"no-store"});
       if(!response.ok)return;
@@ -279,6 +283,7 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>}
+         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>}
         <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
@@ -286,6 +291,7 @@ export default function World() {
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
       {isOwner && projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
+       {isOwner && artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
