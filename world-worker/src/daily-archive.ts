@@ -1,17 +1,49 @@
-/** Archives the latest completed 24-hour UTC window ending 06:00 UTC.
- * The window is [yesterday 06:00, today 06:00); no "oldest 10000 rows" cap.
- * Immutable events and timestamped revisions are paged by SQLite rowid.
- * Mutable current-state tables are never misrepresented as historical events.
+/** Archive one UK-local day, ending at 22:00 Europe/London, five minutes
+ * after Nimo's scheduled bedtime. Windows are 23/25 elapsed hours across BST
+ * transitions, so we record their true duration rather than calling them 24h.
+ * Historic 06:00 UTC archives retain their original distinct R2 keys.
  */
-export const ARCHIVE_HOUR_UTC=6;
+export const ARCHIVE_HOUR_UK=22;
 export const ARCHIVE_START_MINUTE=5;
 const HOUR_MS=60*60*1000;
-export function archiveWindow(now:Date) {
-  const end=new Date(now);
-  end.setUTCHours(ARCHIVE_HOUR_UTC,0,0,0);
-  if(now.getTime()<end.getTime()+ARCHIVE_START_MINUTE*60000)end.setUTCDate(end.getUTCDate()-1);
-  const start=new Date(end.getTime()-24*HOUR_MS);
-  return {start:start.toISOString(),end:end.toISOString(),key:`daily/${end.toISOString().slice(0,10)}.json`};
+const DAY_MS=24*HOUR_MS;
+const ukClock=new Intl.DateTimeFormat("en-GB",{
+ timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit",
+ hour:"2-digit",minute:"2-digit",hourCycle:"h23",
+});
+function ukParts(date:Date){
+ const parts=Object.fromEntries(ukClock.formatToParts(date).map(p=>[p.type,p.value]));
+ return {day:`${parts.year}-${parts.month}-${parts.day}`,hour:Number(parts.hour),minute:Number(parts.minute)};
+}
+function prevDay(day:string){
+ const noon=Date.parse(day+"T12:00:00.000Z");
+ if(!Number.isFinite(noon))throw Error("Invalid UK archive date");
+ return new Date(noon-DAY_MS).toISOString().slice(0,10);
+}
+/** The UK 22:00 hour is never in a DST gap or duplicated during a clock change. */
+function ukBedtime(day:string):Date{
+ const valid=[21,22].map(hour=>new Date(day+`T${hour}:00:00.000Z`))
+  .filter(date=>{const p=ukParts(date);return p.day===day && p.hour===ARCHIVE_HOUR_UK && p.minute===0;});
+ if(valid.length!==1)throw Error("Could not resolve UK 22:00 boundary");
+ return valid[0];
+}
+export function archiveWindow(now:Date){
+ const clock=ukParts(now);
+ const day=clock.hour*60+clock.minute>=ARCHIVE_HOUR_UK*60+ARCHIVE_START_MINUTE
+  ?clock.day:prevDay(clock.day);
+ const end=ukBedtime(day),start=ukBedtime(prevDay(day));
+ return {start:start.toISOString(),end:end.toISOString(),
+  key:`daily/uk-2200/${day}.json`};
+}
+/** Old daily/YYYY-MM-DD.json keys were written at 06:05 UTC. Retain reads. */
+export function latestArchiveKeys(now:Date):string[]{
+ const current=archiveWindow(now).key;
+ const day=current.slice("daily/uk-2200/".length,-5);
+ const legacyEnd=new Date(now);
+ legacyEnd.setUTCHours(6,0,0,0);
+ if(now.getTime()<legacyEnd.getTime()+5*60000)legacyEnd.setUTCDate(legacyEnd.getUTCDate()-1);
+ return [current,`daily/uk-2200/${prevDay(day)}.json`,
+  `daily/${legacyEnd.toISOString().slice(0,10)}.json`];
 }
 type Ledger={name:string;table:string;column:string};
 const LEDGERS:readonly Ledger[]=[
@@ -49,8 +81,7 @@ export async function readWindowLedger(db:D1Database,ledger:Ledger,start:string,
 export async function buildDailyArchive(db:D1Database,start:string,end:string){
   const ledgers:Record<string,Record<string,unknown>[]>={};
   for(const ledger of LEDGERS) ledgers[ledger.name]=await readWindowLedger(db,ledger,start,end);
-  // Snapshot is identified as the state at ARCHIVE time, not misrepresented as
-  // state exactly at the 06:00 cutoff.
+  // Snapshot is the state at export time, not necessarily at the 22:00 boundary.
   const [world,position,control,journey,revisionHistorySetup]=await Promise.all([
     db.prepare("SELECT state,next_tick FROM world WHERE id=1").first(),
     db.prepare("SELECT x,y FROM world_position WHERE id=1").first(),
@@ -61,7 +92,7 @@ export async function buildDailyArchive(db:D1Database,start:string,end:string){
   // Legacy mutable revisions overwritten before migration 018 are unrecoverable.
   // Do not present a partial history as a complete research archive.
   const revisionsComplete=Boolean(revisionHistorySetup?.installed_at && revisionHistorySetup.installed_at<=start);
-  return {format:"nimo-daily-24h-v2",window:{start,end,durationHours:24,timezone:"UTC",inclusiveStart:true,exclusiveEnd:true},
+  return {format:"nimo-daily-24h-v2",window:{start,end,durationHours:(Date.parse(end)-Date.parse(start))/HOUR_MS,timezone:"Europe/London",inclusiveStart:true,exclusiveEnd:true},
     generatedAt:new Date().toISOString(),complete:revisionsComplete,
     revisionHistoryAvailableSince:revisionHistorySetup?.installed_at??null,
     incompleteReason:revisionsComplete?null:"Revision tracking began during or after this window; earlier edits to mutable records cannot be reconstructed.",
@@ -76,5 +107,6 @@ export async function archiveLatestCompletedDay(db:D1Database,bucket:R2Bucket,no
   return {status:"created" as const,key,bytes:serialized.length};
 }
 export function shouldArchiveNow(now:Date):boolean {
-  return now.getUTCHours()===6 && now.getUTCMinutes()>=5;
+  const clock=ukParts(now);
+  return clock.hour===ARCHIVE_HOUR_UK && clock.minute>=ARCHIVE_START_MINUTE;
 }

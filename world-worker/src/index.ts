@@ -10,7 +10,7 @@ import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending }
 import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
-import { archiveLatestCompletedDay, archiveWindow, shouldArchiveNow } from "./daily-archive";
+import { archiveLatestCompletedDay, latestArchiveKeys, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
@@ -837,7 +837,7 @@ export default {
       }
     })());
     // Archive even if Nimo is asleep or the owner has paused him. Write only
-    // one private R2 object for the latest completed 24-hour UTC window.
+    // one private R2 object for the latest completed UK 22:00-to-22:00 day.
     if(env.ARCHIVES && shouldArchiveNow(new Date())) {
       ctx.waitUntil(archiveLatestCompletedDay(env.DB,env.ARCHIVES,new Date())
         .catch(err=>console.error("Daily archive failed",err)));
@@ -922,9 +922,17 @@ export default {
       }
       if (path === "/archive/latest" && request.method === "GET") {
         if(!env.ARCHIVES)return json({error:"Daily archive bucket not configured"},503);
-        const key=archiveWindow(new Date()).key;
-        const object=await env.ARCHIVES.get(key);
-        if(!object)return json({error:"Latest completed 24h archive is not available yet",key},404);
+        const keys=latestArchiveKeys(new Date());
+        let key=keys[0];
+        let object=await env.ARCHIVES.get(key);
+        // During the first deployment or a delayed nightly run, the most
+        // recent successful archive remains downloadable. Never fabricate it.
+        for(const fallback of keys.slice(1)){
+          if(object)break;
+          const candidate=await env.ARCHIVES.get(fallback);
+          if(candidate){key=fallback;object=candidate;}
+        }
+        if(!object)return json({error:"Latest completed UK daily archive is not available yet",key},404);
         return new Response(object.body,{headers:{
           "Content-Type":"application/json; charset=utf-8",
           "Content-Disposition":'attachment; filename="'+key.split("/").at(-1)+'"',
