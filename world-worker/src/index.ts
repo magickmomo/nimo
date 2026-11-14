@@ -10,7 +10,7 @@ import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending }
 import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
-import { archiveLatestCompletedDay, shouldArchiveNow } from "./daily-archive";
+import { archiveLatestCompletedDay, archiveWindow, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
@@ -919,6 +919,17 @@ export default {
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
+      }
+      if (path === "/archive/latest" && request.method === "GET") {
+        if(!env.ARCHIVES)return json({error:"Daily archive bucket not configured"},503);
+        const key=archiveWindow(new Date()).key;
+        const object=await env.ARCHIVES.get(key);
+        if(!object)return json({error:"Latest completed 24h archive is not available yet",key},404);
+        return new Response(object.body,{headers:{
+          "Content-Type":"application/json; charset=utf-8",
+          "Content-Disposition":'attachment; filename="'+key.split("/").at(-1)+'"',
+          "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+        }});
       }
       if ((path === "/snapshot" || path === "/snapshot/owner") && request.method === "GET") {
         const owner = path === "/snapshot/owner";
