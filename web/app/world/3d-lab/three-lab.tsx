@@ -57,7 +57,7 @@ export default function ThreeLab() {
           showGrid={showGrid}
         />
         <div className="nimo-three-scene-label">
-          <strong>WORLD 002 · 3D PROTOTYPE</strong>
+          <strong>WORLD 003 · 3D PROTOTYPE</strong>
           <span>16 × 16 · orthographic</span>
         </div>
         <div className="nimo-three-scene-footer">
