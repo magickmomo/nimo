@@ -97,3 +97,18 @@ assert db.execute("SELECT response_id,attempts FROM oracle_queries").fetchone()=
  const result=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
  assert.equal(result.status,0,result.stderr||result.stdout);
 });
+
+test("completed research is fetched and saved even if the eight-minute deadline passed",()=>{
+ const src=read("../src/oracle.ts");
+ const branch=src.split('if(row.status==="researching"&&row.response_id){')[1].split('if(row.status==="researching"&&row.started_at')[0];
+ const fetched=branch.indexOf('const response=await fetch(API');
+ const statusRead=branch.indexOf('const output=await response.json()');
+ const overdue=branch.indexOf('oracleResearchOverdue(');
+ const completed=branch.indexOf('if(output.status!=="completed")');
+ const saved=branch.indexOf('await markOracle(env.DB,row.id,status,null,answer,sources,row.response_id)');
+ assert.ok(fetched>=0 && statusRead>fetched && overdue>statusRead && completed>overdue && saved>completed,
+  "fetch and inspect remote status before deadline; completed answer remains saveable");
+ assert.match(branch,/if\(output\.status==="queued"\|\|output\.status==="in_progress"\)\{/);
+ assert.match(branch,/if\(oracleResearchOverdue\(row\.started_at,now\)\)/);
+ assert.doesNotMatch(branch.split("try {")[0],/RESEARCH_DEADLINE_MS|markOracle/);
+});
