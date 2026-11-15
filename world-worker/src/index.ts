@@ -705,6 +705,10 @@ async function tick(env: Env) {
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
   };
   await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(next)).run();
+  if(oracleEncounter.invitation && !pendingMessage){
+    // Journal the monument\'s one-time greeting, not an instruction to Nimo.
+    await log(env.DB,"world",oracleEncounter.invitation,"ORACLE_WHISPER");
+  }
   if (pendingMessage) {
     // Reply marker also serves as the persistent acknowledgement for this exact event.
     // Subsequent decisions can reliably find the next unanswered visitor message.
