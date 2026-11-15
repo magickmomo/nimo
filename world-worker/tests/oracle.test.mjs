@@ -115,9 +115,12 @@ test("completed research is fetched and saved even if the eight-minute deadline 
 });
 
 test("Oracle has a two-tile speaking area around its 2x2 collision footprint",async()=>{
+ const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const mapUrl="data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64");
  const code=read("../src/oracle.ts")
    .replace('import {recordVerifiedMemory} from "./consolidated-memory";','const recordVerifiedMemory=()=>{};')
-   .replace('import type {Point} from "../../web/lib/world-map";','');
+   .replace('import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";',
+    'import {withinOracleInteractionArea} from "'+mapUrl+'";');
  const js=ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
  const oracle=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
  // East side of the monument, including the user's pictured approach.
@@ -144,4 +147,22 @@ test("Oracle arrival invitation is optional, once per entry, and visible in the 
  assert.match(worker,/ORACLE_WHISPER/);
  assert.match(worker,/world dialogue, not an instruction/);
  assert.match(worker,/Python, websites/);
+});
+
+test("Oracle proximity glow matches the exact action area and can be switched off",async()=>{
+ const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const map=await import("data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64"));
+ for(let x=0;x<16;x++)for(let y=0;y<16;y++){
+  const distance=Math.max(1-x,0,x-2)+Math.max(13-y,0,y-14);
+  assert.equal(map.withinOracleInteractionArea({x,y}),distance>0&&distance<=2,`range mismatch at ${x},${y}`);
+ }
+ assert.equal(map.withinOracleInteractionArea({x:4.2,y:13}),false);
+ assert.equal(map.withinOracleInteractionArea({x:3.5,y:13}),true);
+ const view=read("../../web/app/world/isometric-world.tsx");
+ const css=read("../../web/app/world/world.css");
+ assert.match(view,/const oracleActive = withinOracleInteractionArea\(current\)/);
+ assert.match(view,/oracleActive && withinOracleInteractionArea\(tile\)/);
+ assert.match(view,/oracleActive=\{oracleActive\}/);
+ assert.match(css,/nimo-oracle-ground-glow/);
+ assert.match(css,/prefers-reduced-motion:reduce/);
 });
