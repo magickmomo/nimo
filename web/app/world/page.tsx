@@ -296,7 +296,6 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>}
          {isOwner && <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>}
-        <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
       {data?.offline && <div className="world-warning" role="status">
