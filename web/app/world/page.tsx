@@ -294,7 +294,7 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>}
-         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>}
+         <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>}
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
@@ -307,7 +307,7 @@ export default function World() {
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
       {isOwner && projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
-       {isOwner && artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
+       {artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
       {isOwner && oracleOpen && <WorldOraclePanel onClose={closeOracle}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
