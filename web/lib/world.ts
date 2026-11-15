@@ -9,6 +9,7 @@ export type WorldState = {
   rewardCursor?: number;
   curiosityDiscoveryCursor?: number; // Legacy cursor, retained for backward-compatible state loading.
   curiosityActionHistory?: string[]; // Last ten completed decision choices, newest first.
+  oracleNearbyLastDecision?: boolean; // Presence transition for one-time, optional Oracle invitation.
 };
 
 export type WorldEvent = {

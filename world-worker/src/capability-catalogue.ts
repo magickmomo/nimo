@@ -30,7 +30,7 @@ export function buildCapabilityCatalogue(
   const coins = vending.coins;
   const seedCost = vending.items.find(item=>item.id==="seed_packet")?.price;
   const items = [
-    ["ask_oracle","Ask an open-ended question about the outside world",["Find and stand next to the ancient Oracle monument","The Oracle must not be processing another question"]],
+    ["ask_oracle","Explore questions about the world beyond this one: sciences, arts, nature, cultures, technology, computing and unexpected interests",["Come within two cardinal steps of the ancient Oracle monument","The Oracle must not be processing another question"]],
     ["write_document","Write or revise a short virtual text document",["Workspace must have room for new files; existing documents can be revised"]],
     ["travel_to","Travel to a reachable walkable location",["Destination must be reachable and unblocked"]],
     ["inspect","Examine an adjacent object",["Stand next to an inspectable object; repeated inspection may be restricted"]],

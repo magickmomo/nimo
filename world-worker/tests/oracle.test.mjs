@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
+import ts from "typescript";
 const root=fileURLToPath(new URL("../",import.meta.url));
 const read=p=>readFileSync(new URL(p,import.meta.url),"utf8");
 
-test("Oracle is an optional action offered only when adjacent and not researching",()=>{
+test("Oracle is an optional action offered within its approach area and not while researching",()=>{
  const menu=read("../src/action-menu.ts");
  assert.match(menu,/oracle\.adjacent&&!oracle\.busy/);
  assert.match(menu,/tools\.push\("ask_oracle"\)/);
@@ -74,7 +75,7 @@ test("Oracle inspection reports its current state and does not require waiting a
  assert.match(worker,/Oracle status: answer received/);
  assert.match(worker,/Oracle status: research failed/);
  assert.match(worker,/Research continues independently; you may leave and return later/);
- assert.match(worker,/you may leave the monument, pursue other interests/);
+ assert.match(worker,/you do not need to wait, inspect repeatedly or remain near the Oracle/);
 });
 test("background-response migration extends oracle queries without dropping prior research",()=>{
  const py=`
@@ -111,4 +112,57 @@ test("completed research is fetched and saved even if the eight-minute deadline 
  assert.match(branch,/if\(output\.status==="queued"\|\|output\.status==="in_progress"\)\{/);
  assert.match(branch,/if\(oracleResearchOverdue\(row\.started_at,now\)\)/);
  assert.doesNotMatch(branch.split("try {")[0],/RESEARCH_DEADLINE_MS|markOracle/);
+});
+
+test("Oracle has a two-tile speaking area around its 2x2 collision footprint",async()=>{
+ const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const mapUrl="data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64");
+ const code=read("../src/oracle.ts")
+   .replace('import {recordVerifiedMemory} from "./consolidated-memory";','const recordVerifiedMemory=()=>{};')
+   .replace('import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";',
+    'import {withinOracleInteractionArea} from "'+mapUrl+'";');
+ const js=ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const oracle=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+ // East side of the monument, including the user's pictured approach.
+ assert.equal(oracle.adjacentToOracle({x:3,y:13}),true);
+ assert.equal(oracle.adjacentToOracle({x:4,y:13}),true);
+ assert.equal(oracle.adjacentToOracle({x:3,y:12}),true);
+ assert.equal(oracle.adjacentToOracle({x:5,y:13}),false);
+ assert.equal(oracle.adjacentToOracle({x:2,y:14}),false);
+ assert.equal(oracle.adjacentToOracle({x:1,y:13}),false);
+ assert.equal(oracle.adjacentToOracle({x:2,y:11}),true);
+ assert.equal(oracle.adjacentToOracle({x:2,y:10}),false);
+ assert.match(oracle.oracleInvitation(true,null),/What have you wondered about/);
+ assert.equal(oracle.oracleInvitation(false,null),null);
+ assert.match(oracle.oracleInvitation(true,"researching"),/keep searching/);
+ assert.match(oracle.oracleInvitation(true,"answered"),/One answer has returned/);
+});
+test("Oracle arrival invitation is optional, once per entry, and visible in the journal",()=>{
+ const worker=read("../src/index.ts");
+ const world=read("../../web/lib/world.ts");
+ assert.match(world,/oracleNearbyLastDecision\?: boolean/);
+ assert.match(worker,/oracleWithinReach&&!world\.state\.oracleNearbyLastDecision&&!pendingMessage/);
+ assert.match(worker,/oracleNearbyLastDecision:pendingMessage\?state\.oracleNearbyLastDecision:oracleWithinReach/);
+ assert.match(worker,/oracleEncounter,oracleHistory:/);
+ assert.match(worker,/ORACLE_WHISPER/);
+ assert.match(worker,/world dialogue, not an instruction/);
+ assert.match(worker,/Python, websites/);
+});
+
+test("Oracle proximity glow matches the exact action area and can be switched off",async()=>{
+ const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const map=await import("data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64"));
+ for(let x=0;x<16;x++)for(let y=0;y<16;y++){
+  const distance=Math.max(1-x,0,x-2)+Math.max(13-y,0,y-14);
+  assert.equal(map.withinOracleInteractionArea({x,y}),distance>0&&distance<=2,`range mismatch at ${x},${y}`);
+ }
+ assert.equal(map.withinOracleInteractionArea({x:4.2,y:13}),false);
+ assert.equal(map.withinOracleInteractionArea({x:3.5,y:13}),true);
+ const view=read("../../web/app/world/isometric-world.tsx");
+ const css=read("../../web/app/world/world.css");
+ assert.match(view,/const oracleActive = withinOracleInteractionArea\(current\)/);
+ assert.match(view,/oracleActive && withinOracleInteractionArea\(tile\)/);
+ assert.match(view,/oracleActive=\{oracleActive\}/);
+ assert.match(css,/nimo-oracle-ground-glow/);
+ assert.match(css,/prefers-reduced-motion:reduce/);
 });
