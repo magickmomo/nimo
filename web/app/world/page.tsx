@@ -61,6 +61,9 @@ export default function World() {
   const [projectsOpen,setProjectsOpen]=useState(false);
   const [artworksOpen,setArtworksOpen]=useState(false);
   const [oracleOpen,setOracleOpen]=useState(false);
+  const [sidebarVisible,setSidebarVisible]=useState(true);
+  const [mobilePanelOpen,setMobilePanelOpen]=useState(false);
+  const [detailsOpen,setDetailsOpen]=useState(false);
   const [pendingRequests,setPendingRequests]=useState(0);
   // Stable across the once-per-second clock renders: the dialog must not refocus.
   const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
@@ -296,9 +299,12 @@ export default function World() {
         <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>
          <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
         <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>
+        <button type="button" className="world-messages-link world-details-toggle" onClick={()=>setDetailsOpen(value=>!value)} aria-expanded={detailsOpen}>Details</button>
+        <button type="button" className="world-messages-link world-sidebar-toggle" onClick={()=>setSidebarVisible(value=>!value)} aria-expanded={sidebarVisible}>{sidebarVisible?"Hide journal":"Show journal"}</button>
+        <button type="button" className="world-messages-link world-mobile-panel-toggle" onClick={()=>setMobilePanelOpen(value=>!value)} aria-expanded={mobilePanelOpen}>{mobilePanelOpen?"Close journal":"Journal & status"}</button>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
-      {data?.offline && <div className="world-warning" role="status">
+      {data?.offline && <div className="world-warning world-offline-warning" role="status">
         <strong>Offline snapshot.</strong> Nimo's database is unavailable. You're viewing his last saved world
         {data.cachedAt ? " from "+new Date(data.cachedAt).toLocaleString() : ""}.
         His position, meters and actions aren't updating. Live updates resume when the database recovers.
@@ -313,39 +319,29 @@ export default function World() {
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>
         <p className="meta">Fetching his latest position and state.</p>
-      </section> : !data ? <section className="world-card" role="status">Unable to load Nimo’s world. <button type="button" onClick={()=>{setInitialLoading(true);void refresh();}}>Retry</button></section> : <div className="world-layout">
+      </section> : !data ? <section className="world-card" role="status">Unable to load Nimo’s world. <button type="button" onClick={()=>{setInitialLoading(true);void refresh();}}>Retry</button></section> : <div className={`world-layout${sidebarVisible?"":" is-sidebar-collapsed"}`}>
+        {state && <section className="world-status-strip world-floating-meters" aria-label="Nimo's internal state">
+              {meters.map((item) => {
+                const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
+                return (
+                  <div className={`world-status-item${item.inactive?" is-inactive":""}`} key={item.label}>
+                    <div className="world-status-head">
+                      <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
+                      <span className="world-meter-label">{item.label}{item.inactive?" · Paused":""}</span>
+                      <span className="world-status-percent">{Math.round(value * 100)}%</span>
+                    </div>
+                    <div className="world-status-bar" role="progressbar"
+                      aria-label={item.label} aria-valuenow={Math.round(value * 100)}
+                      aria-valuemin={0} aria-valuemax={100}>
+                      <div className={`world-status-fill ${item.tone}`}
+                        style={{ width: `${value * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+        </section>}
+
         <div className="world-main">
-      {state && (
-        <>
-          <section className="world-status-strip" aria-label="Nimo's internal state">
-            {meters.map((item) => {
-              const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
-              return (
-                <div className={`world-status-item${item.inactive?" is-inactive":""}`} key={item.label}>
-                  <div className="world-status-head">
-                    <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
-                    <span>{item.label}{item.inactive?" · Paused":""}</span>
-                    <span className="world-status-percent">{Math.round(value * 100)}%</span>
-                  </div>
-                  <div className="world-status-bar" role="progressbar"
-                    aria-label={item.label} aria-valuenow={Math.round(value * 100)}
-                    aria-valuemin={0} aria-valuemax={100}>
-                    <div className={`world-status-fill ${item.tone}`}
-                      style={{ width: `${value * 100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-          <div className="world-status-meta">
-            <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
-            <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
-            <div className="world-status-meta-item"><strong>Status</strong>
-              <span>{data?.offline ? "Offline" : data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
-            </div>
-          </div>
-        </>
-      )}
       <div className="nimo-game-stage">
         <div className="nimo-coin-counter" role="status" aria-label={coins===undefined?"Coin balance unavailable":`Nimo has ${coins} coins`}>
           <span className="nimo-coin-symbol" aria-hidden="true" />
@@ -354,8 +350,10 @@ export default function World() {
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
         <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
-          actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+          actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={id=>{setSelectedObjectId(id);setDetailsOpen(true);}} />
       </div>
+      {detailsOpen && <aside className="world-detail-drawer" aria-label="World details">
+        <div className="world-detail-drawer-heading"><strong>World details</strong><button type="button" onClick={()=>setDetailsOpen(false)}>Close</button></div>
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
         <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
         {selectedObject ? <>
@@ -423,7 +421,18 @@ export default function World() {
         <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
         <p className="meta">Decision #{state?.tickCount ?? "—"} · {data?.offline ? "Next decision unavailable while offline" : `Next decision in ${seconds}s`}</p>
       </details>}
+      </aside>}
       </div>
+      <aside className={`world-sidebar${mobilePanelOpen?" is-mobile-open":""}`} aria-label="World status and journal">
+        <div className="world-sidebar-mobile-head"><strong>Nimo\u2019s status & journal</strong><button type="button" onClick={()=>setMobilePanelOpen(false)}>Close</button></div>
+      {state && <div className="world-status-meta">
+            <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
+            <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
+            <div className="world-status-meta-item"><strong>Status</strong>
+              <span>{data?.offline ? "Offline" : data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
+            </div>
+      </div>}
+
       <section className="world-card world-journal">
         <div className="world-journal-head">
           <h2>Journal</h2>
@@ -466,6 +475,7 @@ export default function World() {
         {journalHasMore&&!data?.offline&&<button type="button" className="world-journal-more" disabled={journalLoading}
           onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
+      </aside>
       </div>}
     </div>
   );
