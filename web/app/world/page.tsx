@@ -28,6 +28,8 @@ type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
 type Snapshot = {
+  offline?:boolean;
+  cachedAt?:string;
   objects?: ObjectRecord[];
   actionTrace?: TraceRecord[];
   world: { state: WorldState; next_tick: string };
@@ -296,6 +298,11 @@ export default function World() {
         <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
+      {data?.offline && <div className="world-warning" role="status">
+        <strong>Offline snapshot.</strong> Nimo's database is unavailable. You're viewing his last saved world
+        {data.cachedAt ? " from "+new Date(data.cachedAt).toLocaleString() : ""}.
+        His position, meters and actions aren't updating. Live updates resume when the database recovers.
+      </div>}
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
@@ -334,7 +341,7 @@ export default function World() {
             <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
             <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
             <div className="world-status-meta-item"><strong>Status</strong>
-              <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
+              <span>{data?.offline ? "Offline" : data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
           </div>
         </>
