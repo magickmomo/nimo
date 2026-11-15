@@ -112,7 +112,7 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, actionTrace=[], selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
   journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
