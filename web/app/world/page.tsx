@@ -271,10 +271,6 @@ export default function World() {
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
   const recentActions = data?.actionTrace ?? [];
-  const runningActions = recentActions.filter(a=>a.status==="running" && (
-    (a.kind==="travel" && (data?.journey?.status==="travelling" || data?.journey?.status==="paused")) ||
-    (clock-Date.parse(a.started_at)<90000)
-  ));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
@@ -343,36 +339,8 @@ export default function World() {
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
         <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
-          selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+          actionTrace={isOwner ? recentActions : []} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
-      {isOwner && <section className="world-card world-action-monitor" aria-label="Current action">
-        <div className="world-journal-head">
-          <h2>Current action</h2>
-          <span className="meta">Live status</span>
-        </div>
-        
-        <div className="world-action-current">
-          <strong>{data?.autonomousEnabled===false?"Sleeping":data?.journey?.status==="paused"?"Journey paused":runningActions.length?runningActions[0].detail:"Idle / between actions"}</strong>
-          <span>{data?.journey?.status==="travelling"?"Walking along a persisted route":runningActions.length?runningActions[0].kind:"No operation running right now"}</span>
-        </div>
-        <details className="world-action-details">
-          <summary>Technical action log ({recentActions.length})</summary>
-          <ol className="world-action-list">
-            {recentActions.slice(0,10).map(action=>(
-              <li key={action.id}>
-                <div className="world-action-line">
-                  <span className="world-action-kind">{action.kind}</span>
-                  <span>{action.status==="running" && !runningActions.some(item=>item.id===action.id) ? "stale / interrupted" : action.status}</span>
-                  <time dateTime={action.started_at}>{new Date(action.started_at).toLocaleTimeString()}</time>
-                </div>
-                <div>{action.detail}</div>
-                {action.result && <small>{action.result}</small>}
-              </li>
-            ))}
-          </ol>
-          {!recentActions.length && <p className="meta">No operations recorded yet.</p>}
-        </details>
-      </section>}
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
         <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
         {selectedObject ? <>
