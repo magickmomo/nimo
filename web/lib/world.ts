@@ -12,6 +12,7 @@ export type WorldState = {
   curiosityDiscoveryCursor?: number; // Legacy cursor, retained for backward-compatible state loading.
   curiosityActionHistory?: string[]; // Last ten completed decision choices, newest first.
   pendingIntent?: PendingIntent | null; // Visitor request Nimo voluntarily agreed to pursue after replying.
+  oracleNearbyLastDecision?: boolean; // Tracks entrance and exit to avoid repetitive welcomes.
 };
 
 export type WorldEvent = {
