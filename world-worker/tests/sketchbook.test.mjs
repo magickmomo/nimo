@@ -25,35 +25,57 @@ test("drawing is gated by purchase and stored in D1",()=>{
  assert.match(index,/path === "\/artworks"/);
 });
 
-test("new sketch succeeds from INSERT RETURNING despite extra trigger writes",async()=>{
- const db={prepare(sql){
-  return {bind(){return this;},async first(){
-   if(sql.includes("FROM nimo_sketchbook"))return {id:1};
-   if(sql.includes("FROM nimo_sketches"))return null;
-   if(sql.includes("RETURNING id"))return {id:15};
-   throw Error("Unexpected query: "+sql);
-  }};
+
+/** A fake D1 backend where writes succeed but mutation metadata/RETURNING is
+ * unreliable due to revision-history triggers. Reads reflect durable state. */
+function sketchDb({stale=false}={}){
+ const rows=new Map();
+ let nextId=15;
+ let active=null;
+ return {prepare(sql){
+  let params=[];
+  return {
+   bind(...values){params=values;return this;},
+   async run(){
+    if(sql.startsWith("INSERT INTO nimo_sketches")){
+     active={id:nextId++,title:params[0],intention:params[1],status:"drawing",stroke_count:0,strokes_json:"[]"};
+     rows.set(active.id,active);
+    }else if(sql.startsWith("UPDATE nimo_sketches SET strokes_json")){
+     const row=rows.get(params[2]);
+     if(row && row.status==="drawing" && row.stroke_count===params[3]&&!stale){
+      row.strokes_json=params[0];row.stroke_count=params[1];
+     }
+    }else if(sql.startsWith("UPDATE nimo_sketches SET status")){
+     const row=rows.get(params[2]);
+     if(row && row.status==="drawing" && (row.stroke_count>0||params[3]==="abandoned")&&!stale)row.status=params[0];
+    }else throw Error("Unexpected mutation: "+sql);
+    return {meta:{changes:2},results:[]};
+   },
+   async first(){
+    if(sql.includes("FROM nimo_sketchbook"))return {id:1};
+    if(sql.includes("SELECT id FROM nimo_sketches WHERE status='drawing'"))return active?.status==="drawing"?active:null;
+    if(sql.includes("MAX(id)"))return {id:nextId-1};
+    if(sql.includes("WHERE id>? AND title=?"))return [...rows.values()].find(r=>r.id>params[0]&&r.title===params[1]&&r.intention===params[2]&&r.status==="drawing")??null;
+    if(sql.includes("SELECT id,strokes_json,stroke_count"))return rows.get(params[0])??null;
+    if(sql.includes("SELECT stroke_count,strokes_json"))return rows.get(params[0])??null;
+    if(sql.includes("SELECT status,stroke_count"))return rows.get(params[0])??null;
+    throw Error("Unexpected query: "+sql);
+   }
+  };
  }};
+}
+test("new sketch succeeds despite misleading D1 write metadata",async()=>{
+ const db=sketchDb();
  assert.match(await beginSketch(db,"Morning tree","Study a nearby tree"),/Started sketch/);
 });
-test("drawing and finishing use RETURNING, not total changes including audit triggers",async()=>{
- const db={prepare(sql){
-  return {bind(){return this;},async first(){
-   if(sql.includes("SELECT id,strokes_json,stroke_count"))return {id:15,strokes_json:"[]",stroke_count:0};
-   if(sql.includes("RETURNING id"))return {id:15};
-   throw Error("Unexpected query: "+sql);
-  }};
- }};
+test("drawing and finishing verify persisted rows despite audit triggers",async()=>{
+ const db=sketchDb();
+ await beginSketch(db,"Morning tree","Study a nearby tree");
  assert.match(await drawStrokes(db,15,[valid]),/Added 1 pencil strokes/);
  assert.equal(await closeSketch(db,15,"finished"),"Finished drawing #15");
 });
-test("optimistic concurrency still rejects an actual stale update",async()=>{
- const db={prepare(sql){
-  return {bind(){return this;},async first(){
-   if(sql.includes("SELECT id,strokes_json,stroke_count"))return {id:15,strokes_json:"[]",stroke_count:0};
-   if(sql.includes("RETURNING id"))return null;
-   throw Error("Unexpected query: "+sql);
-  }};
- }};
+test("a genuine stale sketch update still fails verification",async()=>{
+ const db=sketchDb({stale:true});
+ await beginSketch(db,"Morning tree","Study a nearby tree");
  await assert.rejects(()=>drawStrokes(db,15,[valid]),/Sketch changed/);
 });
