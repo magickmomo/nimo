@@ -281,7 +281,8 @@ export default function World() {
       id:event.id,started_at:event.created_at,kind:event.action ?? "ACT",
       status:"completed",detail:event.content,result:null,
     }));
-  const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
+  const seconds = data && !data.offline ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
+  const visibleJournal = data?.offline && !journalEvents.length ? (data.events ?? []) : journalEvents;
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
     { label: "Curiosity", value: state.emotions.curiosity ?? 0.35, tone: "curiosity", inactive:false },
@@ -421,7 +422,7 @@ export default function World() {
         </div>
 
         <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
-        <p className="meta">Decision #{state?.tickCount ?? "—"} · Next decision in {seconds}s</p>
+        <p className="meta">Decision #{state?.tickCount ?? "—"} · {data?.offline ? "Next decision unavailable while offline" : `Next decision in ${seconds}s`}</p>
       </details>}
       </div>
       <section className="world-card world-journal">
@@ -451,8 +452,9 @@ export default function World() {
             placeholder="Enter your token once" required />
           <button disabled={!exportToken.trim()||exporting} type="submit">{exporting?"Signing in…":"Sign in and export"}</button>
         </form>}
-        {journalError&&<p className="world-warning" role="alert">{journalError}</p>}
-        {journalEvents.length ? groupJournalEvents(journalEvents).map(event => (
+        {journalError&&!data?.offline&&<p className="world-warning" role="alert">{journalError}</p>}
+        {data?.offline&&<p className="meta">Showing journal entries saved with the offline snapshot. Date-range filtering and older pages require D1.</p>}
+        {visibleJournal.length ? groupJournalEvents(visibleJournal).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
             {event.movement && (
@@ -462,7 +464,7 @@ export default function World() {
             {event.outcome && <p className="world-event-result"><strong>{event.narration ? "Result:" : "Event:"}</strong> {event.outcome}</p>}
           </article>
         )) : <p className="meta">{journalLoading?"Loading journal…":"No journal events in this time range."}</p>}
-        {journalHasMore&&<button type="button" className="world-journal-more" disabled={journalLoading}
+        {journalHasMore&&!data?.offline&&<button type="button" className="world-journal-more" disabled={journalLoading}
           onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
       </div>}
