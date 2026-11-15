@@ -270,7 +270,15 @@ export default function World() {
   const coins=data?.garden?.coins??data?.vending?.coins;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
-  const recentActions = data?.actionTrace ?? [];
+  // Journal thoughts describe actual selected actions, unlike the technical trace,
+  // which is dominated by internal model-decision steps.
+  const recentActionToasts = (data?.events ?? [])
+    .filter(event => event.kind === "thought" && ["ACT","THINK","OBSERVE","REMEMBER"].includes(event.action ?? ""))
+    .slice(0,4)
+    .map(event => ({
+      id:event.id,started_at:event.created_at,kind:event.action ?? "ACT",
+      status:"completed",detail:event.content,result:null,
+    }));
   const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
@@ -339,7 +347,7 @@ export default function World() {
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
         <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
-          actionTrace={isOwner ? recentActions : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+          actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
         <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
