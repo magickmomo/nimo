@@ -339,7 +339,7 @@ export default function World() {
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
         <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
-          actionTrace={isOwner ? recentActions : []} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
+          actionTrace={isOwner ? recentActions : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
         <summary>Object details {selectedObject ? `· ${selectedObject.label || selectedObject.id}` : "· select an object on the map"}</summary>
