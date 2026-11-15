@@ -856,3 +856,94 @@ main:has(> .world-dashboard){
     max-height:55px;
   }
 }
+
+
+/* Fullness and curiosity are now toolbar elements, rather than a HUD over
+   the scene. Preserve readable progressbar names at compact widths. */
+.world-dashboard>.world-topbar{
+  flex-wrap:nowrap;
+  align-items:center;
+  overflow-x:auto;
+  scrollbar-width:thin;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters{
+  position:static;
+  transform:none;
+  flex:0 1 440px;
+  min-width:180px;
+  width:auto;
+  height:auto;
+  margin:0 0 0 auto;
+  padding:4px 10px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+  align-items:center;
+  color:#e6f2e6;
+  border:1px solid rgba(179,219,189,.23);
+  border-radius:11px;
+  background:rgba(12,40,30,.65);
+  box-shadow:none;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-item{
+  min-width:0;
+  padding:0;
+  border:0;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-head{
+  display:flex;
+  gap:6px;
+  align-items:center;
+  margin:0 0 4px;
+  color:#e3f0e6;
+  font-size:12px;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-dot{
+  width:12px;
+  height:12px;
+  border:1px solid #b3d9b8;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-dot:before{display:none}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-percent{
+  font-size:11px;
+}
+.world-dashboard>.world-topbar .world-toolbar-meters .world-status-bar{
+  height:9px;
+  background:#254638;
+  border:1px solid #7ca78c;
+}
+.world-dashboard>.world-topbar .world-sidebar-toggle,
+.world-dashboard>.world-topbar .world-mobile-panel-toggle{
+  flex:0 0 auto;
+  margin-left:0;
+}
+.world-dashboard>.world-topbar>.world-messages-link{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+@media(max-width:1260px){
+  .world-dashboard>.world-topbar .world-toolbar-meters{
+    flex:0 1 220px;
+    min-width:100px;
+    padding:6px 8px;
+    gap:8px;
+  }
+  .world-dashboard>.world-topbar .world-toolbar-meters .world-status-head{
+    display:none;
+  }
+  .world-dashboard>.world-topbar .world-toolbar-meters .world-status-bar{
+    height:12px;
+  }
+}
+@media(max-width:650px){
+  .world-dashboard>.world-topbar .world-toolbar-meters{
+    flex:0 1 116px;
+    min-width:68px;
+    padding:5px;
+    gap:5px;
+    border-radius:8px;
+  }
+  .world-dashboard>.world-topbar .world-toolbar-meters .world-status-bar{
+    height:10px;
+  }
+}
