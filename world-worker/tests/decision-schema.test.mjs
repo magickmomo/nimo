@@ -88,3 +88,21 @@ test("REMEMBER with remember_object normalizes to ACT without weakening validati
   assert.throws(()=>validateDecision(base("REMEMBER",toolCall),true),
     /pending visitor message requires REPLY/);
 });
+
+test("visitor replies can accept an intention without executing a tool",()=>{
+ const accepted=validateDecision({...base("REPLY"),replyIntent:"Travel toward the Oracle",intentDisposition:"keep"},true);
+ assert.equal(accepted.replyIntent,"Travel toward the Oracle");
+ assert.equal(accepted.toolCall,null);
+ assert.equal(accepted.action,"REPLY");
+ assert.equal(accepted.intentDisposition,"keep");
+ const declined=validateDecision({...base("REPLY"),replyIntent:null,intentDisposition:"keep"},true);
+ assert.equal(declined.replyIntent,null);
+ assert.equal(validateDecision({...base("REPLY"),intentDisposition:"abandon"},true).intentDisposition,"abandon");
+});
+test("visitor intentions cannot execute during reply, leak into normal decisions or fake completion",()=>{
+ assert.throws(()=>validateDecision({...base("REPLY"),replyIntent:"Go to Oracle",toolCall:{name:"travel_to",x:2,y:13}},true),/REPLY cannot execute tools/);
+ assert.throws(()=>validateDecision({...base("THINK"),replyIntent:"Go to Oracle"},false),/replyIntent/);
+ assert.throws(()=>validateDecision({...base("REPLY"),intentDisposition:"complete"},true),/cannot mark/);
+ assert.throws(()=>validateDecision({...base("REPLY"),replyIntent:"   "},true),/replyIntent/);
+ assert.throws(()=>validateDecision({...base("REPLY"),replyIntent:"x".repeat(251)},true),/replyIntent/);
+});

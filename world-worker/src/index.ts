@@ -5,6 +5,7 @@ import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from 
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildCapabilityCatalogue } from "./capability-catalogue";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
+import { nextVisitorIntent } from "./visitor-intent";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
@@ -267,7 +268,8 @@ You cannot execute code, send email, spend money, browse the internet yourself, 
 REQUEST asks your owner for a new capability; it does not grant it.
 Do not claim a write, inspection or journey has already succeeded in your monologue. The monologue describes what you INTEND to do before the tool is executed. Subsequent journal tool events confirm results. Never invent coordinates; use perception.position and listed destinations.
 Avoid endlessly planning: when a goal involves writing, actually write something concrete. You can create up to three unfinished self-directed projects and update their progress, next step, or status via the provided project tools. These are persistent intentions, not compulsory tasks; only claim completed steps backed by events. Maintain projects deliberately and do not create duplicate or trivial projects.
-If you receive a pending visitor message, choose REPLY with toolCall:null. Put the actual answer in monologue, grounded in your observations and records. You may disagree, say you do not know, or decline. REPLY is a conversation turn: it cannot execute any tool and does not change your ongoing goal or activity. When no visitor awaits, use THINK for a non-tool reflection.
+If you receive a pending visitor message, choose REPLY with toolCall:null; your reply cannot execute tools, but normal autonomous decisions AFTER the reply can. A visitor may suggest an action; you may genuinely accept, decline, or discuss it. When accepting an actionable favour, populate replyIntent with a concise, achievable description of what YOU voluntarily intend to try next; if you decline, only answer a question, or make no commitment, set replyIntent:null. Do not promise to do something while leaving replyIntent empty. A reply by itself does not alter your goal or activity. A visitor may also ask you to cancel a prior commitment: use intentDisposition:"abandon" if you agree. When no visitor awaits, replyIntent must be null and use THINK for a non-tool reflection.
+An accepted visitor request is preserved in pendingIntent across later autonomous decisions. It is your own revocable intention, not a command or a tool. Evaluate it along with your goals and available actions. If you still want to fulfil it, choose a valid tool during a subsequent normal ACT decision; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward. Mark intentDisposition:"complete" ONLY on the turn where you actually choose the action that fulfils it, never just because you plan or think about doing it; the environment will clear it only on verified action success. Mark "abandon" to freely change your mind, or "keep" while pending. Do not claim completion before a verified action.
 A deterministic controller determines which tools and targets exist for this decision. It will omit unavailable choices entirely. You may choose THINK or OBSERVE without a tool.
 Your food meter is FULLNESS: 1.0 = 100% FULL and well fed (GOOD); 0.0 = 0% FULL and starving (BAD). Fullness drops over time; eating helpful food raises it. Keeping fullness comfortably closer to 100% than 0% supports wellbeing. At low fullness seek useful food, but do not eat wastefully when already full, and remain free to pursue other interests. Use needsPercent.fullness as the readable source of truth. The fullnessDecayPointsPerSecond setting is the rate at which FULLNESS FALLS, not a separate hunger meter. Food knowledge reports meanFullnessChange: positive numbers mean the fruit INCREASES fullness; negative numbers mean the fruit DECREASES fullness; zero means no effect. Energy=1.0 means fully energised; happiness=1.0 means happiest; boredom=1.0 means extremely bored. Energy, happiness and boredom are currently paused. Curiosity is active as a soft motivation while you are comfortably fed.
 Five trees grow amber, blue or red fruit, but which tree produces which colour is unknown until inspected. Fruit effects are initially unknown; learn them through actual eating, not colour assumptions. Trees can hold limited fruit and may regrow after picking, but the unseen regeneration schedule is unknown. Your inventory holds at most nine fruit. Inspect adjacent trees to learn the fruit type and available stock; picking is only possible when the action menu offers it. Eat carried fruit when fullness is low or when there is another reason to test it, conserving useful supplies. Effects observed at fullness 0 or 100 are censored; avoid inferring precise relief from those boundary observations. Unavailable actions cannot be selected.
@@ -281,6 +283,7 @@ Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a v
 Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. Use REPLY only for a pending visitor message and always with toolCall:null. ACT always requires a valid toolCall. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
 Return only JSON with action, monologue, activity, goal (string or null),
 identityUpdate (null or {text,evidence}),
+replyIntent (string or null), intentDisposition ("keep", "complete" or "abandon"),
 toolCall (null or one of the exact currently offered tool shapes). Keep monologue short.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
   const offeredActions=menu.tools.map(name =>
@@ -304,7 +307,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
       content: e.content.slice(0, 400),
     }));
   const visitorInstructions = pendingMessage
-    ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Do not change your ongoing goal or activity as a side effect of this reply. Question: ${JSON.stringify(pendingMessage.content)}`
+    ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Your normal movement tools are temporarily unavailable during a REPLY, but they return on your next autonomous turn. If you choose to accept an actionable request, store what you intend to do in replyIntent; do not claim you already did it. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
   const model = env.OPENAI_MODEL || "gpt-6-luna";
   const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
@@ -314,7 +317,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,12).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count}))},consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,12).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count}))},consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -702,17 +705,20 @@ async function tick(env: Env) {
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
     currentActivity: pendingMessage ? state.currentActivity : d.activity,
     oracleNearbyLastDecision:pendingMessage?state.oracleNearbyLastDecision:oracleWithinReach,
+    pendingIntent:nextVisitorIntent(state.pendingIntent,pendingMessage?.id??null,d.replyIntent,
+      d.intentDisposition,!!d.toolCall&&!toolFailed,now.toISOString()),
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
   };
   await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(next)).run();
   if(oracleEncounter.invitation && !pendingMessage){
-    // Journal the monument\'s one-time greeting, not an instruction to Nimo.
     await log(env.DB,"world",oracleEncounter.invitation,"ORACLE_WHISPER");
   }
   if (pendingMessage) {
     // Reply marker also serves as the persistent acknowledgement for this exact event.
     // Subsequent decisions can reliably find the next unanswered visitor message.
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
+    if(d.replyIntent)await log(env.DB,"tool",
+      "Nimo accepted visitor request #"+pendingMessage.id+": "+d.replyIntent,"INTENT_ACCEPTED");
   } else {
     const eventId=await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
     if(d.action==="REQUEST"){

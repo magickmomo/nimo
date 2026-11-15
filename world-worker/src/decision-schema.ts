@@ -29,6 +29,8 @@ export type Decision = {
   goal: string | null;
   identityUpdate?: { text: string; evidence: string } | null;
   toolCall: DecisionTool | null;
+  replyIntent: string | null; // Proposed action Nimo explicitly accepts in a visitor reply.
+  intentDisposition: "keep" | "complete" | "abandon";
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
@@ -157,11 +159,20 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     identityUpdate = {text:d.identityUpdate.text, evidence:d.identityUpdate.evidence};
   }
 
+  if (d.replyIntent !== undefined && d.replyIntent !== null &&
+      (!hasPendingVisitor || !string(d.replyIntent, 250) || !d.replyIntent.trim()))
+    fail("replyIntent must be a nonempty 250-character string during REPLY, or null");
+  if (d.intentDisposition !== undefined && !["keep","complete","abandon"].includes(String(d.intentDisposition)))
+    fail("intentDisposition must be keep, complete or abandon");
+  if (hasPendingVisitor && d.intentDisposition === "complete")
+    fail("REPLY cannot mark a previous intention completed");
   return {
     action: action as DecisionAction,
     monologue: d.monologue as string,
     activity: d.activity as string,
     goal: d.goal === undefined ? null : d.goal as string | null,
     identityUpdate, toolCall,
+    replyIntent: typeof d.replyIntent === "string" ? d.replyIntent.trim() : null,
+    intentDisposition: (d.intentDisposition ?? "keep") as "keep"|"complete"|"abandon",
   };
 }
