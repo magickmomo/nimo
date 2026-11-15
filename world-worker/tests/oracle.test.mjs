@@ -166,3 +166,21 @@ test("Oracle proximity glow matches the exact action area and can be switched of
  assert.match(css,/nimo-oracle-ground-glow/);
  assert.match(css,/prefers-reduced-motion:reduce/);
 });
+
+test("Oracle presence dialogue coexists with voluntary visitor follow-through",()=>{
+ const worker=read("../src/index.ts");
+ const world=read("../../web/lib/world.ts");
+ const menu=read("../src/action-menu.ts");
+ // Entering Oracle grounds is a world event, not a compulsory visitor instruction.
+ assert.match(worker,/oracleEncounter=\{withinReach:oracleWithinReach/);
+ assert.match(worker,/invitation:oracleWithinReach&&!world\.state\.oracleNearbyLastDecision&&!pendingMessage/);
+ assert.match(worker,/oracleEncounter,oracleHistory:/);
+ assert.match(worker,/ORACLE_WHISPER/);
+ // Visitor replies still cannot execute travel; commitments survive for the next decision.
+ assert.match(worker,/pendingIntent:state\.pendingIntent\?\?null/);
+ assert.match(worker,/pendingIntent:nextVisitorIntent\(/);
+ assert.match(worker,/oracleNearbyLastDecision:pendingMessage\?state\.oracleNearbyLastDecision:oracleWithinReach/);
+ assert.match(menu,/if\(hasPendingVisitor\) return \{tools:\[\]/);
+ assert.match(world,/oracleNearbyLastDecision\?: boolean/);
+ assert.match(world,/pendingIntent\?: PendingIntent \| null/);
+});
