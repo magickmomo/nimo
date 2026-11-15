@@ -64,6 +64,8 @@ try:
     CREATE TRIGGER audit_garden_delete AFTER DELETE ON garden_inventory BEGIN INSERT INTO change_log(subject) VALUES('inventory'); END;
     CREATE TRIGGER audit_coins AFTER UPDATE ON vending_state BEGIN INSERT INTO change_log(subject) VALUES('coins'); END;
     """)
+    db.commit()
+    print(json.dumps({"ok":True,"results":[]}))
   else:
     db.execute("BEGIN")
     results=[]
