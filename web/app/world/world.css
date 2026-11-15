@@ -359,3 +359,248 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
  .nimo-map-bottom-bar .nimo-map-controls{justify-content:flex-end}
 }
 @media(prefers-reduced-motion:reduce){.nimo-action-toast{transition:none}}
+
+
+/* Fixed-screen world experience. Other routes, including owner settings,
+   retain normal document scrolling. */
+body:has(.world-dashboard){overflow:hidden}
+main:has(> .world-dashboard){
+  height:calc(100dvh - 67px);
+  min-height:0;
+  max-width:none;
+  width:100%;
+  margin:0;
+  padding:12px clamp(12px,2vw,28px);
+  overflow:hidden;
+}
+.world-dashboard{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  min-height:0;
+  max-width:none;
+}
+.world-dashboard>.world-topbar{
+  flex:0 0 auto;
+  justify-content:flex-start;
+  gap:8px;
+  margin:0 0 10px;
+}
+.world-dashboard>.world-topbar .world-messages-link{
+  padding:8px 12px;
+  font-size:12px;
+}
+.world-sidebar-toggle{margin-left:auto}
+.world-mobile-panel-toggle,.world-sidebar-mobile-head{display:none}
+.world-dashboard>.world-warning{flex:0 0 auto;margin:0 0 8px;padding:8px 12px;font-size:12px}
+.world-dashboard>.world-loading,.world-dashboard>.world-card{flex:1;min-height:0}
+.world-dashboard>.world-layout{
+  flex:1;
+  min-height:0;
+  height:100%;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(300px,360px);
+  gap:12px;
+  align-items:stretch;
+}
+.world-dashboard>.world-layout.is-sidebar-collapsed{grid-template-columns:minmax(0,1fr)}
+.world-layout.is-sidebar-collapsed>.world-sidebar{display:none}
+.world-dashboard .world-main{
+  display:flex;
+  min-width:0;
+  min-height:0;
+  flex-direction:column;
+}
+.world-dashboard .nimo-game-stage{
+  flex:1;
+  min-height:0;
+  min-width:0;
+  margin:0;
+  grid-template-columns:clamp(48px,5vw,68px) minmax(0,1fr);
+}
+.world-dashboard .nimo-game-stage>.nimo-map{
+  height:100%;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  border-radius:0 12px 12px 0;
+}
+.world-dashboard .nimo-map-heading{flex:0 0 auto;padding:9px 12px}
+.world-dashboard .nimo-map-viewport{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.world-dashboard .nimo-map-canvas{
+  flex:1 1 auto;
+  display:block;
+  width:100%;
+  height:100%;
+  min-height:0;
+  max-height:none;
+  aspect-ratio:auto;
+  object-fit:contain;
+}
+.world-dashboard .nimo-map-bottom-bar{flex:0 0 auto;padding:7px 10px}
+.world-dashboard .nimo-map-legend{flex:0 0 auto;padding:6px 10px;font-size:10px}
+.world-dashboard .nimo-map-footer{flex:0 0 auto;padding:8px 12px;font-size:10px}
+.world-dashboard .nimo-map-discoveries{flex:0 0 auto;padding:5px 12px 8px;font-size:11px}
+.world-dashboard .nimo-map-controls{bottom:8px}
+.world-dashboard .nimo-inventory-rail{min-height:0;padding:8px 5px}
+.world-dashboard .nimo-inventory-slots{min-height:0;gap:3px;padding-top:6px}
+.world-dashboard .nimo-inventory-slot{
+  width:min(100%,40px);
+  max-height:calc((100% - 30px)/9);
+  min-height:0;
+  aspect-ratio:1;
+}
+.world-dashboard .world-sidebar{
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  overflow:hidden;
+}
+.world-dashboard .world-sidebar>.world-status-strip{
+  flex:0 0 auto;
+  margin:0;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  padding:6px;
+}
+.world-dashboard .world-sidebar .world-status-item{
+  border-right:0;
+  border-bottom:0;
+  padding:6px;
+}
+.world-dashboard .world-sidebar .world-status-meta{
+  flex:0 0 auto;
+  display:grid;
+  grid-template-columns:1fr;
+  gap:5px;
+  margin:0;
+}
+.world-dashboard .world-sidebar .world-status-meta-item{
+  display:grid;
+  grid-template-columns:60px minmax(0,1fr);
+  gap:6px;
+  padding:7px 10px;
+  font-size:11px;
+}
+.world-dashboard .world-sidebar .world-status-meta-item span{
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  overflow:hidden;
+}
+.world-dashboard .world-journal{
+  position:relative;
+  top:auto;
+  flex:1 1 auto;
+  min-height:0;
+  max-height:none;
+  margin:0;
+  padding:14px;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.world-dashboard .world-journal-head{position:static;padding:0}
+.world-dashboard .world-journal .meta{font-size:11px}
+.world-dashboard .world-journal .world-event{padding:10px 0}
+.world-dashboard .world-journal .world-event p{font-size:12px}
+.world-detail-drawer{
+  position:absolute;
+  top:45px;
+  left:12px;
+  z-index:25;
+  width:min(480px,calc(100% - 24px));
+  max-height:calc(100% - 57px);
+  overflow-y:auto;
+  padding:12px;
+  background:#f8faf9;
+  border:1px solid #d2dfd7;
+  border-radius:12px;
+  box-shadow:0 14px 48px rgba(16,32,26,.22);
+}
+.world-detail-drawer-heading{
+  position:sticky;
+  top:-12px;
+  z-index:2;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:6px 2px 10px;
+  background:#f8faf9;
+}
+.world-detail-drawer-heading button,.world-sidebar-mobile-head button{
+  padding:6px 10px;
+  font-size:12px;
+}
+.world-detail-drawer .world-card{margin-bottom:9px;padding:14px}
+@media(max-height:760px) and (min-width:851px){
+  .world-dashboard .world-sidebar .world-status-meta-item{padding:5px 8px}
+  .world-dashboard .nimo-map-legend{display:none}
+  .world-dashboard .nimo-map-footer{padding:5px 10px}
+  .world-dashboard .nimo-inventory-heading{font-size:11px}
+}
+@media(max-width:850px){
+  .world-dashboard>.world-layout,
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    position:relative;
+    grid-template-columns:minmax(0,1fr);
+  }
+  .world-dashboard .world-sidebar,
+  .world-layout.is-sidebar-collapsed>.world-sidebar{
+    display:none;
+  }
+  .world-dashboard .world-sidebar.is-mobile-open{
+    position:absolute;
+    z-index:30;
+    inset:0;
+    display:flex;
+    padding:12px;
+    border:1px solid #d5e0da;
+    border-radius:12px;
+    background:#f8faf9;
+    box-shadow:0 12px 40px rgba(0,0,0,.25);
+  }
+  .world-sidebar-mobile-head{display:flex;justify-content:space-between;align-items:center}
+  .world-sidebar-toggle{display:none}
+  .world-mobile-panel-toggle{display:inline-block;margin-left:auto}
+  .world-dashboard .world-sidebar.is-mobile-open .world-status-meta{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+  .world-dashboard .world-sidebar.is-mobile-open .world-status-meta-item{
+    display:flex;
+    flex-direction:column;
+  }
+  .world-dashboard .world-sidebar.is-mobile-open .world-journal{flex:1}
+  .world-dashboard .nimo-map-legend{display:none}
+}
+@media(max-width:600px){
+  main:has(> .world-dashboard){padding:8px}
+  .world-dashboard>.world-topbar{gap:5px;margin-bottom:7px}
+  .world-dashboard>.world-topbar .world-messages-link{font-size:11px;padding:7px 9px}
+  .world-dashboard .nimo-game-stage{grid-template-columns:48px minmax(0,1fr)}
+  .world-dashboard .nimo-map-canvas{
+    min-height:0;
+    height:100%;
+    aspect-ratio:auto;
+  }
+  .world-dashboard .nimo-map-heading{padding:7px 9px}
+  .world-dashboard .nimo-map-footer{padding:6px 9px;gap:3px}
+  .world-dashboard .nimo-map-preview{display:none}
+  .world-dashboard .nimo-map-bottom-bar{padding:4px 5px}
+  .world-dashboard .nimo-map-controls{max-width:100%;gap:3px}
+  .world-dashboard .nimo-map-controls button{font-size:10px;min-height:28px;padding:4px 5px}
+  .world-dashboard .nimo-inventory-slot{width:min(100%,36px)}
+  .world-dashboard .world-sidebar.is-mobile-open .world-status-meta{grid-template-columns:1fr}
+  .world-dashboard .world-sidebar.is-mobile-open .world-status-meta-item{
+    display:grid;
+    grid-template-columns:60px 1fr;
+  }
+  .world-detail-drawer{top:48px;left:4px;width:calc(100% - 8px);max-height:calc(100% - 52px)}
+}
