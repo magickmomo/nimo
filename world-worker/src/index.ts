@@ -140,7 +140,7 @@ async function events(db: D1Database, count = 60) {
 /** Dashboard journal omits private conversations. The private Messages route
  * and model context keep the complete records in D1. */
 async function publicEvents(db:D1Database,count=60) {
-  const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events
+  const result=await db.prepare(`SELECT id,created_at,kind,content,action FROM events INDEXED BY events_latest
     WHERE (kind IN ('thought','tool','belief','identity') OR (kind='world' AND action='ORACLE_WHISPER') OR (kind='system' AND action IN ('WAKE','SLEEP'))) AND (action IS NULL OR action <> 'REQUEST')
     ORDER BY id DESC LIMIT ?`).bind(count).all<EventRow>();
   return result.results;
@@ -162,7 +162,7 @@ async function journalPage(db:D1Database,window:string,before:number|null,until:
   if(since){predicates.push("created_at >= ?");bindings.push(since);}
   if(before!==null){predicates.push("id < ?");bindings.push(before);}
   const rows=await db.prepare(
-    `SELECT id,created_at,kind,content,action FROM events
+    `SELECT id,created_at,kind,content,action FROM events INDEXED BY events_latest
       WHERE ${predicates.join(" AND ")} ORDER BY id DESC LIMIT ?`
   ).bind(...bindings,limit+1).all<EventRow>();
   const entries=rows.results.slice(0,limit);
