@@ -8,7 +8,7 @@ test("last actions are shown next to zoom controls, not in the separate dashboar
  const page=read("../../web/app/world/page.tsx");
  const map=read("../../web/app/world/isometric-world.tsx");
  assert.doesNotMatch(page,/className="world-card world-action-monitor"/);
- assert.match(page,/actionTrace=\{isOwner \? recentActions : \[\]\}/);
+ assert.match(page,/actionTrace=\{isOwner \? recentActionToasts : \[\]\}/);
  assert.match(map,/className="nimo-map-bottom-bar"/);
  assert.match(map,/className="nimo-map-controls"/);
  assert.match(map,/actionTrace\.slice\(0,4\)/);
@@ -26,9 +26,11 @@ test("upward fade shows newest and two preceding, revealing a third predecessor 
  assert.match(css,/prefers-reduced-motion:reduce/);
 });
 
-test("fast refresh contains actions while public users do not receive owner trace",()=>{
+test("fast refresh supplies actual public actions rather than technical decisions",()=>{
  const worker=read("../src/index.ts");
- const live=read("../../web/app/api/world/live/route.ts");
- assert.match(worker,/actionTrace:await recentTrace\(env\.DB\)/);
- assert.match(live,/delete body\.actionTrace/);
+ const page=read("../../web/app/world/page.tsx");
+ assert.match(worker,/events:await publicEvents\(env\.DB,24\)/);
+ assert.match(page,/event\.kind === "thought"/);
+ assert.match(page,/\["ACT","THINK","OBSERVE","REMEMBER"\]/);
+ assert.match(page,/showActionToasts=\{isOwner\}/);
 });
