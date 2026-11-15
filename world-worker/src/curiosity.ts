@@ -31,7 +31,9 @@ export function curiosityGuidance(fullness:number,curiosity:number,history:reado
     "Available familiar actions: "+(familiar.join(", ")||"none")+". "+
     "Your inclination to try a less recently used AVAILABLE action is "+intensity+
     " ("+Math.round(curiosity*100)+"% curiosity). "+
-    "Consider a genuinely useful alternative where possible, but continuing a meaningful routine is always valid. "+
+    (curiosity>=0.75
+      ? "Curiosity is high. Reconsider whether your CURRENT GOAL or activity is still giving you a meaningful new experience, especially if you have been walking, resting, or thinking without a new observation or result. If the activity is no longer revealing anything, bring it to a close and seriously consider a different available interest, question, creative activity, project, or unexplored destination. Do not treat changing tool names alone as discovery. Walking and thinking are valid if they have a purpose or are genuinely restorative, but repeating the same justification indefinitely is not satisfying curiosity. You decide what to do; no action is mandatory. "
+      : "Consider a genuinely useful alternative where possible, but continuing a meaningful routine is always valid. ")+
     (fullness<=0.6?"Prioritise food when needed; curiosity must not override essential needs. ":"")+
     "Do not invent tools, perform pointless actions solely to lower the meter, or repeatedly attempt unavailable actions.";
 }
