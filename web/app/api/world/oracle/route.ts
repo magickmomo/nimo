@@ -1,9 +1,7 @@
-import {NextRequest,NextResponse} from "next/server";
-import {hasOwnerSession} from "../../../../lib/world-owner-session";
+import {NextResponse} from "next/server";
 
 export const dynamic="force-dynamic";
-export async function GET(req:NextRequest){
-  if(!(await hasOwnerSession(req)))return NextResponse.json({error:"Owner sign-in required"},{status:401});
+export async function GET(){
   const worker=process.env.WORLD_WORKER_URL,secret=process.env.WORLD_INTERNAL_SECRET;
   if(!worker||!secret)return NextResponse.json({error:"World Worker not configured"},{status:503});
   try{

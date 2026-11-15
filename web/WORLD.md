@@ -1,6 +1,6 @@
-# Nimo World v0.1 — bodyless seed
+# Nimo's World — architecture and development history
 
-New text-only page: `/world`. Existing companion chat, art studio and ESP32 firmware remain unchanged.
+The world is the website's primary experience. The homepage `/` redirects to `/world`. This document contains historical implementation notes; early sections describe earlier versions and may no longer match the current UI. The independent legacy companion, poetry and art studio website pages have been removed. The ESP32 queue remains pending a hardware-dependency audit.
 
 ## Architecture — no Supabase
 - `web/app/world/page.tsx`: read-only world dashboard and owner-token message form.

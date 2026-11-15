@@ -293,10 +293,9 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMemoriesOpen(true)}>Memories</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
-        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>}
-         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>}
-        {isOwner && <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>}
-        <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
+        <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>
+         <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
+        <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
       {data?.offline && <div className="world-warning" role="status">
@@ -307,9 +306,9 @@ export default function World() {
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
-      {isOwner && projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
-       {isOwner && artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
-      {isOwner && oracleOpen && <WorldOraclePanel onClose={closeOracle}/>}
+      {projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
+       {artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
+      {oracleOpen && <WorldOraclePanel onClose={closeOracle}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
         <strong>Loading Nimo’s current world…</strong>

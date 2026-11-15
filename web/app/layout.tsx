@@ -2,30 +2,19 @@ import type { Metadata } from "next";
 import "./style.css";
 
 export const metadata: Metadata = {
-  title: "Nimo",
-  description: "Nimo companion and art studio",
+  title: "Nimo’s World",
+  description: "Explore Nimo’s autonomous world.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <header>
-          <a className="brand" href="/">nimo.</a>
-          <nav>
-            <a href="/">Home</a>
-            <a href="/companion">Companion</a>
-            <a href="/studio">Art studio</a>
-            <a href="/poetry">Poetry</a>
-            <a href="/world">World</a>
-          </nav>
+        <header className="site-header">
+          <a className="brand" href="/" aria-label="Nimo home">nimo.</a>
+          <a className="site-owner-link" href="/world/settings">Owner sign-in</a>
         </header>
         <main>{children}</main>
-        <footer>Nimo · learning to explore the world</footer>
       </body>
     </html>
   );
