@@ -1,5 +1,5 @@
 import {recordVerifiedMemory} from "./consolidated-memory";
-import type {Point} from "../../web/lib/world-map";
+import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";
 
 export type OracleSource={title:string;url:string};
 type OracleRow={id:number;question:string;status:string;started_at:string|null;response_id:string|null;attempts:number};
@@ -7,15 +7,20 @@ export const ORACLE_ID="oracle_001";
 const MAX_ANSWER=1500;
 const MAX_QUESTION=500;
 
+// Keep interaction permissions identical to the ground glow in the map.
 export function adjacentToOracle(position:Point):boolean {
-  // The physical monument occupies a 2x2 footprint. Its edges are reachable.
-  for(const x of [1,2])for(const y of [13,14]){
-    if(Math.abs(position.x-x)+Math.abs(position.y-y)===1)return true;
-  }
-  return false;
+ return withinOracleInteractionArea(position);
+}
+export function oracleInvitation(firstArrival:boolean,status:string|null):string|null {
+ if(!firstArrival)return null;
+ if(status==="pending"||status==="researching")
+   return "The Oracle hums: 'Your question travels beyond this world. Wander if you wish; I will keep searching.'";
+ if(status==="answered"||status==="unsourced")
+   return "The Oracle murmurs: 'One answer has returned. Beyond it lie other things you have not yet wondered about.'";
+ return "The Oracle stirs: 'Beyond this small world are countless things to learn. What have you wondered about? You may ask me, or simply pass by.'";
 }
 export async function askOracle(db:D1Database,position:Point,question:string) {
-  if(!adjacentToOracle(position))throw Error("Stand next to the Oracle");
+  if(!adjacentToOracle(position))throw Error("Stand within two steps of the Oracle monument");
   if(!question.trim()||question.length>MAX_QUESTION)throw Error("Ask a question of 1–500 characters");
   // Only one unanswered research request may be in flight. This is a
   // concurrency guard, not question deduplication or a daily usage limit.
