@@ -10,6 +10,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
+        <header className="site-header">
+          <a className="brand" href="/" aria-label="Nimo home">nimo.</a>
+        </header>
         <main>{children}</main>
       </body>
     </html>
