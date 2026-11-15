@@ -164,7 +164,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     fail("replyIntent must be a nonempty 250-character string during REPLY, or null");
   if (d.intentDisposition !== undefined && !["keep","complete","abandon"].includes(String(d.intentDisposition)))
     fail("intentDisposition must be keep, complete or abandon");
-  if (hasPendingVisitor && d.intentDisposition !== undefined && d.intentDisposition !== "keep")
+  if (hasPendingVisitor && d.intentDisposition === "complete")
     fail("REPLY cannot mark a previous intention completed");
   return {
     action: action as DecisionAction,
