@@ -953,7 +953,7 @@ export default {
           getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
         ]);
         world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
+        return json({world,position,journey,events:await publicEvents(env.DB,24),autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));

@@ -100,6 +100,10 @@ function Character({sleeping=false,oracleActive=false}: {sleeping?:boolean;oracl
   );
 }
 
+export type WorldActionToast = {
+  id:number;started_at:string;kind:string;status:string;detail:string;result:string|null;
+};
+
 export type JourneyView = {
   status: "idle" | "travelling" | "paused";
   path: Point[];
@@ -108,9 +112,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   const [zoom, setZoom] = useState(1.3);
@@ -233,13 +237,30 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
           </g>;
         })}
       </svg>
-      <div className="nimo-map-controls" aria-label="World camera controls">
+        {showActionToasts && <div className="nimo-action-stack" aria-label="Recent world actions" tabIndex={0}>
+          {actionTrace.length ? actionTrace.slice(0,4).map((action, age) => (
+            <div key={action.id} className={`nimo-action-toast nimo-action-age-${age}`}
+              title={action.detail + (action.result ? " — "+action.result : "")}>
+              <div className="nimo-action-toast-meta">
+                <strong>{age===0 ? (action.status==="running"?"Current action":"Latest action") : action.kind.replaceAll("_"," ")}</strong>
+                <time dateTime={action.started_at}>{new Date(action.started_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</time>
+              </div>
+              <div className="nimo-action-toast-description">{action.detail}</div>
+            </div>
+          )) : <div className="nimo-action-toast nimo-action-age-0">
+            <div className="nimo-action-toast-meta"><strong>Current action</strong></div>
+            <div className="nimo-action-toast-description">{sleeping?"Sleeping":"Idle / between actions"}</div>
+          </div>}
+        </div>}
+      <div className="nimo-map-bottom-bar">
+        <div className="nimo-map-controls" aria-label="World camera controls">
         <button type="button" onClick={() => setZoom(value => Math.max(1, Math.round((value - .1) * 10) / 10))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
         <span aria-live="polite">{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => setZoom(value => Math.min(1.8, Math.round((value + .1) * 10) / 10))} disabled={zoom >= 1.8} aria-label="Zoom in">+</button>
         <button type="button" aria-pressed={follow} onClick={() => setFollow(value => !value)}>{follow ? "Following Nimo" : "Follow Nimo"}</button>
         <button type="button" aria-pressed={showGrid} onClick={() => setShowGrid(value => !value)}>{showGrid ? "Hide grid" : "Show grid"}</button>
         <button type="button" onClick={() => { setZoom(1.3); setFollow(true); }}>Reset view</button>
+        </div>
       </div>
       </div>
       <div className="nimo-map-legend" aria-label="Map visibility legend"><span><i className="nimo-map-key nimo-map-key-sight" /> Bright tiles: Nimo’s current 9×9 vision</span><span><i className="nimo-map-key nimo-map-key-outside" /> Muted tiles: outside his vision (objects visible to you)</span></div>

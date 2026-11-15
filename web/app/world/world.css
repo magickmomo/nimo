@@ -93,19 +93,8 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .world-event .world-event-result strong,.world-event .world-event-narration strong{color:#294440}
 
 
-/* 003.2A: compact factual action monitoring, separate from the narrative journal. */
-.world-action-monitor,.world-object-memory{margin-bottom:18px}
-.world-action-monitor .world-journal-head,.world-object-memory .world-journal-head{position:static}
-.world-action-current{display:flex;flex-direction:column;gap:5px;border:1px solid #c9d8d2;
-  background:#eff6f2;padding:12px;border-radius:10px;margin:10px 0;font-size:13px}
-.world-action-current span{font-size:12px;color:#526b68}
-.world-action-details summary{cursor:pointer;color:#354d46;font-size:13px;font-weight:600}
-.world-action-list{list-style:none;padding:0;margin:8px 0 0;max-height:260px;overflow:auto}
-.world-action-list li{padding:9px 2px;border-top:1px solid #e4ebe6;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
-.world-action-line{display:flex;gap:10px;align-items:center;color:#64746d;font-size:11px;margin-bottom:3px}
-.world-action-line time{margin-left:auto;font-variant-numeric:tabular-nums}
-.world-action-kind{font-weight:700;text-transform:uppercase;color:#294440}
-.world-action-list small{display:block;margin-top:4px;color:#526b68}
+.world-object-memory{margin-bottom:18px}
+.world-object-memory .world-journal-head{position:static}
 .world-object-memory h3{margin:10px 0;font-size:18px}
 .world-object-memory h3 small{font-size:12px;color:#678078;font-weight:400}
 .world-object-memory p{overflow-wrap:anywhere}
@@ -339,3 +328,34 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-blink{0%,93%,97%,100%{transform:scaleY(1)}95%{transform:scaleY(.13)}}
 @keyframes nimo-dream{0%,100%{opacity:.15;transform:translateY(1px)}50%{opacity:.85;transform:translateY(-5px)}}
 @media(prefers-reduced-motion:reduce){.nimo-character-sleeping,.nimo-character-awake .nimo-awake-eyes,.nimo-sleep-z{animation:none}}
+
+/* Top-left world-overlay action toasts. Newest stays at bottom of the stack;
+   older actions move up with a clear 12px gap and progressively fade. */
+.nimo-map-viewport{position:relative}
+.nimo-map-bottom-bar{display:flex;justify-content:flex-end;padding:8px 14px 15px}
+.nimo-map-bottom-bar .nimo-map-controls{justify-content:flex-end;flex-wrap:wrap;padding:0;min-width:0}
+.nimo-action-stack{position:absolute;top:12px;left:14px;width:min(315px,calc(100% - 28px));height:252px;z-index:5;outline-offset:4px}
+.nimo-action-stack:focus-visible{outline:2px solid #e6d38e;border-radius:8px}
+.nimo-action-toast{position:absolute;bottom:0;left:0;right:0;box-sizing:border-box;
+  height:54px;padding:7px 11px;border:1px solid rgba(134,197,166,.48);border-radius:10px;
+  background:rgba(19,48,41,.96);box-shadow:0 4px 12px rgba(0,0,0,.17);
+  color:#f1f7ed;font-size:11px;line-height:1.35;
+  transition:bottom .36s ease,opacity .3s ease,transform .36s ease,background .2s ease;
+  overflow:hidden}
+.nimo-action-toast-meta{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:4px}
+.nimo-action-toast-meta strong{font-size:10px;letter-spacing:.055em;text-transform:uppercase;color:#aee2c5}
+.nimo-action-toast-meta time{font-size:10px;color:#afc7ba;font-variant-numeric:tabular-nums}
+.nimo-action-toast-description{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nimo-action-age-0{bottom:0;opacity:1;z-index:4}
+.nimo-action-age-1{bottom:66px;opacity:.56;z-index:3}
+.nimo-action-age-2{bottom:132px;opacity:.3;z-index:2}
+.nimo-action-age-3{bottom:198px;opacity:0;transform:translateY(10px);z-index:1;pointer-events:none}
+.nimo-action-stack:hover .nimo-action-toast,.nimo-action-stack:focus-within .nimo-action-toast{
+  opacity:1;transform:translateY(0);pointer-events:auto;background:rgba(25,60,50,.98)}
+.nimo-action-stack:hover .nimo-action-age-3,.nimo-action-stack:focus-within .nimo-action-age-3{opacity:1}
+@media(max-width:680px){
+ .nimo-action-stack{top:8px;left:8px;width:min(280px,calc(100% - 16px))}
+ .nimo-map-bottom-bar{padding:8px 10px 14px}
+ .nimo-map-bottom-bar .nimo-map-controls{justify-content:flex-end}
+}
+@media(prefers-reduced-motion:reduce){.nimo-action-toast{transition:none}}
