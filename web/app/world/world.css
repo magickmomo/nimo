@@ -993,3 +993,83 @@ main:has(> .world-dashboard){
 @media(max-width:600px){
   .world-dashboard .nimo-coin-counter{top:92px;right:8px}
 }
+
+
+/* Position the real state meters inside the map view, just below the
+   world heading strip. Values still come from Nimo's live world state. */
+.world-dashboard>.world-layout>.world-floating-meters{
+  position:absolute;
+  z-index:9;
+  top:76px;
+  left:50%;
+  transform:translateX(-50%);
+  width:min(560px,calc(100% - 440px));
+  min-width:0;
+  margin:0;
+  padding:8px 12px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  align-items:center;
+  border:1px solid rgba(179,219,189,.26);
+  border-radius:14px;
+  background:rgba(12,40,30,.76);
+  color:#e6f2e6;
+  box-shadow:0 6px 22px rgba(0,0,0,.2);
+  backdrop-filter:blur(8px);
+  pointer-events:none;
+}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-item{
+  min-width:0;
+  padding:0;
+  border:0;
+}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-head{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:5px;
+  color:#e3f0e6;
+  font-size:13px;
+}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-percent{
+  margin-left:auto;
+  font-size:12px;
+}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-dot{
+  width:14px;
+  height:14px;
+  border:1px solid #b3d9b8;
+}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-dot:before{display:none}
+.world-dashboard>.world-layout>.world-floating-meters .world-status-bar{
+  height:10px;
+  background:#254638;
+  border:1px solid #7ca78c;
+}
+@media(max-width:1150px){
+  .world-dashboard>.world-layout>.world-floating-meters{
+    top:70px;
+    left:calc(50% - 70px);
+    width:min(350px,calc(100% - 390px));
+    padding:7px 9px;
+    gap:10px;
+  }
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-head{display:none}
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-bar{height:12px}
+}
+@media(max-width:850px){
+  .world-dashboard>.world-layout>.world-floating-meters{
+    top:65px;
+    left:50%;
+    width:min(420px,calc(100% - 28px));
+  }
+}
+@media(max-width:600px){
+  .world-dashboard>.world-layout>.world-floating-meters{
+    top:57px;
+    width:min(260px,calc(100% - 72px));
+    padding:6px 8px;
+    gap:8px;
+  }
+}
