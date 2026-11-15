@@ -300,26 +300,6 @@ export default function World() {
          <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
         <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>
         <button type="button" className="world-messages-link world-details-toggle" onClick={()=>setDetailsOpen(value=>!value)} aria-expanded={detailsOpen}>Details</button>
-        {state && <section className="world-status-strip world-toolbar-meters" aria-label="Nimo's internal state">
-              {meters.map((item) => {
-                const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
-                return (
-                  <div className={`world-status-item${item.inactive?" is-inactive":""}`} key={item.label}>
-                    <div className="world-status-head">
-                      <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
-                      <span className="world-meter-label">{item.label}{item.inactive?" · Paused":""}</span>
-                      <span className="world-status-percent">{Math.round(value * 100)}%</span>
-                    </div>
-                    <div className="world-status-bar" role="progressbar"
-                      aria-label={item.label} aria-valuenow={Math.round(value * 100)}
-                      aria-valuemin={0} aria-valuemax={100}>
-                      <div className={`world-status-fill ${item.tone}`}
-                        style={{ width: `${value * 100}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-        </section>}
         <button type="button" className="world-messages-link world-sidebar-toggle" onClick={()=>setSidebarVisible(value=>!value)} aria-expanded={sidebarVisible}>{sidebarVisible?"Hide journal":"Show journal"}</button>
         <button type="button" className="world-messages-link world-mobile-panel-toggle" onClick={()=>setMobilePanelOpen(value=>!value)} aria-expanded={mobilePanelOpen}>{mobilePanelOpen?"Close journal":"Journal & status"}</button>
       </div>
@@ -340,6 +320,27 @@ export default function World() {
         <strong>Loading Nimo’s current world…</strong>
         <p className="meta">Fetching his latest position and state.</p>
       </section> : !data ? <section className="world-card" role="status">Unable to load Nimo’s world. <button type="button" onClick={()=>{setInitialLoading(true);void refresh();}}>Retry</button></section> : <div className={`world-layout${sidebarVisible?"":" is-sidebar-collapsed"}`}>
+        {state && <section className="world-status-strip world-floating-meters" aria-label="Nimo's internal state">
+              {meters.map((item) => {
+                const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
+                return (
+                  <div className={`world-status-item${item.inactive?" is-inactive":""}`} key={item.label}>
+                    <div className="world-status-head">
+                      <span className={`world-status-dot ${item.tone}`} aria-hidden="true" />
+                      <span className="world-meter-label">{item.label}{item.inactive?" · Paused":""}</span>
+                      <span className="world-status-percent">{Math.round(value * 100)}%</span>
+                    </div>
+                    <div className="world-status-bar" role="progressbar"
+                      aria-label={item.label} aria-valuenow={Math.round(value * 100)}
+                      aria-valuemin={0} aria-valuemax={100}>
+                      <div className={`world-status-fill ${item.tone}`}
+                        style={{ width: `${value * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+        </section>}
+
         <div className="world-main">
       <div className="nimo-game-stage">
         <div className="nimo-coin-counter" role="status" aria-label={coins===undefined?"Coin balance unavailable":`Nimo has ${coins} coins`}>
