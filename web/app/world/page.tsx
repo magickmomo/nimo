@@ -304,7 +304,7 @@ export default function World() {
         <button type="button" className="world-messages-link world-mobile-panel-toggle" onClick={()=>setMobilePanelOpen(value=>!value)} aria-expanded={mobilePanelOpen}>{mobilePanelOpen?"Close journal":"Journal & status"}</button>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
-      {data?.offline && <div className="world-warning" role="status">
+      {data?.offline && <div className="world-warning world-offline-warning" role="status">
         <strong>Offline snapshot.</strong> Nimo's database is unavailable. You're viewing his last saved world
         {data.cachedAt ? " from "+new Date(data.cachedAt).toLocaleString() : ""}.
         His position, meters and actions aren't updating. Live updates resume when the database recovers.
@@ -402,11 +402,7 @@ export default function World() {
       </details>}
       </aside>}
       </div>
-      <aside className={`world-sidebar${mobilePanelOpen?" is-mobile-open":""}`} aria-label="World status and journal">
-        <div className="world-sidebar-mobile-head"><strong>Nimo\u2019s status & journal</strong><button type="button" onClick={()=>setMobilePanelOpen(false)}>Close</button></div>
-      {state && (
-        <>
-          <section className="world-status-strip" aria-label="Nimo's internal state">
+      {state && <section className="world-status-strip" aria-label="Nimo's internal state">
             {meters.map((item) => {
               const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
               return (
@@ -425,16 +421,17 @@ export default function World() {
                 </div>
               );
             })}
-          </section>
-          <div className="world-status-meta">
+      </section>}
+      <aside className={`world-sidebar${mobilePanelOpen?" is-mobile-open":""}`} aria-label="World status and journal">
+        <div className="world-sidebar-mobile-head"><strong>Nimo\u2019s status & journal</strong><button type="button" onClick={()=>setMobilePanelOpen(false)}>Close</button></div>
+      {state && <div className="world-status-meta">
             <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
             <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
             <div className="world-status-meta-item"><strong>Status</strong>
               <span>{data?.offline ? "Offline" : data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
-          </div>
-        </>
-      )}
+      </div>}
+
       <section className="world-card world-journal">
         <div className="world-journal-head">
           <h2>Journal</h2>
