@@ -61,6 +61,10 @@ const API="https://api.openai.com/v1/responses";
 const MAX_ATTEMPTS=3;
 const LOST_SUBMISSION_MS=2*60_000;
 const RESEARCH_DEADLINE_MS=8*60_000;
+export function oracleResearchOverdue(startedAt:string|null,now:Date):boolean {
+ const started=startedAt?Date.parse(startedAt):NaN;
+ return Number.isFinite(started)&&now.getTime()-started>RESEARCH_DEADLINE_MS;
+}
 const requestHeaders=(key:string)=>({Authorization:"Bearer "+key,"Content-Type":"application/json"});
 const oraclePrompt="You are a research instrument in a small autonomous digital world. Answer the visitor's question directly and accurately, using web research where appropriate. Cite trustworthy external sources when stating external facts. You are NOT Nimo, have no authority over Nimo's choices, and must not make up facts about his private simulation. Keep the answer under about 220 words. If the answer is unknown or can't be substantiated, explain that plainly.";
 function failureReason(data:unknown):string {
@@ -78,10 +82,8 @@ export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:s
  const row=await env.DB.prepare("SELECT id,question,status,started_at,response_id,attempts FROM oracle_queries WHERE status IN ('pending','researching') ORDER BY id ASC LIMIT 1").first<OracleRow>();
  if(!row)return {status:"idle" as const};
  if(row.status==="researching"&&row.response_id){
-   if(now.getTime()-Date.parse(row.started_at||"")>RESEARCH_DEADLINE_MS){
-     await markOracle(env.DB,row.id,"failed","Oracle research exceeded the eight-minute deadline",null,[],row.response_id);
-     return {status:"failed" as const,id:row.id};
-   }
+   // Poll first: research may have completed since the previous cron run,
+   // even when the eight-minute deadline has passed.
    try {
      const response=await fetch(API+"/"+encodeURIComponent(row.response_id),{
        method:"GET",headers:requestHeaders(env.OPENAI_API_KEY),signal:AbortSignal.timeout(20_000)
@@ -91,7 +93,13 @@ export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:s
        throw Error("Oracle poll returned HTTP "+response.status);
      }
      const output=await response.json() as {status?:string};
-     if(output.status==="queued"||output.status==="in_progress")return {status:"researching" as const,id:row.id};
+     if(output.status==="queued"||output.status==="in_progress"){
+       if(oracleResearchOverdue(row.started_at,now)){
+         await markOracle(env.DB,row.id,"failed","Oracle research exceeded the eight-minute deadline",null,[],row.response_id);
+         return {status:"failed" as const,id:row.id};
+       }
+       return {status:"researching" as const,id:row.id};
+     }
      if(output.status!=="completed"){
        await markOracle(env.DB,row.id,"failed",failureReason(output),null,[],row.response_id);
        return {status:"failed" as const,id:row.id};
