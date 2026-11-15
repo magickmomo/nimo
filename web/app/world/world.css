@@ -238,6 +238,17 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-map-controls button[aria-pressed=true]{background:#426e55;border-color:#a0c39e}
 .nimo-map-controls button:disabled{opacity:.35;cursor:not-allowed}
 .nimo-map-controls span{font-variant-numeric:tabular-nums;min-width:42px;text-align:center;color:#e5eddf}
+/* Oracle proximity light follows the same two-tile footprint as ask_oracle. */
+.nimo-oracle-ground-glow{opacity:.18;pointer-events:none;animation:nimo-oracle-ground-breathe 3.2s ease-in-out infinite}
+.nimo-oracle-character-halo{pointer-events:none;animation:nimo-oracle-halo-breathe 3.2s ease-in-out infinite}
+.nimo-oracle-awakened .nimo-oracle-glow{filter:drop-shadow(0 0 6px #b1ffed);animation-duration:1.9s}
+@keyframes nimo-oracle-ground-breathe{0%,100%{opacity:.12}50%{opacity:.27}}
+@keyframes nimo-oracle-halo-breathe{0%,100%{opacity:.65}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){
+ .nimo-oracle-ground-glow,.nimo-oracle-character-halo{animation:none}
+ .nimo-oracle-ground-glow{opacity:.22}
+ .nimo-oracle-character-halo{opacity:.85}
+}
 .nimo-oracle-glow{animation:nimo-oracle-pulse 3.4s ease-in-out infinite}
 @keyframes nimo-oracle-pulse{0%,100%{opacity:.55}50%{opacity:1}}
 @media(prefers-reduced-motion:reduce){.nimo-oracle-glow{animation:none}}
