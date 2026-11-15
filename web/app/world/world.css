@@ -1073,3 +1073,24 @@ main:has(> .world-dashboard){
     gap:8px;
   }
 }
+
+
+/* Centre the floating meters within the unobstructed map area, not the
+   full browser width that also includes the journal overlay. The inventory
+   rail is included in the map's content bounds. */
+@media(min-width:851px){
+  .world-dashboard>.world-layout:not(.is-sidebar-collapsed)>.world-floating-meters{
+    left:calc((100% - clamp(290px,25vw,370px) - 16px + clamp(48px,5vw,70px)) / 2);
+    width:min(560px,calc(100% - clamp(290px,25vw,370px) - 112px));
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed>.world-floating-meters{
+    left:50%;
+    width:min(560px,calc(100% - 112px));
+  }
+}
+@media(min-width:851px) and (max-width:1150px){
+  .world-dashboard>.world-layout:not(.is-sidebar-collapsed)>.world-floating-meters{
+    left:calc((100% - 300px - 16px + clamp(48px,5vw,70px)) / 2);
+    width:min(350px,calc(100% - 410px));
+  }
+}
