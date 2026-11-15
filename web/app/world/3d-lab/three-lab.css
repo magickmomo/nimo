@@ -1,0 +1,102 @@
+/* This route is a separate prototype. No CSS applies to /world. */
+main:has(> .nimo-three-lab){
+  margin:0;
+  padding:0;
+  max-width:none;
+  min-height:0;
+  height:calc(100dvh - 67px);
+  overflow:hidden;
+}
+.nimo-three-lab{
+  height:100%;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  background:#102820;
+  color:#e1eee5;
+  font-family:Arial,Helvetica,sans-serif;
+}
+.nimo-three-lab-bar{
+  min-height:60px;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:10px clamp(12px,2vw,28px);
+  border-bottom:1px solid #456054;
+  background:#16362b;
+}
+.nimo-three-lab-title{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.nimo-three-lab-title strong{font-size:17px}
+.nimo-three-lab-title span{font-size:12px;color:#adc8b8}
+.nimo-three-return{
+  display:inline-flex;
+  align-items:center;
+  padding:9px 13px;
+  border:1px solid #608472;
+  border-radius:9px;
+  background:#315643;
+  color:#f3f8ed;
+  font-size:13px;
+  font-weight:bold;
+  white-space:nowrap;
+}
+.nimo-three-lab-body{display:grid;grid-template-columns:minmax(0,1fr) 330px;flex:1;min-height:0}
+.nimo-three-scene-container{position:relative;min-height:0;overflow:hidden}
+.nimo-three-scene-container canvas{display:block;touch-action:none}
+.nimo-three-scene-label{
+  position:absolute;
+  z-index:1;
+  top:16px;left:18px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  pointer-events:none;
+  color:#eff6e8;
+  text-shadow:0 2px 12px #11281f;
+}
+.nimo-three-scene-label strong{font-size:12px;letter-spacing:1.5px}
+.nimo-three-scene-label span{font-size:12px;color:#c3d9cb}
+.nimo-three-scene-footer{
+  position:absolute;z-index:1;
+  bottom:12px;left:14px;right:14px;
+  display:flex;justify-content:space-between;gap:12px;
+  pointer-events:none;
+  font-size:11px;color:#d9e7da;
+  text-shadow:0 2px 10px #11281f;
+}
+.nimo-three-lab-info{
+  padding:22px 20px 32px;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  border-left:1px solid #446556;
+  background:#173b2e;
+}
+.nimo-three-kicker{font-size:11px;letter-spacing:1.7px;color:#a5c8ae;font-weight:700}
+.nimo-three-lab-info h1{font-size:23px;line-height:1.24;margin:12px 0}
+.nimo-three-lab-info p{font-size:13px;line-height:1.6;color:#c6dbce}
+.nimo-three-state{font-size:12px;padding:10px 12px;background:#28503c;border-radius:9px;color:#dcebdc;margin:16px 0}
+.nimo-three-stats{margin:0 0 18px;display:grid;gap:4px}
+.nimo-three-stats div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #355a49;padding:9px 0;font-size:12px}
+.nimo-three-stats dt{color:#acc8b7}
+.nimo-three-stats dd{margin:0;font-weight:700}
+.nimo-three-actions{display:flex;flex-wrap:wrap;gap:8px}
+.nimo-three-actions button{font-size:12px;padding:9px 10px;background:#35614a;border:1px solid #6a9277}
+.nimo-three-selected{margin-top:20px;border:1px solid #597a64;border-radius:9px;padding:12px;background:#244736;font-size:12px}
+.nimo-three-selected p{margin:6px 0}
+.nimo-three-selected small{color:#b7d1bf}
+.nimo-three-note{margin-top:18px;border-top:1px solid #43604f;padding-top:12px}
+.nimo-three-webgl-error{margin:auto;color:#f7c8b6}
+@media(max-width:860px){
+  .nimo-three-lab-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  .nimo-three-lab-info{max-height:32vh;overflow-y:auto;border-left:0;border-top:1px solid #446556;padding:12px}
+  .nimo-three-lab-info h1{font-size:17px}
+  .nimo-three-lab-info p{font-size:12px;margin:8px 0}
+  .nimo-three-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .nimo-three-lab-bar{padding:9px 10px}
+  .nimo-three-lab-title span{display:none}
+  .nimo-three-scene-footer span:last-child{display:none}
+}
