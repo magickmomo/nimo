@@ -75,7 +75,7 @@ test("Oracle inspection reports its current state and does not require waiting a
  assert.match(worker,/Oracle status: answer received/);
  assert.match(worker,/Oracle status: research failed/);
  assert.match(worker,/Research continues independently; you may leave and return later/);
- assert.match(worker,/you may leave the monument, pursue other interests/);
+ assert.match(worker,/you do not need to wait, inspect repeatedly or remain near the Oracle/);
 });
 test("background-response migration extends oracle queries without dropping prior research",()=>{
  const py=`
