@@ -1,5 +1,5 @@
 import {recordVerifiedMemory} from "./consolidated-memory";
-import type {Point} from "../../web/lib/world-map";
+import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";
 
 export type OracleSource={title:string;url:string};
 type OracleRow={id:number;question:string;status:string;started_at:string|null;response_id:string|null;attempts:number};
@@ -7,17 +7,9 @@ export const ORACLE_ID="oracle_001";
 const MAX_ANSWER=1500;
 const MAX_QUESTION=500;
 
-// The monument occupies zero-based x=1..2, y=13..14.
-// Reachable tiles within two cardinal steps of its footprint form its speaking
-// grounds. The monument itself remains impassable.
-export const ORACLE_REACH=2;
-export function distanceToOracle(position:Point):number {
- const dx=Math.max(1-position.x,0,position.x-2);
- const dy=Math.max(13-position.y,0,position.y-14);
- return dx+dy;
-}
+// Keep interaction permissions identical to the ground glow in the map.
 export function adjacentToOracle(position:Point):boolean {
- return distanceToOracle(position)>=1&&distanceToOracle(position)<=ORACLE_REACH;
+ return withinOracleInteractionArea(position);
 }
 export function oracleInvitation(firstArrival:boolean,status:string|null):string|null {
  if(!firstArrival)return null;
