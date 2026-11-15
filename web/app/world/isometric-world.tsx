@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
+import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, withinOracleInteractionArea, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
 
 const HW = 29;
 const HH = 16;
@@ -17,9 +17,9 @@ const noise = (x: number, y: number, seed = 0) => {
 const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
 
-function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
+function Scenery({ kind, stage, oracleActive=false }: { kind: ObjectKind; stage?:string; oracleActive?:boolean }) {
   if(kind==="oracle")return (
-    <g aria-label="Ancient Oracle monument">
+    <g aria-label="Ancient Oracle monument" className={oracleActive?"nimo-oracle-awakened":undefined}>
       <ellipse cx="20" cy="5" rx="47" ry="19" fill="#102f35" opacity=".43"/>
       <path d="M-30 -9 L-33 -21 L-26 -81 L-13 -106 L1 -99 L13 -104 L28 -77 L34 -19 L27 -8 Z"
         fill="#657b78" stroke="#2c454b" strokeWidth="4"/>
@@ -83,9 +83,13 @@ function Scenery({ kind, stage }: { kind: ObjectKind; stage?:string }) {
   );
 }
 
-function Character({sleeping=false}: {sleeping?:boolean}) {
+function Character({sleeping=false,oracleActive=false}: {sleeping?:boolean;oracleActive?:boolean}) {
   return (
     <g className={sleeping?"nimo-character-sleeping":"nimo-character-awake"}>
+      {oracleActive && <g className="nimo-oracle-character-halo" aria-hidden="true">
+        <ellipse cy="4" rx="24" ry="11" fill="#9de9d7" opacity=".24"/>
+        <ellipse cy="4" rx="21" ry="9" fill="none" stroke="#a7fff0" strokeWidth="2"/>
+      </g>}
       <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".36"/>
       <path d="M-10 -10 L-11 1 M10 -10 L11 1" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
@@ -138,6 +142,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     x: from.x + (to.x-from.x)*portion,
     y: from.y + (to.y-from.y)*portion,
   } : authoritative;
+  const oracleActive = withinOracleInteractionArea(current);
   const focalPoint = project(current);
   const viewWidth = BASE_WIDTH / zoom;
   const viewHeight = BASE_HEIGHT / zoom;
@@ -193,6 +198,10 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
                 <circle cx={8 - detail * 7} cy={5} r="1" fill="#e9d8b2"/>
               </g>}
               {detail > .78 && <path d="M-3 -3 l-3 -4 m3 4 l3 -5 M12 3 l-2 -4 m2 4 l3 -4" fill="none" stroke={isVisible ? "#508957" : "#527962"} strokeWidth="1.1" opacity=".5"/>}
+              {oracleActive && withinOracleInteractionArea(tile) && (
+                <polygon points={points} className="nimo-oracle-ground-glow"
+                  fill="#8de4d2" stroke="#a0f7e7" strokeWidth="1.3" aria-hidden="true"/>
+              )}
               <title>{`Column ${tile.x + 1}, row ${tile.y + 1} · ${isVisible ? "currently in Nimo’s field of view" : wasSeen ? "outside view; previously seen by Nimo" : "outside view; not yet seen by Nimo"}${hasVisited ? " · visited" : ""}`}</title>
             </g>
           );
@@ -215,9 +224,9 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character sleeping={sleeping}/> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive}/> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
-              <Scenery kind={sprite.kind} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
+              <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
               <title>{remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`) ? `Inspect Nimo’s saved memory for ${sprite.id}` : `${sprite.id} · visible to you, not yet discovered by Nimo`}</title>
             </>}
