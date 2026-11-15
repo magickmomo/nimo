@@ -114,7 +114,7 @@ export type JourneyView = {
 };
 export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   const [zoom, setZoom] = useState(1.3);
@@ -238,7 +238,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
         })}
       </svg>
       <div className="nimo-map-bottom-bar">
-        <div className="nimo-action-stack" aria-label="Recent world actions" tabIndex={0}>
+        {showActionToasts && <div className="nimo-action-stack" aria-label="Recent world actions" tabIndex={0}>
           {actionTrace.length ? actionTrace.slice(0,4).map((action, age) => (
             <div key={action.id} className={`nimo-action-toast nimo-action-age-${age}`}
               title={action.detail + (action.result ? " — "+action.result : "")}>
@@ -252,7 +252,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
             <div className="nimo-action-toast-meta"><strong>Current action</strong></div>
             <div className="nimo-action-toast-description">{sleeping?"Sleeping":"Idle / between actions"}</div>
           </div>}
-        </div>
+        </div>}
         <div className="nimo-map-controls" aria-label="World camera controls">
         <button type="button" onClick={() => setZoom(value => Math.max(1, Math.round((value - .1) * 10) / 10))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
         <span aria-live="polite">{Math.round(zoom * 100)}%</span>
