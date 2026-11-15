@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     const body=await res.json();
     if (res.ok && !(await hasOwnerSession(req)) && body && typeof body === "object") {
       delete body.hungerRate;
+      delete body.actionTrace; // Retain the existing owner-only action log boundary.
       if (body.world?.state) delete body.world.state.tools;
     }
     return NextResponse.json(body,{status:res.status,headers:{"Cache-Control":"private, no-store"}});
