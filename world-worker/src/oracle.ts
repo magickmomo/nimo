@@ -7,15 +7,28 @@ export const ORACLE_ID="oracle_001";
 const MAX_ANSWER=1500;
 const MAX_QUESTION=500;
 
+// The monument occupies zero-based x=1..2, y=13..14.
+// Reachable tiles within two cardinal steps of its footprint form its speaking
+// grounds. The monument itself remains impassable.
+export const ORACLE_REACH=2;
+export function distanceToOracle(position:Point):number {
+ const dx=Math.max(1-position.x,0,position.x-2);
+ const dy=Math.max(13-position.y,0,position.y-14);
+ return dx+dy;
+}
 export function adjacentToOracle(position:Point):boolean {
-  // The physical monument occupies a 2x2 footprint. Its edges are reachable.
-  for(const x of [1,2])for(const y of [13,14]){
-    if(Math.abs(position.x-x)+Math.abs(position.y-y)===1)return true;
-  }
-  return false;
+ return distanceToOracle(position)>=1&&distanceToOracle(position)<=ORACLE_REACH;
+}
+export function oracleInvitation(firstArrival:boolean,status:string|null):string|null {
+ if(!firstArrival)return null;
+ if(status==="pending"||status==="researching")
+   return "The Oracle hums: 'Your question travels beyond this world. Wander if you wish; I will keep searching.'";
+ if(status==="answered"||status==="unsourced")
+   return "The Oracle murmurs: 'One answer has returned. Beyond it lie other things you have not yet wondered about.'";
+ return "The Oracle stirs: 'Beyond this small world are countless things to learn. What have you wondered about? You may ask me, or simply pass by.'";
 }
 export async function askOracle(db:D1Database,position:Point,question:string) {
-  if(!adjacentToOracle(position))throw Error("Stand next to the Oracle");
+  if(!adjacentToOracle(position))throw Error("Stand within two steps of the Oracle monument");
   if(!question.trim()||question.length>MAX_QUESTION)throw Error("Ask a question of 1–500 characters");
   // Only one unanswered research request may be in flight. This is a
   // concurrency guard, not question deduplication or a daily usage limit.
