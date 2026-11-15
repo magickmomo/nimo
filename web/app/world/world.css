@@ -947,3 +947,49 @@ main:has(> .world-dashboard){
     height:10px;
   }
 }
+
+
+/* Align the HUD to the true centre of the viewport on wide displays.
+   Its absolute positioning does not let the left navigation or right journal
+   button shift it off centre. Compact widths retain the flex layout. */
+@media(min-width:1350px){
+  .world-dashboard>.world-topbar{min-height:64px}
+  .world-dashboard>.world-topbar .world-toolbar-meters{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    margin:0;
+    width:min(470px,34vw);
+    min-width:0;
+    flex:none;
+    padding:5px 10px;
+  }
+}
+
+/* The journal occupies the entire space between the narrow map heading
+   and footer, rather than floating halfway down the world. */
+@media(min-width:851px){
+  .world-dashboard .world-sidebar{
+    top:29px;
+    bottom:32px;
+    right:16px;
+  }
+  .world-dashboard .nimo-coin-counter{
+    top:54px;
+    right:calc(clamp(290px,25vw,370px) + 28px);
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed .nimo-coin-counter{
+    right:20px;
+  }
+}
+@media(min-width:851px) and (max-width:1150px){
+  .world-dashboard .world-sidebar{top:29px;bottom:32px}
+  .world-dashboard .nimo-coin-counter{right:328px}
+}
+@media(max-width:850px){
+  .world-dashboard .nimo-coin-counter{right:12px}
+}
+@media(max-width:600px){
+  .world-dashboard .nimo-coin-counter{top:92px;right:8px}
+}
