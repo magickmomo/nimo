@@ -20,6 +20,21 @@ export const WORLD_OBJECTS: readonly WorldObject[] = [
 ];
 export const START_POSITION: Point = { x: 4, y: 4 };
 export const PERCEPTION_RADIUS = 4; // 9×9 square of sight around Nimo, clipped to world bounds.
+/** Distance to the nearest tile of the Oracle's blocked 2×2 footprint.
+ * Used by both Oracle action rules and the map's proximity lighting.
+ * Works for fractional positions while Nimo is walking.
+ */
+export const ORACLE_INTERACTION_RADIUS = 2;
+export function distanceToOracleFootprint(position: Point): number {
+  const dx = Math.max(1 - position.x, 0, position.x - 2);
+  const dy = Math.max(13 - position.y, 0, position.y - 14);
+  return dx + dy;
+}
+export function withinOracleInteractionArea(position: Point): boolean {
+  const distance = distanceToOracleFootprint(position);
+  return distance > 0 && distance <= ORACLE_INTERACTION_RADIUS;
+}
+
 export function inBounds(p: Point) {
   return Number.isInteger(p.x) && Number.isInteger(p.y) &&
     p.x >= 0 && p.x < WORLD_SIZE && p.y >= 0 && p.y < WORLD_SIZE;
