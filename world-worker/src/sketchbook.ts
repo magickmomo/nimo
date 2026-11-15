@@ -48,10 +48,13 @@ export async function beginSketch(db:D1Database,title:string,intention:string){
  if(!title.trim()||!intention.trim()||title.length>100||intention.length>300)throw Error("Sketch title and intention required");
  if(!(await db.prepare("SELECT id FROM nimo_sketchbook WHERE id=1").first()))throw Error("Sketchbook not owned");
  if(await db.prepare("SELECT id FROM nimo_sketches WHERE status='drawing'").first())throw Error("Finish or abandon the current sketch first");
- const inserted=await db.prepare("INSERT INTO nimo_sketches(title,intention) VALUES(?,?) RETURNING id")
-  .bind(title.trim(),intention.trim()).first<{id:number}>();
- // Check the row returned by this statement, not D1's aggregate change count:
- // revision-history triggers write additional rows after an insert.
+ // Verify the saved row directly: D1's mutation result and RETURNING can be
+ // misleading when audit triggers also write revision history.
+ const previous=await db.prepare("SELECT COALESCE(MAX(id),0) AS id FROM nimo_sketches").first<{id:number}>();
+ await db.prepare("INSERT INTO nimo_sketches(title,intention) VALUES(?,?)")
+  .bind(title.trim(),intention.trim()).run();
+ const inserted=await db.prepare("SELECT id FROM nimo_sketches WHERE id>? AND title=? AND intention=? AND status='drawing' ORDER BY id DESC LIMIT 1")
+  .bind(previous?.id??0,title.trim(),intention.trim()).first<{id:number}>();
  if(!inserted)throw Error("Could not create sketch");
  return "Started sketch: "+title.trim()+". Intention: "+intention.trim();
 }
@@ -63,17 +66,24 @@ export async function drawStrokes(db:D1Database,sketchId:number,input:unknown){
  if(!current)throw Error("Sketch not active");
  if(current.stroke_count+strokes.length>160)throw Error("Sketch limit of 160 strokes reached; finish or abandon");
  const combined=[...(JSON.parse(current.strokes_json) as SketchStroke[]),...strokes];
- const result=await db.prepare(`UPDATE nimo_sketches SET strokes_json=?,stroke_count=?,
- updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='drawing' AND stroke_count=? RETURNING id`)
- .bind(JSON.stringify(combined),combined.length,sketchId,current.stroke_count).first<{id:number}>();
- if(!result)throw Error("Sketch changed; retry with current version");
+ const serialized=JSON.stringify(combined);
+ await db.prepare(`UPDATE nimo_sketches SET strokes_json=?,stroke_count=?,
+ updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='drawing' AND stroke_count=?`)
+ .bind(serialized,combined.length,sketchId,current.stroke_count).run();
+ const saved=await db.prepare("SELECT stroke_count,strokes_json FROM nimo_sketches WHERE id=?")
+  .bind(sketchId).first<{stroke_count:number;strokes_json:string}>();
+ if(!saved || saved.stroke_count!==combined.length || saved.strokes_json!==serialized)
+  throw Error("Sketch changed; retry with current version");
  return "Added "+strokes.length+" pencil strokes to sketch #"+sketchId+"; total "+combined.length+".";
 }
 export async function closeSketch(db:D1Database,id:number,status:"finished"|"abandoned"){
  if(!Number.isSafeInteger(id)||id<1)throw Error("Invalid sketch ID");
- const result=await db.prepare(`UPDATE nimo_sketches SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+ await db.prepare(`UPDATE nimo_sketches SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
  finished_at=CASE WHEN ?='finished' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END
- WHERE id=? AND status='drawing' AND (stroke_count>0 OR ?='abandoned') RETURNING id`).bind(status,status,id,status).first<{id:number}>();
- if(!result)throw Error("No active nonempty sketch to finish; abandon blank pages");
+ WHERE id=? AND status='drawing' AND (stroke_count>0 OR ?='abandoned')`).bind(status,status,id,status).run();
+ const saved=await db.prepare("SELECT status,stroke_count FROM nimo_sketches WHERE id=?")
+  .bind(id).first<{status:string;stroke_count:number}>();
+ if(!saved || saved.status!==status || (status==="finished" && saved.stroke_count===0))
+  throw Error("No active nonempty sketch to finish; abandon blank pages");
  return status==="finished"?"Finished drawing #"+id:"Abandoned sketch #"+id;
 }
