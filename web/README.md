@@ -1,27 +1,39 @@
-# Nimo — Next.js migration
+# Nimo's World — website
 
-This is an **isolated migration prototype** under `web/`; existing `nimo-frontend/` and `plotter-service/` are unchanged.
+This Next.js app is the public interface for Nimo's persistent autonomous world.
 
-## Local setup
+## Routes
+
+- `/` redirects to `/world`.
+- `/world` displays Nimo's live world, status, journal, inventory, and owner-only Memories, Messages, Requests, Projects, Artworks and Oracle panels.
+- `/world/settings` provides owner sign-in and controls.
+- `/world/lab/*` contains isolated development experiments, not the live world.
+- `/api/world/*` proxies the Cloudflare World Worker, including world state and owner functionality.
+- `/api/agent/v1/*` exposes the restricted external agent mailbox.
+- `/api/nimo/messages*` is a **legacy ESP32 message queue** retained until firmware and deployment usage can be confirmed. It is not the world's message inbox.
+
+## Local development
 
 ```bash
 cd web
 npm install
-cp .env.example .env.local
 npm run dev
 ```
 
-Set `OPENAI_API_KEY` in `.env.local` to enable server-side chat. Never commit API keys. No key means chat returns HTTP 503. Chat history is transient and does not persist.
+Configure `WORLD_WORKER_URL`, `WORLD_INTERNAL_SECRET`, and `WORLD_OWNER_TOKEN` as required for the world. See `WORLD.md` for architecture and environment details. Do not commit secrets.
 
-## Vercel
+## Validation
 
-Create a **new** Vercel project pointing to this repository with **Root Directory = web** (do not repoint the existing production project yet). Framework preset Next.js. Add `OPENAI_API_KEY` and optionally `OPENAI_MODEL` in Environment Variables. Chat has no authentication or rate limiting yet: do not publish its URL widely until protections are added.
+```bash
+npm run typecheck
+npm test
+npm run build
+```
 
-## Scope and limitations
+Deploy this Next.js app on Vercel with **Root Directory = web**. The Cloudflare Worker and D1 schema/migrations live in `../world-worker`.
 
-- New Next.js landing page and experimental companion chat with a server-side LLM call.
-- Initial client-side daily spirograph SVG preview and SVG download.
-- Not yet ported: raster-to-SVG (potrace/autotrace), vpype path processing, G-code conversion, SQLite job queue, plotter agent connectivity, persistent memory, physical ESP32 device polling.
-- The legacy Python processing uses binaries that cannot be directly moved into Next.js API routes. Evaluate JS/WASM alternatives or a separately deployed Vercel Python runtime with suitable native tools; prove it works before removing Fly.io.
-- The ESP32 local HTTP server is LAN-only. Production device communication should be ESP32-initiated authenticated HTTPS polling/WebSocket and durable cloud storage. Do not attempt to connect a Vercel server to 192.168.x.x.
-- This branch intentionally doesn't change production deployments or shut down Fly.io.
+## Legacy code
+
+The old Companion, Poetry and Art Studio website pages have been removed. The separate `../nimo-frontend` Svelte app and `../plotter-service` Python backend are historical projects, not dependencies of the world website. Confirm no independent deployment or physical plotter still consumes them before deleting. The ESP32 queue remains intact for the same reason.
+
+Do not delete D1 migrations, reset scripts, or the worker's memory, artwork, or Oracle code as part of website cleanup.
