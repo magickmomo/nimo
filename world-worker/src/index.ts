@@ -1,4 +1,5 @@
 import { SEED, INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
+import {cachedWorldSnapshot,saveWorldSnapshot} from "./world-snapshot-cache";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
@@ -847,6 +848,26 @@ async function agentGateway(request: Request, env: Env, path: string): Promise<R
   return json({ error: "Not found" }, 404);
 }
 
+/** Single public projection used by live responses and R2 offline copies. */
+async function publicWorldSnapshot(db:D1Database):Promise<Record<string,unknown>> {
+  const world=await getWorld(db);
+  world.state={...world.state,tools:[...AVAILABLE_TOOLS]};
+  return {
+    world,events:await publicEvents(db),position:await getPosition(db),
+    journey:await journeySnapshot(db),environmentMemory:await environmentMemory(db),
+    objects:await objectMemory(db),food:await foodView(db),
+    vending:await vendingSnapshot(db),garden:await gardenSnapshot(db),
+    autonomousEnabled:await autonomousEnabled(db),
+    manualAutonomousEnabled:await manualAutonomousEnabled(db),
+    scheduledAsleep:scheduledAsleep(new Date()),
+  };
+}
+async function offlineWorldSnapshot(env:Env):Promise<Response> {
+  const cached=await cachedWorldSnapshot(env.ARCHIVES);
+  if(!cached)return json({error:"World database unavailable and no saved snapshot exists yet"},503);
+  return json({...cached.snapshot,offline:true,cachedAt:cached.capturedAt});
+}
+
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     // Cloudflare cron is minute-granular. Within each invocation poll active
@@ -871,6 +892,12 @@ export default {
         nextCheck = Date.now() + interval;
       }
     })());
+    // Store a public, last-known world view every ten minutes independently of visitors.
+    if(env.ARCHIVES && new Date().getUTCMinutes()%10===0) {
+      ctx.waitUntil(publicWorldSnapshot(env.DB)
+        .then(snapshot=>saveWorldSnapshot(env.ARCHIVES,snapshot,true))
+        .catch(error=>console.error("World snapshot cache refresh failed",error)));
+    }
     // Research queued questions independently of the awake decision loop.
     ctx.waitUntil(researchOracleQuestion(env).catch(error=>console.error("Oracle research failed",error)));
     // Archive even if Nimo is asleep or the owner has paused him. Write only
@@ -880,7 +907,7 @@ export default {
         .catch(err=>console.error("Daily archive failed",err)));
     }
   },
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const publicPath = new URL(request.url).pathname;
     if (publicPath === "/agent/v1" || publicPath.startsWith("/agent/v1/")) {
       try { return await agentGateway(request, env, publicPath); }
@@ -949,11 +976,16 @@ export default {
         return json({hungerRate:await hungerRate(env.DB)});
       }
       if (path === "/snapshot/live" && request.method === "GET") {
-        const [world,position,journey,enabled] = await Promise.all([
-          getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
-        ]);
-        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        return json({world,position,journey,events:await publicEvents(env.DB,24),autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB)});
+        try {
+          const [world,position,journey,enabled] = await Promise.all([
+            getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
+          ]);
+          world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
+          return json({world,position,journey,events:await publicEvents(env.DB,24),autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB),offline:false});
+        } catch(error) {
+          console.error("Live world unavailable; falling back to R2",error);
+          return offlineWorldSnapshot(env);
+        }
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
@@ -978,20 +1010,18 @@ export default {
         }});
       }
       if ((path === "/snapshot" || path === "/snapshot/owner") && request.method === "GET") {
-        const owner = path === "/snapshot/owner";
-        const world = await getWorld(env.DB);
-        world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-        const publicSnapshot = {
-          world, events: await publicEvents(env.DB), position: await getPosition(env.DB),
-          journey: await journeySnapshot(env.DB), environmentMemory: await environmentMemory(env.DB),
-          objects: await objectMemory(env.DB), food: await foodView(env.DB),
-          vending: await vendingSnapshot(env.DB), garden: await gardenSnapshot(env.DB),
-          autonomousEnabled: await autonomousEnabled(env.DB), manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),
-        };
-        if (!owner) return json(publicSnapshot);
-        return json({ ...publicSnapshot, documents: await documents(env.DB),
-          actionTrace: await recentTrace(env.DB), availableTools: [...AVAILABLE_TOOLS],
-          hungerRate: await hungerRate(env.DB) });
+        const owner=path==="/snapshot/owner";
+        try {
+          const publicSnapshot=await publicWorldSnapshot(env.DB);
+          // R2 contains only public fields, never owner documents or traces.
+          ctx.waitUntil(saveWorldSnapshot(env.ARCHIVES,publicSnapshot));
+          if(!owner)return json({...publicSnapshot,offline:false});
+          const [workspace,traces,rate]=await Promise.all([documents(env.DB),recentTrace(env.DB),hungerRate(env.DB)]);
+          return json({...publicSnapshot,documents:workspace,actionTrace:traces,availableTools:[...AVAILABLE_TOOLS],hungerRate:rate,offline:false});
+        } catch(error) {
+          console.error("World unavailable; falling back to R2",error);
+          return offlineWorldSnapshot(env);
+        }
       }
       if (path === "/control" && request.method === "POST") {
         const body = await request.json() as { enabled?: unknown };

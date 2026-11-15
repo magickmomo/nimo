@@ -23,5 +23,7 @@ test("retain live decision and verified tool traces",()=>{
   assert.match(worker,/finishTrace\(env\.DB,modelTrace,"completed"/);
   assert.match(worker,/startTrace\(env\.DB,"travel"/);
   assert.match(worker,/traced\(env\.DB,"inspect"/);
-  assert.match(worker,/actionTrace: await recentTrace\(env\.DB\)/);
+  assert.match(worker,/const \[workspace,traces,rate\]=await Promise\.all\(\[documents\(env\.DB\),recentTrace\(env\.DB\),hungerRate\(env\.DB\)\]\)/);
+  assert.match(worker,/return json\(\{\.\.\.publicSnapshot,documents:workspace,actionTrace:traces,/);
+  assert.match(worker,/if\(!owner\)return json\(\{\.\.\.publicSnapshot,offline:false\}\)/);
 });

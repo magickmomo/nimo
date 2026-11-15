@@ -28,6 +28,8 @@ type JournalWindow = "1h"|"6h"|"24h"|"all";
 type JournalResult={events:WorldEvent[];hasMore:boolean;nextCursor:number|null;until:string;window:JournalWindow};
 
 type Snapshot = {
+  offline?:boolean;
+  cachedAt?:string;
   objects?: ObjectRecord[];
   actionTrace?: TraceRecord[];
   world: { state: WorldState; next_tick: string };
@@ -279,7 +281,8 @@ export default function World() {
       id:event.id,started_at:event.created_at,kind:event.action ?? "ACT",
       status:"completed",detail:event.content,result:null,
     }));
-  const seconds = data ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
+  const seconds = data && !data.offline ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
+  const visibleJournal = data?.offline && !journalEvents.length ? (data.events ?? []) : journalEvents;
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
     { label: "Curiosity", value: state.emotions.curiosity ?? 0.35, tone: "curiosity", inactive:false },
@@ -296,6 +299,11 @@ export default function World() {
         <a className="world-settings-link" href="/world/settings">{isOwner ? "Owner settings" : "Owner sign-in"}</a>
       </div>
       {error && <div className="world-warning" role="status">{error}</div>}
+      {data?.offline && <div className="world-warning" role="status">
+        <strong>Offline snapshot.</strong> Nimo's database is unavailable. You're viewing his last saved world
+        {data.cachedAt ? " from "+new Date(data.cachedAt).toLocaleString() : ""}.
+        His position, meters and actions aren't updating. Live updates resume when the database recovers.
+      </div>}
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
@@ -334,7 +342,7 @@ export default function World() {
             <div className="world-status-meta-item"><strong>Activity</strong><span>{state.currentActivity}</span></div>
             <div className="world-status-meta-item"><strong>Goal</strong><span>{state.currentGoal || "Not yet formed"}</span></div>
             <div className="world-status-meta-item"><strong>Status</strong>
-              <span>{data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
+              <span>{data?.offline ? "Offline" : data?.autonomousEnabled === false ? "Sleeping" : "Awake"} · Decision #{state.tickCount}</span>
             </div>
           </div>
         </>
@@ -346,7 +354,7 @@ export default function World() {
           <span className="nimo-coin-label">coins</span>
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
-        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
           actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={setSelectedObjectId} />
       </div>
       <details className="world-card world-object-memory world-secondary-panel" open={Boolean(selectedObjectId)} key={selectedObjectId ?? "no-selection"}>
@@ -399,7 +407,7 @@ export default function World() {
               </div>
             ))}
           </>
-        ) : <p className="meta">No documents yet. Nimo can create text files when awake.</p>}
+        ) : <p className="meta">{data?.offline ? "Saved documents are unavailable while offline." : "No documents yet. Nimo can create text files when awake."}</p>}
       </details>}
       {isOwner && <details className="world-card world-secondary-panel world-operator-settings">
         <summary>Diagnostics &amp; controls</summary>
@@ -407,14 +415,14 @@ export default function World() {
         <div className="world-hunger-rate">
           <label htmlFor="hunger-rate">Fullness decrease (percentage points per second)</label>
           <select id="hunger-rate" value={String(data?.hungerRate??1/60)}
-            disabled={settingRate||!data} onChange={e=>void changeRate(Number(e.target.value))}>
+            disabled={settingRate||!data||data.offline} onChange={e=>void changeRate(Number(e.target.value))}>
             <option value={String(1/60)}>1% per minute</option>
             {Array.from({length:26},(_,i)=>i/10).map(rate=><option key={rate} value={String(rate)}>{rate.toFixed(1)}% per second</option>)}
           </select>
         </div>
 
         <p className="meta">Available tools: {data?.availableTools?.join(", ") || "Checking…"}</p>
-        <p className="meta">Decision #{state?.tickCount ?? "—"} · Next decision in {seconds}s</p>
+        <p className="meta">Decision #{state?.tickCount ?? "—"} · {data?.offline ? "Next decision unavailable while offline" : `Next decision in ${seconds}s`}</p>
       </details>}
       </div>
       <section className="world-card world-journal">
@@ -444,8 +452,9 @@ export default function World() {
             placeholder="Enter your token once" required />
           <button disabled={!exportToken.trim()||exporting} type="submit">{exporting?"Signing in…":"Sign in and export"}</button>
         </form>}
-        {journalError&&<p className="world-warning" role="alert">{journalError}</p>}
-        {journalEvents.length ? groupJournalEvents(journalEvents).map(event => (
+        {journalError&&!data?.offline&&<p className="world-warning" role="alert">{journalError}</p>}
+        {data?.offline&&<p className="meta">Showing journal entries saved with the offline snapshot. Date-range filtering and older pages require D1.</p>}
+        {visibleJournal.length ? groupJournalEvents(visibleJournal).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
             {event.movement && (
@@ -455,7 +464,7 @@ export default function World() {
             {event.outcome && <p className="world-event-result"><strong>{event.narration ? "Result:" : "Event:"}</strong> {event.outcome}</p>}
           </article>
         )) : <p className="meta">{journalLoading?"Loading journal…":"No journal events in this time range."}</p>}
-        {journalHasMore&&<button type="button" className="world-journal-more" disabled={journalLoading}
+        {journalHasMore&&!data?.offline&&<button type="button" className="world-journal-more" disabled={journalLoading}
           onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
       </div>}
