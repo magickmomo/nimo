@@ -22,7 +22,8 @@ test("an action absent from the recent ten lowers curiosity without blocking fam
  assert.equal(next.history[0],"write_document");
  const hint=curiosityGuidance(0.9,0.8,recent,["plant_seed","write_document"]);
  assert.match(hint,/unused in that window: write_document/);
- assert.match(hint,/continuing a meaningful routine is always valid/);
+ assert.match(hint,/Reconsider whether your CURRENT GOAL/);
+ assert.match(hint,/Walking and thinking are valid/);
 });
 test("curiosity only suggests actions currently available",()=>{
  const hint=curiosityGuidance(0.8,0.95,["sell_item"],["sell_item","inspect"]);
@@ -46,4 +47,16 @@ test("curiosity remains within zero and one",()=>{
 test("essential nutrition is not overridden by curiosity",()=>{
  const hint=curiosityGuidance(0.2,0.9,[],["inspect","eat_fruit"]);
  assert.match(hint,/Prioritise food when needed/);
+});
+
+test("at low curiosity, goal-reconsideration pressure remains gentle",()=>{
+ const hint=curiosityGuidance(0.9,0.35,["travel_to"],["travel_to","think"]);
+ assert.match(hint,/continuing a meaningful routine is always valid/);
+ assert.doesNotMatch(hint,/Curiosity is high/);
+});
+test("high curiosity challenges repetitive wandering without restricting actions",()=>{
+ const hint=curiosityGuidance(0.9,1,Array(10).fill("travel_to"),["travel_to","think","ask_oracle"]);
+ assert.match(hint,/repeating the same justification indefinitely/);
+ assert.match(hint,/You decide what to do; no action is mandatory/);
+ assert.match(hint,/unused in that window: think, ask_oracle/);
 });
