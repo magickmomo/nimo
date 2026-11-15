@@ -56,3 +56,59 @@ print('Oracle revisions retain question and answer states')
  const r=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
  assert.equal(r.status,0,r.stderr||r.stdout);
 });
+
+test("Oracle research persists background response IDs and polls instead of blocking cron",()=>{
+ const src=read("../src/oracle.ts");
+ const migration=read("../migrations/021_oracle_background_research.sql");
+ assert.match(src,/background:true,store:true/);
+ assert.match(src,/response_id/);
+ assert.match(src,/method:"GET"/);
+ assert.match(src,/RESEARCH_DEADLINE_MS/);
+ assert.match(src,/MAX_ATTEMPTS=3/);
+ assert.match(migration,/ADD COLUMN response_id TEXT/);
+ assert.match(migration,/ADD COLUMN attempts INTEGER/);
+});
+test("Oracle inspection reports its current state and does not require waiting at the monument",()=>{
+ const worker=read("../src/index.ts");
+ assert.match(worker,/Oracle status: no question submitted yet/);
+ assert.match(worker,/Oracle status: answer received/);
+ assert.match(worker,/Oracle status: research failed/);
+ assert.match(worker,/Research continues independently; you may leave and return later/);
+ assert.match(worker,/you may leave the monument, pursue other interests/);
+});
+test("background-response migration extends oracle queries without dropping prior research",()=>{
+ const py=`
+import sqlite3,sys,pathlib
+root=pathlib.Path(sys.argv[1])
+db=sqlite3.connect(":memory:")
+db.executescript("""
+CREATE TABLE events(id INTEGER PRIMARY KEY);
+CREATE TABLE consolidated_memories_v2(id INTEGER PRIMARY KEY);
+CREATE TABLE world_revision_history(id INTEGER PRIMARY KEY,recorded_at TEXT,source_table TEXT,source_key TEXT,operation TEXT,payload_json TEXT);
+""")
+db.executescript((root/"migrations/019_oracle.sql").read_text())
+db.execute("INSERT INTO oracle_queries(question,status,started_at) VALUES('Why?','researching','2026-11-15T07:38:00Z')")
+db.executescript((root/"migrations/021_oracle_background_research.sql").read_text())
+row=db.execute("SELECT question,status,response_id,attempts FROM oracle_queries").fetchone()
+assert row==('Why?','researching',None,0),row
+db.execute("UPDATE oracle_queries SET response_id='resp_test',attempts=1 WHERE id=1")
+assert db.execute("SELECT response_id,attempts FROM oracle_queries").fetchone()==('resp_test',1)
+`;
+ const result=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
+ assert.equal(result.status,0,result.stderr||result.stdout);
+});
+
+test("completed research is fetched and saved even if the eight-minute deadline passed",()=>{
+ const src=read("../src/oracle.ts");
+ const branch=src.split('if(row.status==="researching"&&row.response_id){')[1].split('if(row.status==="researching"&&row.started_at')[0];
+ const fetched=branch.indexOf('const response=await fetch(API');
+ const statusRead=branch.indexOf('const output=await response.json()');
+ const overdue=branch.indexOf('oracleResearchOverdue(');
+ const completed=branch.indexOf('if(output.status!=="completed")');
+ const saved=branch.indexOf('await markOracle(env.DB,row.id,status,null,answer,sources,row.response_id)');
+ assert.ok(fetched>=0 && statusRead>fetched && overdue>statusRead && completed>overdue && saved>completed,
+  "fetch and inspect remote status before deadline; completed answer remains saveable");
+ assert.match(branch,/if\(output\.status==="queued"\|\|output\.status==="in_progress"\)\{/);
+ assert.match(branch,/if\(oracleResearchOverdue\(row\.started_at,now\)\)/);
+ assert.doesNotMatch(branch.split("try {")[0],/RESEARCH_DEADLINE_MS|markOracle/);
+});

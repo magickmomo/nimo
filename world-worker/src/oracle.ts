@@ -1,9 +1,8 @@
 import {recordVerifiedMemory} from "./consolidated-memory";
-import {nearObject} from "./garden";
 import type {Point} from "../../web/lib/world-map";
 
 export type OracleSource={title:string;url:string};
-type OracleRow={id:number;question:string;status:string;started_at:string|null};
+type OracleRow={id:number;question:string;status:string;started_at:string|null;response_id:string|null;attempts:number};
 export const ORACLE_ID="oracle_001";
 const MAX_ANSWER=1500;
 const MAX_QUESTION=500;
@@ -28,9 +27,9 @@ export async function askOracle(db:D1Database,position:Point,question:string) {
   return row.id;
 }
 export async function recentOracle(db:D1Database,limit=30){
-  const result=await db.prepare(`SELECT id,question,status,asked_at,answered_at,answer,sources_json,memory_id,error
+  const result=await db.prepare(`SELECT id,question,status,asked_at,started_at,answered_at,answer,sources_json,memory_id,error,attempts
     FROM oracle_queries ORDER BY id DESC LIMIT ?`).bind(limit).all<{
-    id:number;question:string;status:string;asked_at:string;answered_at:string|null;
+    id:number;question:string;status:string;asked_at:string;started_at:string|null;answered_at:string|null;attempts:number;
     answer:string|null;sources_json:string;memory_id:number|null;error:string|null
   }>();
   return result.results.map(row=>({...row,sources:JSON.parse(row.sources_json) as OracleSource[],sources_json:undefined}));
@@ -57,66 +56,117 @@ function extractAnswer(output:unknown):string {
     .filter(c=>c.type==="output_text"&&typeof c.text==="string")
     .map(c=>c.text).join("\n").trim().slice(0,MAX_ANSWER);
 }
-export async function researchOracleQuestion(env:{
-  DB:D1Database;OPENAI_API_KEY:string;ORACLE_MODEL?:string
-}) {
-  // Recover abandoned jobs (e.g. Worker terminated mid-search).
-  const candidate=await env.DB.prepare(`SELECT id,question,status,started_at FROM oracle_queries
-    WHERE status='pending' OR (status='researching' AND started_at<?)
-    ORDER BY id ASC LIMIT 1`).bind(new Date(Date.now()-5*60_000).toISOString()).first<OracleRow>();
-  if(!candidate)return {status:"idle" as const};
-  const claimed=await env.DB.prepare(`UPDATE oracle_queries SET status='researching',started_at=?,error=NULL
-    WHERE id=? AND (status='pending' OR (status='researching' AND started_at<?))`)
-    .bind(new Date().toISOString(),candidate.id,new Date(Date.now()-5*60_000).toISOString()).run();
-  if(claimed.meta.changes!==1)return {status:"busy" as const};
-  try{
-    const response=await fetch("https://api.openai.com/v1/responses",{
-      method:"POST",
-      headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:env.ORACLE_MODEL||"gpt-6-luna",
-        reasoning:{effort:"low"},
-        tools:[{type:"web_search",search_context_size:"low"}],
-        input:[
-          {role:"system",content:"You are a research instrument in a small autonomous digital world. Answer the visitor's question directly and accurately, using web research where appropriate. Cite trustworthy external sources when stating external facts. You are NOT Nimo, have no authority over Nimo's choices, and must not make up facts about his private simulation. Keep the answer under about 220 words. If the answer is unknown or can't be substantiated, explain that plainly."},
-          {role:"user",content:candidate.question}
-        ],
-        max_output_tokens:1300
-      }),
-      signal:AbortSignal.timeout(90_000)
-    });
-    if(!response.ok)throw Error(`Oracle research API returned HTTP ${response.status}`);
-    const output=await response.json() as unknown;
-    const answer=extractAnswer(output);
-    const sources=citedSources(output);
-    if(!answer)throw Error("Oracle research returned no answer");
-    // A sourced answer may become existing evidence-backed knowledge.
-    // A response without citations is still recorded, but not elevated to fact.
-    const sourced=sources.length>0;
-    const event=await env.DB.prepare("INSERT INTO events(kind,content,action) VALUES('tool',?,'ORACLE_ANSWER') RETURNING id")
-      .bind(`ORACLE #${candidate.id}: Q: ${candidate.question} A: ${answer.slice(0,950)} Sources: ${sources.map(s=>s.url).join(", ").slice(0,550)}`)
-      .first<{id:number}>();
-    let memoryId:number|null=null;
-    if(sourced&&event){
-      // Reuse the canonical consolidated-memory store and evidence links.
-      // No duplicate-question matching: memory consolidation can handle it later.
-      await recordVerifiedMemory(env.DB,{
-        subject:`oracle:question:${candidate.id}`,
-        statement:answer.slice(0,600),
-        category:"knowledge",confidence:0.8,eventId:event.id
-      });
-      const saved=await env.DB.prepare("SELECT id FROM consolidated_memories_v2 WHERE subject=?")
-        .bind(`oracle:question:${candidate.id}`).first<{id:number}>();
-      memoryId=saved?.id??null;
-    }
-    await env.DB.prepare(`UPDATE oracle_queries SET status=?,answered_at=?,answer=?,sources_json=?,event_id=?,memory_id=?
-      WHERE id=? AND status='researching'`)
-      .bind(sourced?"answered":"unsourced",new Date().toISOString(),answer,JSON.stringify(sources),event?.id??null,memoryId,candidate.id).run();
-    return {status:sourced?"answered" as const:"unsourced" as const,id:candidate.id};
-  }catch(err){
-    const message=err instanceof Error?err.message:String(err);
-    await env.DB.prepare("UPDATE oracle_queries SET status='failed',answered_at=?,error=? WHERE id=?")
-      .bind(new Date().toISOString(),message.slice(0,300),candidate.id).run();
-    return {status:"failed" as const,id:candidate.id};
-  }
+
+const API="https://api.openai.com/v1/responses";
+const MAX_ATTEMPTS=3;
+const LOST_SUBMISSION_MS=2*60_000;
+const RESEARCH_DEADLINE_MS=8*60_000;
+export function oracleResearchOverdue(startedAt:string|null,now:Date):boolean {
+ const started=startedAt?Date.parse(startedAt):NaN;
+ return Number.isFinite(started)&&now.getTime()-started>RESEARCH_DEADLINE_MS;
+}
+const requestHeaders=(key:string)=>({Authorization:"Bearer "+key,"Content-Type":"application/json"});
+const oraclePrompt="You are a research instrument in a small autonomous digital world. Answer the visitor's question directly and accurately, using web research where appropriate. Cite trustworthy external sources when stating external facts. You are NOT Nimo, have no authority over Nimo's choices, and must not make up facts about his private simulation. Keep the answer under about 220 words. If the answer is unknown or can't be substantiated, explain that plainly.";
+function failureReason(data:unknown):string {
+ const obj=data as {error?:{message?:string};incomplete_details?:{reason?:string};status?:string};
+ return String(obj.error?.message||obj.incomplete_details?.reason||obj.status||"Unknown research failure").slice(0,300);
+}
+async function markOracle(db:D1Database,id:number,status:"failed"|"answered"|"unsourced",error:string|null,answer:string|null=null,sources:OracleSource[]=[],responseId:string|null=null) {
+ await db.prepare("UPDATE oracle_queries SET status=?,answered_at=?,error=?,answer=?,sources_json=? WHERE id=? AND status='researching' AND response_id IS ?")
+  .bind(status,new Date().toISOString(),error,answer,JSON.stringify(sources),id,responseId).run();
+}
+// Long research executes on the Responses API. Cron only starts and polls jobs.
+export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:string;ORACLE_MODEL?:string}) {
+ const now=new Date();
+ const cutoff=new Date(now.getTime()-LOST_SUBMISSION_MS).toISOString();
+ const row=await env.DB.prepare("SELECT id,question,status,started_at,response_id,attempts FROM oracle_queries WHERE status IN ('pending','researching') ORDER BY id ASC LIMIT 1").first<OracleRow>();
+ if(!row)return {status:"idle" as const};
+ if(row.status==="researching"&&row.response_id){
+   // Poll first: research may have completed since the previous cron run,
+   // even when the eight-minute deadline has passed.
+   try {
+     const response=await fetch(API+"/"+encodeURIComponent(row.response_id),{
+       method:"GET",headers:requestHeaders(env.OPENAI_API_KEY),signal:AbortSignal.timeout(20_000)
+     });
+     if(!response.ok){
+       if(response.status>=500||response.status===429)return {status:"researching" as const,id:row.id};
+       throw Error("Oracle poll returned HTTP "+response.status);
+     }
+     const output=await response.json() as {status?:string};
+     if(output.status==="queued"||output.status==="in_progress"){
+       if(oracleResearchOverdue(row.started_at,now)){
+         await markOracle(env.DB,row.id,"failed","Oracle research exceeded the eight-minute deadline",null,[],row.response_id);
+         return {status:"failed" as const,id:row.id};
+       }
+       return {status:"researching" as const,id:row.id};
+     }
+     if(output.status!=="completed"){
+       await markOracle(env.DB,row.id,"failed",failureReason(output),null,[],row.response_id);
+       return {status:"failed" as const,id:row.id};
+     }
+     const answer=extractAnswer(output),sources=citedSources(output);
+     if(!answer){
+       await markOracle(env.DB,row.id,"failed","Oracle completed without answer text",null,[],row.response_id);
+       return {status:"failed" as const,id:row.id};
+     }
+     const status=sources.length?"answered" as const:"unsourced" as const;
+     // Save the result before optional journal/memory indexing.
+     await markOracle(env.DB,row.id,status,null,answer,sources,row.response_id);
+     try {
+       const event=await env.DB.prepare("INSERT INTO events(kind,content,action) VALUES('tool',?,'ORACLE_ANSWER') RETURNING id")
+         .bind("ORACLE #"+row.id+": Q: "+row.question+" A: "+answer.slice(0,950)+" Sources: "+sources.map(s=>s.url).join(", ").slice(0,550))
+         .first<{id:number}>();
+       if(sources.length&&event){
+         await recordVerifiedMemory(env.DB,{subject:"oracle:question:"+row.id,statement:answer.slice(0,600),category:"knowledge",confidence:0.8,eventId:event.id});
+         const memory=await env.DB.prepare("SELECT id FROM consolidated_memories_v2 WHERE subject=?").bind("oracle:question:"+row.id).first<{id:number}>();
+         if(memory)await env.DB.prepare("UPDATE oracle_queries SET event_id=?,memory_id=? WHERE id=?").bind(event.id,memory.id,row.id).run();
+       }else if(event)await env.DB.prepare("UPDATE oracle_queries SET event_id=? WHERE id=?").bind(event.id,row.id).run();
+     }catch(indexError){console.error("Oracle answer saved; indexing failed",indexError);}
+     return {status,id:row.id};
+   }catch(err){
+     const message=err instanceof Error?err.message:String(err);
+     if(/timeout|abort|fetch failed/i.test(message))return {status:"researching" as const,id:row.id};
+     await markOracle(env.DB,row.id,"failed",message.slice(0,300),null,[],row.response_id);
+     return {status:"failed" as const,id:row.id};
+   }
+ }
+ if(row.status==="researching"&&row.started_at&&row.started_at>cutoff)
+   return {status:"starting" as const,id:row.id};
+ if(row.attempts>=MAX_ATTEMPTS){
+   await env.DB.prepare("UPDATE oracle_queries SET status='failed',answered_at=?,error=? WHERE id=? AND response_id IS NULL")
+     .bind(now.toISOString(),"Oracle could not start research after three attempts",row.id).run();
+   return {status:"failed" as const,id:row.id};
+ }
+ const stamp=now.toISOString();
+ await env.DB.prepare("UPDATE oracle_queries SET status='researching',started_at=?,attempts=attempts+1,error=NULL WHERE id=? AND response_id IS NULL AND (status='pending' OR (status='researching' AND started_at<?))")
+   .bind(stamp,row.id,cutoff).run();
+ const claimed=await env.DB.prepare("SELECT status,started_at,response_id FROM oracle_queries WHERE id=?").bind(row.id)
+   .first<{status:string;started_at:string;response_id:string|null}>();
+ if(claimed?.status!=="researching"||claimed.started_at!==stamp||claimed.response_id)
+   return {status:"busy" as const,id:row.id};
+ try{
+   const response=await fetch(API,{
+     method:"POST",headers:requestHeaders(env.OPENAI_API_KEY),
+     body:JSON.stringify({
+       model:env.ORACLE_MODEL||"gpt-6-luna",background:true,store:true,
+       reasoning:{effort:"low"},tools:[{type:"web_search",search_context_size:"low"}],
+       input:[{role:"system",content:oraclePrompt},{role:"user",content:row.question}],
+       max_output_tokens:1300
+     }),signal:AbortSignal.timeout(20_000)
+   });
+   if(!response.ok){
+     const errorBody=(await response.text()).slice(0,250);
+     throw Error("Oracle research API HTTP "+response.status+": "+errorBody);
+   }
+   const created=await response.json() as {id?:string};
+   if(typeof created.id!=="string"||!created.id.startsWith("resp_"))throw Error("Oracle research response ID missing");
+   await env.DB.prepare("UPDATE oracle_queries SET response_id=? WHERE id=? AND status='researching' AND started_at=? AND response_id IS NULL")
+     .bind(created.id,row.id,stamp).run();
+   return {status:"researching" as const,id:row.id};
+ }catch(err){
+   const message=err instanceof Error?err.message:String(err);
+   await env.DB.prepare("UPDATE oracle_queries SET status='failed',answered_at=?,error=? WHERE id=? AND started_at=? AND response_id IS NULL")
+     .bind(new Date().toISOString(),message.slice(0,300),row.id,stamp).run();
+   return {status:"failed" as const,id:row.id};
+ }
 }
