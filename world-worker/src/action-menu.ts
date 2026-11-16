@@ -114,6 +114,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
     // A visitor reply never executes the tool. It may record a voluntary next-step intention.
     replyIntent:hasPendingVisitor?{type:["string","null"]}:{type:"null"},
     intentDisposition:{type:"string",enum:hasPendingVisitor?["keep","abandon"]:["keep","complete","abandon"]},
+    usedMemoryIds:{type:"array",items:{type:"integer"},maxItems:3},
     toolCall:{anyOf:variants},
   });
   return {type:"json_schema",json_schema:{name:"nimo_decision",strict:true,schema}};
