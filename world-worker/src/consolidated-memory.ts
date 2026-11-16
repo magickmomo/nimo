@@ -29,15 +29,19 @@ export async function recordVerifiedMemory(
   if(!subject.trim()||subject.length>100||!statement.trim()||statement.length>600||
     !Number.isSafeInteger(eventId)||eventId<=0)throw Error("Invalid memory evidence");
   const confidence=Math.max(0,Math.min(1,input.confidence));
-  // D1 batch is transactional; an event cannot be attached twice.
-  // When all slots are full, retire the least-supported memory to retain a 24-entry active bound.
+  // A full active memory set must never evict a useful memory just because
+  // a new Oracle answer arrived. Queue overflow for an auditable hourly review.
   const already=await db.prepare("SELECT id FROM consolidated_memories_v2 WHERE subject=?").bind(subject).first<{id:number}>();
   if(!already) {
     const count=await db.prepare("SELECT COUNT(*) AS n FROM consolidated_memories_v2 WHERE status!='retired'").first<{n:number}>();
     if((count?.n??0)>=MAX_ACTIVE_MEMORIES) {
-      await db.prepare(`UPDATE consolidated_memories_v2 SET status='retired',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE id=(SELECT id FROM consolidated_memories_v2 WHERE status!='retired'
-          ORDER BY confidence ASC,updated_at ASC,id ASC LIMIT 1)`).run();
+      await db.batch([
+        db.prepare(`INSERT OR IGNORE INTO memory_candidates(subject,statement,category,confidence,event_id)
+          VALUES(?,?,?,?,?)`).bind(subject,statement,category,confidence,eventId),
+        db.prepare(`INSERT INTO memory_activity(kind,source_event_id,detail) VALUES('candidate_queued',?,?)`)
+          .bind(eventId,subject)
+      ]);
+      return;
     }
   }
   const status=confidence>=0.8?'established':'tentative';
