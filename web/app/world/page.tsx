@@ -85,6 +85,8 @@ export default function World() {
   const [exportLoginRequired,setExportLoginRequired]=useState(false);
   const [exportToken,setExportToken]=useState("");
   const [exportError,setExportError]=useState("");
+  const [archiveDate,setArchiveDate]=useState(()=>new Date().toISOString().slice(0,10));
+  const [pendingExportPath,setPendingExportPath]=useState("/api/world/export");
   const [clock, setClock] = useState(Date.now());
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export default function World() {
     if(exporting)return;
     setExporting(true);
     setExportError("");
+    setPendingExportPath(path);
     try{
       const response=await fetch(path,{cache:"no-store"});
       if(response.status===401){
@@ -230,7 +233,7 @@ export default function World() {
       const url=URL.createObjectURL(blob);
       const link=document.createElement("a");
       link.href=url;
-      link.download=(path.includes("/archive/")?"nimo-latest-completed-24h-":"nimo-world-")+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+      link.download=path.includes("/archive/day?date=")?"nimo-"+archiveDate+".json":(path.includes("/archive/")?"nimo-latest-completed-24h-":"nimo-world-")+new Date().toISOString().replace(/[:.]/g,"-")+".json";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -264,7 +267,7 @@ export default function World() {
     }
     setExporting(false);
     // The session cookie is set in the completed sign-in response.
-    await exportWorld();
+    await exportWorld(pendingExportPath);
   }
 
   const state = data?.world.state;
@@ -447,7 +450,15 @@ export default function World() {
             <div className="world-journal-buttons">
               <button type="button" disabled={journalLoading} onClick={()=>{void refresh();void loadJournal(journalWindow);}}>Refresh</button>
               {isOwner && <button type="button" title="Export complete world log" disabled={exporting} onClick={()=>void exportWorld()}>{exporting ? "Exporting…" : "Export log"}</button>}
-              {isOwner && <button type="button" title="Download latest completed 24-hour experience archive" disabled={exporting} onClick={()=>void exportWorld("/api/world/archive/latest")}>{exporting ? "Downloading…" : "Latest 24h archive"}</button>}
+              {isOwner && <label htmlFor="world-archive-date">Archive date
+                <input id="world-archive-date" type="date" value={archiveDate}
+                  max={new Date().toISOString().slice(0,10)}
+                  onChange={event=>setArchiveDate(event.target.value)} />
+              </label>}
+              {isOwner && <button type="button" title="Download selected UK calendar day, recovering from D1 if the archive is missing" disabled={exporting||!archiveDate}
+                onClick={()=>void exportWorld("/api/world/archive/day?date="+encodeURIComponent(archiveDate))}>
+                {exporting ? "Downloading…" : "Download day"}
+              </button>}
             </div>
           </div>
         </div>
