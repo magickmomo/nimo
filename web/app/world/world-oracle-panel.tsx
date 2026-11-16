@@ -28,7 +28,7 @@ export default function WorldOraclePanel({onClose}:{onClose:()=>void}){
       <div className="world-journal-head"><h2>Oracle</h2><div className="world-message-header-actions">
         <button type="button" onClick={()=>void load()}>Refresh</button><button type="button" onClick={onClose}>Close</button>
       </div></div>
-      <p className="meta">Questions Nimo chose to ask. Sourced answers are integrated into his existing memories; unsourced answers are retained as unverified research, not knowledge.</p>
+      <p className="meta">Each question costs 10 coins from Nimo's balance; failed research is refunded. Sourced answers are integrated into his existing memories; unsourced answers are retained as unverified research, not knowledge.</p>
       {error&&<p className="world-warning" role="alert">{error}</p>}
       <div className="world-message-thread">
         {loading?<p className="meta">Loading Oracle history…</p>:!queries.length?<p className="meta">Nimo hasn't asked the Oracle anything yet.</p>:
