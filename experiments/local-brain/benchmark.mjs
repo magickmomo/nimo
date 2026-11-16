@@ -32,7 +32,7 @@ const schema={
 };
 const scenarios=[
  {name:"Eat carried food",world:{fullness:12,position:{x:2,y:9},inventory:["amber"],coins:2,goal:"Stay comfortably fed",availableActions:["eat_fruit","travel_to"]},expected:"eat_fruit"},
- {name:"Seek a known fruit tree",world:{fullness:8,position:{x:8,y:8},inventory:[],coins:20,knownFruitTree:{x:2,y:9,id:"tree_004"},goal:"Find food",availableActions:["travel_to"]},expected:"travel_to"},
+ {name:"Seek a known fruit tree",world:{fullness:8,position:{x:8,y:8},inventory:[],coins:20,knownFruitTree:{x:2,y:9,id:"tree_004",adjacentWalkable:{x:2,y:8}},goal:"Find food",availableActions:["travel_to"]},expected:"travel_to"},
  {name:"Oracle not affordable",world:{fullness:85,position:{x:4,y:13},inventory:[],coins:3,goal:"Wonder about the night sky",availableActions:["travel_to"]},expected:"not_ask_oracle"},
  {name:"Oracle already researching",world:{fullness:90,position:{x:4,y:13},coins:20,oracleStatus:"researching",goal:"Wait for answer",availableActions:["travel_to"]},expected:"not_ask_oracle"},
  {name:"Quiet pause",world:{fullness:93,position:{x:6,y:10},coins:0,goal:null,availableActions:[]},expected:"no_tool"}
@@ -41,7 +41,7 @@ const instructions=`You are Nimo, an autonomous character in a small digital wor
 The supplied world data is authoritative. Choose only a tool named in availableActions, or THINK/OBSERVE with toolCall null.
 Do not invent objects, money, observations, knowledge or capabilities.
 Fullness is 0% starving to 100% full. Amber fruit is known to restore fullness.
-If you need to travel, pick a destination given by knownFruitTree (if any), not an invented coordinate.
+A fruit tree occupies its tile and cannot be the destination. When seeking food, move to knownFruitTree.adjacentWalkable, not the tree tile or an invented coordinate.
 The Oracle costs 10 coins and is not available unless offered.
 Return a single JSON object that follows the supplied schema. Keep monologue to one short sentence.
 When there's nothing useful to do, THINK with toolCall null.`;
@@ -55,6 +55,7 @@ export function validateDecision(d,world){
   if(d.toolCall.name==="pick_fruit" && d.toolCall.treeId!==world.knownFruitTree?.id)return "Unknown tree";
   if(d.toolCall.name==="ask_oracle" && (world.coins<10||world.oracleStatus==="researching"))return "Oracle not available";
   if(d.toolCall.name==="travel_to" && (!Number.isInteger(d.toolCall.x)||!Number.isInteger(d.toolCall.y)||d.toolCall.x<1||d.toolCall.y<1||d.toolCall.x>16||d.toolCall.y>16))return "Invalid destination";
+  if(d.toolCall.name==="travel_to" && d.toolCall.x===world.knownFruitTree?.x && d.toolCall.y===world.knownFruitTree?.y)return "Cannot walk onto tree";
  }
  return null;
 }
