@@ -22,7 +22,12 @@ export async function recordMemoryUse(db:D1Database,usedIds:readonly number[],av
    .bind(kind,id,decisionKey,applied?"Nimo cited memory in a completed tool action":"Nimo cited memory in his decision").run();
  }
 }
-const ukDay=(now:Date)=>new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).format(now);
+const ukDay=(now:Date)=>{
+ const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
+  timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"
+ }).formatToParts(now).map(p=>[p.type,p.value]));
+ return `${parts.year}-${parts.month}-${parts.day}`;
+};
 /** Runs at most hourly. Its duplicate suggestions can be inspected before enabling merges. */
 export async function reviewMemories(db:D1Database,now=new Date()){
  const control=await db.prepare("SELECT last_hourly,last_nightly_day FROM memory_review_state WHERE id=1").first<{last_hourly:string|null;last_nightly_day:string|null}>();
