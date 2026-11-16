@@ -4,6 +4,7 @@ import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";
 export type OracleSource={title:string;url:string};
 type OracleRow={id:number;question:string;status:string;started_at:string|null;response_id:string|null;attempts:number};
 export const ORACLE_ID="oracle_001";
+export const ORACLE_COST=10;
 const MAX_ANSWER=1500;
 const MAX_QUESTION=500;
 
@@ -26,6 +27,9 @@ export async function askOracle(db:D1Database,position:Point,question:string) {
   // concurrency guard, not question deduplication or a daily usage limit.
   const busy=await db.prepare("SELECT id FROM oracle_queries WHERE status IN ('pending','researching') LIMIT 1").first();
   if(busy)throw Error("The Oracle is already researching a question");
+  const balance=await db.prepare("SELECT coins FROM vending_state WHERE id=1").first<{coins:number}>();
+  if(!balance||balance.coins<ORACLE_COST)throw Error(`The Oracle costs ${ORACLE_COST} coins; available: ${balance?.coins??0}`);
+  // Migration 022 atomically deducts the price on insert and refunds failed research.
   const row=await db.prepare("INSERT INTO oracle_queries(question) VALUES(?) RETURNING id")
     .bind(question.trim()).first<{id:number}>();
   if(!row)throw Error("Oracle could not record the question");
