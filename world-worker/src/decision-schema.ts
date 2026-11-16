@@ -31,6 +31,7 @@ export type Decision = {
   toolCall: DecisionTool | null;
   replyIntent: string | null; // Proposed action Nimo explicitly accepts in a visitor reply.
   intentDisposition: "keep" | "complete" | "abandon";
+  usedMemoryIds: number[];
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
@@ -172,6 +173,7 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     activity: d.activity as string,
     goal: d.goal === undefined ? null : d.goal as string | null,
     identityUpdate, toolCall,
+    usedMemoryIds:Array.isArray(d.usedMemoryIds)?[...new Set(d.usedMemoryIds.filter(v=>Number.isSafeInteger(v)&&v>0))].slice(0,3) as number[]:[],
     replyIntent: typeof d.replyIntent === "string" ? d.replyIntent.trim() : null,
     intentDisposition: (d.intentDisposition ?? "keep") as "keep"|"complete"|"abandon",
   };
