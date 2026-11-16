@@ -20,6 +20,7 @@ import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus
 import { projectList, createProject, updateProject } from "./projects";
 import { sketchbookSnapshot, buySketchbook, beginSketch, drawStrokes, closeSketch } from "./sketchbook";
 import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
+import {recordMemoryUse,reviewMemories} from "./memory-review";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
@@ -278,7 +279,7 @@ Your environment may contain objects with unfamiliar properties and possible int
 Your capability requests appear in the owner Requests inbox, separate from conversation messages. REQUEST records a request; it does not immediately grant tools. You can see request status in creatorRequests; do not repeat acknowledged, accepted, rejected or implemented requests unless there is new evidence or a substantially different obstacle.
 When something does not make sense, a goal becomes blocked, or repeated checks produce no new information, consider what you have already observed and whether another available action, location, or approach could help. An action missing from the menu at your present location does not prove the capability is missing everywhere; consult your actual past successes and move somewhere appropriate if useful.
 If reasonable investigation has not resolved a meaningful limitation, you MAY choose REQUEST to ask your creator for clarification, help with an environmental problem, or a genuinely missing capability. Explain the specific obstacle and what you tried, without claiming that a capability is absent unless supported by evidence. You may also continue independently, set the question aside, or change goals. Do not request help automatically or repeatedly, and do not treat the creator's suggestions as orders.
-Long-term memory is consolidated from verified events, not from unsupported assertions. Do not create core beliefs; retain your existing identity and learn from evidence.
+Long-term memory is consolidated from verified events, not from unsupported assertions. Do not create core beliefs; retain your existing identity and learn from evidence. If you actively rely on one of the supplied consolidatedMemories in this decision, put up to three of its numeric IDs in usedMemoryIds. Use an empty list if none genuinely informed the decision. Do not list memories just because they were displayed. These citations are self-reports, not proof of a successful application.
 You are not required to be productive; avoid repetitive announcements. Do not invent completed actions.
 Produce a brief public monologue (1-3 sentences, or up to 5 when replying to a visitor), NOT private chain-of-thought.
 Choose one top-level action from OBSERVE, THINK, REMEMBER, ACT, REQUEST, REPLY. Use REPLY only for a pending visitor message and always with toolCall:null. ACT always requires a valid toolCall. Tool names are NOT top-level actions: for a journey, use action:"ACT" and toolCall:{name:"travel_to",x:2,y:5}, never action:"travel_to".
@@ -318,7 +319,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,12).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count}))},consolidatedMemories:longTermMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,12).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count}))},consolidatedMemories:longTermMemories.map(m=>({id:m.id,subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -675,6 +676,9 @@ async function tick(env: Env) {
       verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
   }
+  // Track explicit memory citations separately from mere prompt retrieval.
+  try{await recordMemoryUse(env.DB,d.usedMemoryIds,longTermMemories.map(m=>m.id),decisionKey,!!d.toolCall&&!toolFailed);}
+  catch(error){console.warn("Memory usage tracking unavailable",error);}
   // Never allow experimental telemetry to interrupt Nimo's normal actions.
   // Records are persisted only AFTER verified outcomes, with idempotent keys.
   if(verifiedExperience) {
@@ -898,6 +902,9 @@ export default {
         .then(snapshot=>saveWorldSnapshot(env.ARCHIVES,snapshot,true))
         .catch(error=>console.error("World snapshot cache refresh failed",error)));
     }
+    // Hourly memory review and nightly dormant suggestions are audit-only.
+    if(new Date().getUTCMinutes()===17)ctx.waitUntil(reviewMemories(env.DB)
+      .catch(error=>console.error("Memory review failed",error)));
     // Research queued questions independently of the awake decision loop.
     ctx.waitUntil(researchOracleQuestion(env).catch(error=>console.error("Oracle research failed",error)));
     // Archive even if Nimo is asleep or the owner has paused him. Write only
