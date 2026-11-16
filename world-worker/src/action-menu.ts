@@ -32,7 +32,7 @@ export function buildActionMenu(
   garden:{plotIds:string[];tools:string[];saleItems:string[]}={plotIds:[],tools:[],saleItems:[]},
   projects:{canCreate:boolean;editableIds:number[]}={canCreate:false,editableIds:[]},
   sketchbook:{owned:boolean;activeId:number|null}={owned:false,activeId:null},
-  oracle:{adjacent:boolean;busy:boolean}={adjacent:false,busy:false},
+  oracle:{adjacent:boolean;busy:boolean;coins:number}={adjacent:false,busy:false,coins:0},
 ):ActionMenu {
   if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[]};
   const inspectDirections = directions
@@ -52,7 +52,7 @@ export function buildActionMenu(
   const vendingItemIds=vending.adjacent&&vending.inspected?vending.itemIds:[];
   if(vendingItemIds.length)tools.push("buy_item");
   tools.push(...garden.tools);
-  if(oracle.adjacent&&!oracle.busy)tools.push("ask_oracle");
+  if(oracle.adjacent&&!oracle.busy&&oracle.coins>=10)tools.push("ask_oracle");
   if(projects.canCreate)tools.push("create_project");
   if(projects.editableIds.length)tools.push("update_project");
   if(sketchbook.owned){if(sketchbook.activeId===null)tools.push("start_sketch");else tools.push("draw_strokes","finish_sketch");}
