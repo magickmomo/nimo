@@ -13,7 +13,7 @@ import { validateDecision, type Decision } from "./decision-schema";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
-import { archiveLatestCompletedDay, latestArchiveKeys, shouldArchiveNow } from "./daily-archive";
+import { archiveLatestCompletedDay, latestArchiveKeys, selectedDayArchive, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
@@ -989,6 +989,23 @@ export default {
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
+      }
+      if (path === "/archive/day" && request.method === "GET") {
+        const day=new URL(request.url).searchParams.get("date")??"";
+        if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) ||
+          !Number.isFinite(Date.parse(day+"T12:00:00.000Z")) ||
+          new Date(day+"T12:00:00.000Z").toISOString().slice(0,10)!==day)
+          return json({error:"Invalid archive date (YYYY-MM-DD required)"},400);
+        if(day>new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()).split("/").reverse().join("-"))
+          return json({error:"Cannot archive a future day"},400);
+        const archive=await selectedDayArchive(env.DB,env.ARCHIVES,day);
+        if(!archive)return json({error:"No recorded history exists for this date",date:day},404);
+        return new Response(archive.body,{headers:{
+          "Content-Type":"application/json; charset=utf-8",
+          "Content-Disposition":'attachment; filename="nimo-'+day+'.json"',
+          "X-Archive-Source":archive.source,
+          "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+        }});
       }
       if (path === "/archive/latest" && request.method === "GET") {
         if(!env.ARCHIVES)return json({error:"Daily archive bucket not configured"},503);
