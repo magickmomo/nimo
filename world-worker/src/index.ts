@@ -992,7 +992,7 @@ export default {
       }
       if (path === "/archive/day" && request.method === "GET") {
         const day=new URL(request.url).searchParams.get("date")??"";
-        if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) ||
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(day) ||
           !Number.isFinite(Date.parse(day+"T12:00:00.000Z")) ||
           new Date(day+"T12:00:00.000Z").toISOString().slice(0,10)!==day)
           return json({error:"Invalid archive date (YYYY-MM-DD required)"},400);
