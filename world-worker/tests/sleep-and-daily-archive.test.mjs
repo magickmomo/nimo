@@ -8,7 +8,7 @@ const toModule=async path=>{
  return import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 };
 const {scheduledAsleep,awakeElapsedSeconds}=await toModule("../src/sleep-schedule.ts");
-const {archiveWindow,shouldArchiveNow,latestArchiveKeys}=await toModule("../src/daily-archive.ts");
+const {archiveWindow,shouldArchiveNow,latestArchiveKeys,calendarDayWindow}=await toModule("../src/daily-archive.ts");
 
 test("Nimo sleeps 22:00–06:00 UK time, including BST",()=>{
  for(const [iso,sleeping] of [
@@ -83,4 +83,31 @@ test("day export paginates every recent event and excludes boundary/outside reco
  assert.equal(result[0].id,2);
  assert.equal(result.at(-1).id,502);
  assert.ok(calls.length>=2,"large daily logs must page past the first 500 events");
+});
+
+test("date-specific downloads cover the requested UK calendar date, not latest available",()=>{
+ assert.deepEqual(calendarDayWindow("2026-11-15"),{
+  start:"2026-11-15T00:00:00.000Z",
+  end:"2026-11-16T00:00:00.000Z",
+  key:"daily/by-date/2026-11-15.json",
+ });
+ assert.deepEqual(calendarDayWindow("2026-07-15"),{
+  start:"2026-07-14T23:00:00.000Z",
+  end:"2026-07-15T23:00:00.000Z",
+  key:"daily/by-date/2026-07-15.json",
+ });
+ assert.equal((Date.parse(calendarDayWindow("2026-03-29").end)-
+  Date.parse(calendarDayWindow("2026-03-29").start))/3600000,23);
+ assert.equal((Date.parse(calendarDayWindow("2026-10-25").end)-
+  Date.parse(calendarDayWindow("2026-10-25").start))/3600000,25);
+ assert.throws(()=>calendarDayWindow("2026-02-30"));
+});
+test("selected archive endpoint never substitutes an earlier archive",()=>{
+ const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
+ assert.match(worker,/path === "\/archive\/day"/);
+ assert.match(worker,/selectedDayArchive\(env.DB,env.ARCHIVES,day\)/);
+ const archive=readFileSync(new URL("../src/daily-archive.ts",import.meta.url),"utf8");
+ assert.match(archive,/daily\/by-date\//);
+ assert.match(archive,/if\(stored\)return/);
+ assert.match(archive,/buildDailyArchive\(db,start,end\)/);
 });
