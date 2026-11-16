@@ -110,3 +110,49 @@ export function shouldArchiveNow(now:Date):boolean {
   const clock=ukParts(now);
   return clock.hour===ARCHIVE_HOUR_UK && clock.minute>=ARCHIVE_START_MINUTE;
 }
+
+/** A calendar-date download covers 00:00–00:00 Europe/London, rather than
+ * the rolling 22:00 bedtime archives. Never substitute a different date. */
+export function calendarDayWindow(day:string){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+    new Date(day+"T12:00:00.000Z").toISOString().slice(0,10)!==day)
+   throw Error("Invalid archive date");
+ const midnight=(d:string)=>{
+   const time=Date.parse(d+"T00:00:00.000Z");
+   const matches=[time-HOUR_MS,time].map(ms=>new Date(ms))
+     .filter(date=>{const p=ukParts(date);return p.day===d&&p.hour===0&&p.minute===0;});
+   if(matches.length!==1)throw Error("Unable to resolve UK day boundary");
+   return matches[0];
+ };
+ const next=new Date(Date.parse(day+"T12:00:00.000Z")+DAY_MS).toISOString().slice(0,10);
+ return {start:midnight(day).toISOString(),end:midnight(next).toISOString(),
+   key:`daily/by-date/${day}.json`};
+}
+
+/** Return this date's archive. Rebuild from persisted D1 history if no file
+ * exists. A missing day is never answered using an earlier day's R2 object. */
+export async function selectedDayArchive(db:D1Database,bucket:R2Bucket|undefined,day:string,now=new Date()){
+ const {start,end,key}=calendarDayWindow(day);
+ if(Date.parse(start)>now.getTime())throw Error("Archive date is in the future");
+ const stored=await bucket?.get(key);
+ if(stored)return {body:stored.body,key,source:"stored" as const};
+ const payload=await buildDailyArchive(db,start,end);
+ const hasData=Object.values(payload.ledgers).some(rows=>rows.length>0);
+ if(!hasData) return null;
+ const reconstructed={
+   ...payload,
+   window:{...payload.window,timezone:"Europe/London",date:day},
+   archiveDate:day,
+   reconstructed:true,
+   // A historical backfill cannot prove that every event was ever recorded.
+   recordingCoverage:"Only records persisted in D1 can be recovered",
+   complete:payload.complete && Date.parse(end)<=now.getTime(),
+ };
+ const serialized=JSON.stringify(reconstructed);
+ // A requested download must succeed even when persistent R2 writing fails.
+ if(bucket)try{
+   await bucket.put(key,serialized,{httpMetadata:{contentType:"application/json"},
+     customMetadata:{start,end,format:"nimo-daily-24h-v2"}});
+ }catch(error){console.error("Archive backfill persistence failed",error);}
+ return {body:serialized,key,source:"reconstructed" as const};
+}
