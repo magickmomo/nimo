@@ -61,7 +61,7 @@ test("Oracle unavailable to Nimo when he cannot afford ten coins",async()=>{
  const js=ts.transpileModule(read("../src/action-menu.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
  const {buildActionMenu}=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
  const policy={mode:"normal",blockedInspectIds:[],blockedNoteIds:[]};
- const args=[policy,[],[],[],false,undefined,[],undefined,undefined,undefined,undefined,undefined];
+ const args=[policy,[],[],[],false,undefined,[],undefined,undefined,undefined,undefined];
  const offered=coins=>buildActionMenu(...args,{adjacent:true,busy:false,coins}).tools;
  assert.equal(offered(9).includes("ask_oracle"),false);
  assert.equal(offered(10).includes("ask_oracle"),true);
