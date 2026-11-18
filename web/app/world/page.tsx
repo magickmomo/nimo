@@ -11,6 +11,7 @@ import WorldRequestsPanel from "./world-requests-panel";
 import WorldProjectsPanel from "./world-projects-panel";
 import WorldArtworksPanel from "./world-artworks-panel";
 import WorldOraclePanel from "./world-oracle-panel";
+import WorldNotesPanel from "./world-notes-panel";
 import "./world-artworks.css";
 import { groupJournalEvents } from "../../lib/world-journal";
 
@@ -57,6 +58,7 @@ export default function World() {
   const [initialLoading,setInitialLoading]=useState(true);
   const [messagesOpen,setMessagesOpen]=useState(false);
   const [memoriesOpen,setMemoriesOpen]=useState(false);
+  const [notesOpen,setNotesOpen]=useState(false);
   const [requestsOpen,setRequestsOpen]=useState(false);
   const [projectsOpen,setProjectsOpen]=useState(false);
   const [artworksOpen,setArtworksOpen]=useState(false);
@@ -69,6 +71,7 @@ export default function World() {
   // Stable across the once-per-second clock renders: the dialog must not refocus.
   const closeMessages=useCallback(()=>setMessagesOpen(false),[]);
   const closeMemories=useCallback(()=>setMemoriesOpen(false),[]);
+  const closeNotes=useCallback(()=>setNotesOpen(false),[]);
   const closeRequests=useCallback(()=>setRequestsOpen(false),[]);
   const closeProjects=useCallback(()=>setProjectsOpen(false),[]);
   const closeArtworks=useCallback(()=>setArtworksOpen(false),[]);
@@ -106,7 +109,6 @@ export default function World() {
   const [archiveDate,setArchiveDate]=useState(()=>new Date().toISOString().slice(0,10));
   const [pendingExportPath,setPendingExportPath]=useState("/api/world/export");
   const [clock, setClock] = useState(Date.now());
-  const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [journalWindow,setJournalWindow]=useState<JournalWindow>("1h");
   const [journalEvents,setJournalEvents]=useState<WorldEvent[]>([]);
@@ -315,6 +317,7 @@ export default function World() {
     <div className="world-page world-dashboard">
       <div className="world-topbar">
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMemoriesOpen(true)}>Memories</button>}
+        {isOwner && <button type="button" className="world-messages-link" onClick={()=>{setNotesOpen(true);void refresh();}}>Notes</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
         <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>
@@ -333,6 +336,7 @@ export default function World() {
       </div>}
       {isOwner && messagesOpen && <WorldMessagesPanel onClose={closeMessages}/>}
       {isOwner && memoriesOpen && <WorldMemoriesPanel onClose={closeMemories}/>}
+      {isOwner && notesOpen && <WorldNotesPanel notes={data?.documents} offline={Boolean(data?.offline)} onClose={closeNotes} onRefresh={refresh}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
       {projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
        {artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
@@ -405,29 +409,6 @@ export default function World() {
           <p className="meta">Environment properties are verified; labels and notes are Nimo's own interpretation.</p>
         </> : <p className="meta">Click an object in Nimo's world to see his saved observations, labels and notes.</p>}
       </details>
-      {isOwner && <details className="world-card world-workspace world-secondary-panel">
-        <summary>Saved documents ({data?.documents?.length ?? 0})</summary>
-        <p className="meta">Files Nimo actually saved using his write tool. Documents are readable by anyone who can access this World page.</p>
-        {data?.documents?.length ? (
-          <>
-            <div className="world-file-list">
-              {data.documents.map(file => (
-                <button key={file.path} type="button"
-                  aria-pressed={selectedDocument === file.path}
-                  onClick={() => setSelectedDocument(prev => prev === file.path ? null : file.path)}>
-                  {file.path} <small>v{file.revision}</small>
-                </button>
-              ))}
-            </div>
-            {data.documents.filter(file => file.path === selectedDocument).map(file => (
-              <div key={file.path} className="world-file-view">
-                <div className="world-file-caption">{file.path} · revision {file.revision}</div>
-                <pre>{file.content}</pre>
-              </div>
-            ))}
-          </>
-        ) : <p className="meta">{data?.offline ? "Saved documents are unavailable while offline." : "No documents yet. Nimo can create text files when awake."}</p>}
-      </details>}
       {isOwner && <details className="world-card world-secondary-panel world-operator-settings">
         <summary>Diagnostics &amp; controls</summary>
         <p className="meta">Technical history remains in the owner export.</p>
