@@ -1094,3 +1094,17 @@ main:has(> .world-dashboard){
     width:min(350px,calc(100% - 410px));
   }
 }
+
+/* Quiet Oracle quota, immediately alongside the Oracle toolbar button. */
+.world-dashboard>.world-topbar .world-oracle-quota{
+  flex:0 0 auto;
+  margin-left:-7px;
+  padding:3px 5px;
+  border-radius:5px;
+  color:rgba(224,236,227,.66);
+  background:rgba(176,212,186,.08);
+  font-size:10px;
+  font-weight:500;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
