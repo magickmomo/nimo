@@ -1004,6 +1004,14 @@ export default {
         catch(e){return json({error:e instanceof Error?e.message:"Cannot send reply"},400);}
       }
       if (path === "/projects" && request.method === "GET") return json({projects:await projectList(env.DB)});
+      if (path === "/oracle/quota" && request.method === "GET") {
+        const today=day(new Date());
+        const row=await env.DB.prepare(
+          "SELECT COUNT(*) AS used FROM oracle_queries WHERE asked_at >= ? AND asked_at < ? AND status != 'failed'"
+        ).bind(today+"T00:00:00",new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()).first<{used:number}>();
+        const used=Math.min(3,Math.max(0,row?.used??0));
+        return json({used,limit:3,remaining:3-used,resetAt:new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()});
+      }
       if (path === "/oracle" && request.method === "GET") return json({queries:await recentOracle(env.DB,50)});
        if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true));
       if (path === "/messages" && request.method === "GET") {
