@@ -1094,3 +1094,135 @@ main:has(> .world-dashboard){
     width:min(350px,calc(100% - 410px));
   }
 }
+
+/* Quiet Oracle quota, immediately alongside the Oracle toolbar button. */
+.world-dashboard>.world-topbar .world-oracle-quota{
+  flex:0 0 auto;
+  margin-left:-7px;
+  padding:3px 5px;
+  border-radius:5px;
+  color:rgba(224,236,227,.66);
+  background:rgba(176,212,186,.08);
+  font-size:10px;
+  font-weight:500;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+/* Modal accessibility contrast pass: the world canvas is dark, but dialog cards
+   are light. Explicit colours stop the dark-world text theme leaking into them.
+   Shared by Memories, Messages, Requests, Projects, Artworks and Oracle. */
+.world-dashboard .world-message-backdrop .world-messages-panel{
+  background:#fff;
+  color:#203a30;
+  border-color:#d4e1d9;
+  color-scheme:light;
+}
+.world-dashboard .world-messages-panel .world-journal-head h2,
+.world-dashboard .world-messages-panel .world-message-compose label,
+.world-dashboard .world-messages-panel .nimo-request-actions label,
+.world-dashboard .world-messages-panel .nimo-request-reply-label{
+  color:#18392c;
+}
+.world-dashboard .world-messages-panel .meta,
+.world-dashboard .world-messages-panel small.meta,
+.world-dashboard .world-messages-panel .world-memory-meta,
+.world-dashboard .world-messages-panel .world-message-meta,
+.world-dashboard .world-messages-panel .nimo-request-meta,
+.world-dashboard .world-messages-panel .nimo-request-meta time,
+.world-dashboard .world-messages-panel .nimo-request-previous small{
+  color:#435c50;
+}
+.world-dashboard .world-messages-panel .world-message,
+.world-dashboard .world-messages-panel .world-memory-entry,
+.world-dashboard .world-messages-panel .nimo-request-entry,
+.world-dashboard .world-messages-panel .world-artwork-entry{
+  color:#203a30;
+}
+.world-dashboard .world-messages-panel .world-memory-entry{
+  background:#f8faf8;
+  border-color:#cbdcd1;
+}
+.world-dashboard .world-messages-panel .world-memory-evidence{
+  color:#405d4e;
+  border-color:#d2dfd7;
+}
+.world-dashboard .world-messages-panel .world-memory-entry summary,
+.world-dashboard .world-messages-panel .nimo-request-responses summary{
+  color:#235743;
+  font-weight:600;
+}
+.world-dashboard .world-messages-panel .world-message.from-owner{
+  background:#e6f1ea;
+  border-color:#a9cbbc;
+}
+.world-dashboard .world-messages-panel .world-message.from-nimo{
+  background:#f3f6f4;
+  border-color:#cfded4;
+}
+.world-dashboard .world-messages-panel .world-message.is-request{
+  background:#fbf1e1;
+  border-color:#d7b786;
+}
+.world-dashboard .world-messages-panel a{
+  color:#155a45;
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+.world-dashboard .world-messages-panel a:hover{color:#0d3b2c}
+.world-dashboard .world-messages-panel .world-message-compose textarea,
+.world-dashboard .world-messages-panel .nimo-request-entry textarea,
+.world-dashboard .world-messages-panel .nimo-request-actions select{
+  color:#203a30;
+  background:#fff;
+  border:1px solid #96b8a4;
+}
+.world-dashboard .world-messages-panel textarea::placeholder{
+  color:#576d60;
+  opacity:1;
+}
+.world-dashboard .world-messages-panel textarea:focus-visible,
+.world-dashboard .world-messages-panel select:focus-visible,
+.world-dashboard .world-messages-panel a:focus-visible,
+.world-dashboard .world-messages-panel summary:focus-visible,
+.world-dashboard .world-messages-panel .world-artworks-tabs button:focus-visible{
+  outline:2px solid #176d53;
+  outline-offset:2px;
+}
+.world-dashboard .world-messages-panel .world-artworks-tabs button{
+  background:#f5f8f6;
+  color:#244539;
+  border-color:#a9c8b6;
+}
+.world-dashboard .world-messages-panel .world-artworks-tabs button[aria-selected="true"]{
+  background:#dcece2;
+  color:#153e2d;
+  border-color:#497c63;
+}
+.world-dashboard .world-messages-panel .world-artworks-tabs button:hover{
+  background:#e7f2eb;
+}
+.world-dashboard .world-messages-panel .world-artwork-entry{
+  background:#fafbf9;
+  border-color:#cbdcd1;
+}
+
+/* Saved .txt workspace documents in their own accessible owner dialog. */
+.world-dashboard .world-notes-panel{width:min(100%,850px)}
+.world-notes-layout{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:14px;min-height:0;flex:1;overflow:hidden}
+.world-notes-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0;padding:2px}
+.world-notes-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:10px 12px;text-align:left;background:#f5f8f6;color:#234536;border:1px solid #cbdcd1;border-radius:9px;cursor:pointer;font:inherit}
+.world-notes-item strong{font-size:13px;overflow-wrap:anywhere}
+.world-notes-item small{font-size:11px;color:#50695a}
+.world-notes-item[aria-pressed="true"]{background:#e1efe6;border-color:#54896d}
+.world-notes-item:hover{background:#e9f3ec}
+.world-notes-item:focus-visible{outline:2px solid #176d53;outline-offset:2px}
+.world-notes-document{min-width:0;min-height:0;overflow:auto;background:#fafbf9;border:1px solid #cfddd3;border-radius:10px;color:#203a30}
+.world-notes-document-head{display:flex;flex-direction:column;gap:3px;padding:12px 15px;border-bottom:1px solid #dce8df}
+.world-notes-document-head strong{overflow-wrap:anywhere}
+.world-notes-document-head small{color:#496052;font-size:11px}
+.world-notes-document pre{margin:0;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.65;color:#203a30}
+@media(max-width:600px){
+  .world-notes-layout{grid-template-columns:1fr;grid-template-rows:minmax(80px,auto) minmax(160px,1fr)}
+  .world-notes-list{max-height:150px}
+}

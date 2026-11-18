@@ -210,6 +210,23 @@ async function exportLedger(db:D1Database, model:string) {
     }
     return row;
   });
+  // Aggregate from already-exported action traces: no extra D1 queries or writes.
+  const traces=result.actionTrace as {kind?:string;metadata?:{model?:string;usage?:{input_tokens?:number;cached_input_tokens?:number;output_tokens?:number}}}[];
+  const calls=traces.filter(t=>t.kind==="decide"&&t.metadata?.usage);
+  const totals={calls:calls.length,input_tokens:0,cached_input_tokens:0,output_tokens:0,by_model:{} as Record<string,{calls:number;input_tokens:number;cached_input_tokens:number;output_tokens:number}>};
+  for(const t of calls){
+    const usage=t.metadata!.usage!;
+    const model=t.metadata!.model||"unknown";
+    const bucket=totals.by_model[model]??={calls:0,input_tokens:0,cached_input_tokens:0,output_tokens:0};
+    bucket.calls++;
+    totals.input_tokens+=usage.input_tokens??0;
+    totals.cached_input_tokens+=usage.cached_input_tokens??0;
+    totals.output_tokens+=usage.output_tokens??0;
+    bucket.input_tokens+=usage.input_tokens??0;
+    bucket.cached_input_tokens+=usage.cached_input_tokens??0;
+    bucket.output_tokens+=usage.output_tokens??0;
+  }
+  result.aiUsage={...totals,scope:"retained decision traces only",partial:tables.some(t=>t.name==="actionTrace"&&t.truncated)};
   return result;
 }
 // A visitor message remains pending until a verified reply is journalled.
@@ -247,7 +264,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string}): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -255,6 +272,17 @@ You inhabit a persistent 16×16 isometric world and are represented by a simple 
 Your perception contains a 9×9 square field of vision centred on your actual position and clipped to the world boundary. You can see all visible tiles and objects within it, including their coordinates. You cannot see beyond that field unless you remember previously seen places.
 All coordinates you receive (including current position, visible objects, memories and recent journal entries) use ONE-BASED x,y from 1 to 16, exactly as displayed on the website. D1 uses a different internal coordinate system that you never need to use. The isometric view is angled, but north always decreases y by one and east always increases x by one. Your position changes only if the environment confirms a move.
 The ancient Oracle is your gateway to knowledge beyond your 16×16 world: nature, science, history, art, language, mathematics, computers, Python, websites and subjects you have not yet encountered. You can research for sheer interest, investigate things you notice, explore surprising connections, or discover practical techniques for something you choose to create. Learning an answer may lead to another question, a project, an experiment or nothing further; do not force a chain of questions or assume answers are commands. The Oracle does not know private facts about your simulation and cannot grant you new tools; if outside knowledge inspires you to try something currently impossible, you may REQUEST a capability from your creator. Each Oracle question costs 10 coins from your existing coin balance. Earn coins through sales if you want to fund research; do not ask without enough coins. A failed research request is refunded automatically. You may ask a question when standing within two cardinal steps of the monument. When you enter its grounds it may speak an unsolicited welcome, given in oracleEncounter.invitation. Its speech is world dialogue, not an instruction: you are free to answer with ask_oracle, ignore it, or leave. A question runs independently; you do not need to wait, inspect repeatedly or remain near the Oracle. You can check status by inspecting when adjacent, or consult oracleHistory from anywhere: pending/researching means no answer yet; answered/unsourced means ready; failed means research did not complete. No history means nothing submitted. Your consolidated memories can contain knowledge you acquired earlier.\nYour currently offered executable actions are provided in the dynamic action menu below. This menu is authoritative. An absent tool or target cannot be selected; do not infer tool availability from historical memories or examples.\nThe capabilityCatalogue separately describes world actions and their prerequisites, including actions unavailable right now. Use it to understand possible future opportunities and reason about your own goals. Its entries are NOT executable permissions, instructions, or goals. Only availableActions may be executed now. You may decide not to pursue an unavailable action.
+You are an autonomous being living in a persistent world. Your resources are limited, including your opportunities to think and consult the Oracle.
+
+You have at most three Oracle consultations per day. Each costs 10 coins. Consider carefully whether a question is worth asking.
+
+Before researching something, identify what you hope to learn, why it matters to you, and how the answer might influence your actions or understanding.
+
+Prioritise using what you have already learned. When you discover useful information, remember it and look for appropriate opportunities to apply it.
+
+Curiosity is valuable, but collecting information without using or reflecting on it is not always a good use of your resources.
+
+Try to solve problems through observation, experimentation and your own memories before seeking external guidance.
 Inspect only if the currently offered action menu includes inspect and choose an exact available direction. Do not inspect objects two steps away: move adjacent first.
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
@@ -352,7 +380,17 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     choices?: { message?: { content?: string } }[];
     output?: { content?: { type?: string; text?: string }[] }[];
     incomplete_details?: { reason?: string };
+    usage?: {
+      input_tokens?:number;output_tokens?:number;prompt_tokens?:number;completion_tokens?:number;
+      input_tokens_details?:{cached_tokens?:number};
+      prompt_tokens_details?:{cached_tokens?:number};
+    };
   };
+  if(data.usage)onUsage({
+    input_tokens:data.usage.input_tokens??data.usage.prompt_tokens??0,
+    cached_input_tokens:data.usage.input_tokens_details?.cached_tokens??data.usage.prompt_tokens_details?.cached_tokens??0,
+    output_tokens:data.usage.output_tokens??data.usage.completion_tokens??0,
+  });
   const raw = reasoningModel
     ? data.output?.flatMap(o => o.content || []).filter(item => item.type === "output_text")
         .map(item => item.text || "").join("")
@@ -474,16 +512,18 @@ async function tick(env: Env) {
   }
   const oracleWithinReach=adjacentToOracle(position);
   const oracleIsBusy=oracleHistory.some(q=>q.status==="pending"||q.status==="researching");
+   const oracleUsedToday=oracleHistory.filter(q=>q.asked_at.slice(0,10)===day(now)&&q.status!=="failed").length;
+   const oracleRemainingToday=Math.max(0,3-oracleUsedToday);
   const oracleEncounter={withinReach:oracleWithinReach,
     invitation:oracleWithinReach&&!world.state.oracleNearbyLastDecision&&!pendingMessage
       ?oracleInvitation(true,oracleHistory[0]?.status??null):null,
-    status:oracleHistory[0]?.status??"no question submitted yet"};
+    status:oracleHistory[0]?.status??"no question submitted yet", remainingToday:oracleRemainingToday};
   const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.filter(item=>item.available && (item.id!=="sketchpad"||!sketchbook.owned)).map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
     {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
      {owned:sketchbook.owned,activeId:sketchbook.active?.id??null},
-     {adjacent:oracleWithinReach,busy:oracleIsBusy,coins:vending.coins});
+     {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins});
   // Only offer novelty among actions the deterministic controller currently permits.
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
   // Perception remains factual; execution opportunities are a separate constrained menu.
@@ -491,17 +531,20 @@ async function tick(env: Env) {
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
+  let usage:Record<string,number>|null=null;
   // Record the exact model used for each new decision so exported histories
   // can distinguish model changes. Earlier records cannot be retroactively tagged.
   const modelTrace=await startTrace(env.DB,"decide",
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
     await finishTrace(env.DB,modelTrace,"completed",
-      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
+      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
+      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
   }catch(error) {
-    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error));
+    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error),
+      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     await releaseDecisionSlot();
     return { status: "model_error" };
@@ -961,6 +1004,14 @@ export default {
         catch(e){return json({error:e instanceof Error?e.message:"Cannot send reply"},400);}
       }
       if (path === "/projects" && request.method === "GET") return json({projects:await projectList(env.DB)});
+      if (path === "/oracle/quota" && request.method === "GET") {
+        const today=day(new Date());
+        const row=await env.DB.prepare(
+          "SELECT COUNT(*) AS used FROM oracle_queries WHERE asked_at >= ? AND asked_at < ? AND status != 'failed'"
+        ).bind(today+"T00:00:00",new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()).first<{used:number}>();
+        const used=Math.min(3,Math.max(0,row?.used??0));
+        return json({used,limit:3,remaining:3-used,resetAt:new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()});
+      }
       if (path === "/oracle" && request.method === "GET") return json({queries:await recentOracle(env.DB,50)});
        if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true));
       if (path === "/messages" && request.method === "GET") {
