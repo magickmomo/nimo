@@ -210,6 +210,23 @@ async function exportLedger(db:D1Database, model:string) {
     }
     return row;
   });
+  // Aggregate from already-exported action traces: no extra D1 queries or writes.
+  const traces=result.actionTrace as {kind?:string;metadata?:{model?:string;usage?:{input_tokens?:number;cached_input_tokens?:number;output_tokens?:number}}}[];
+  const calls=traces.filter(t=>t.kind==="decide"&&t.metadata?.usage);
+  const totals={calls:calls.length,input_tokens:0,cached_input_tokens:0,output_tokens:0,by_model:{} as Record<string,{calls:number;input_tokens:number;cached_input_tokens:number;output_tokens:number}>};
+  for(const t of calls){
+    const usage=t.metadata!.usage!;
+    const model=t.metadata!.model||"unknown";
+    const bucket=totals.by_model[model]??={calls:0,input_tokens:0,cached_input_tokens:0,output_tokens:0};
+    bucket.calls++;
+    totals.input_tokens+=usage.input_tokens??0;
+    totals.cached_input_tokens+=usage.cached_input_tokens??0;
+    totals.output_tokens+=usage.output_tokens??0;
+    bucket.input_tokens+=usage.input_tokens??0;
+    bucket.cached_input_tokens+=usage.cached_input_tokens??0;
+    bucket.output_tokens+=usage.output_tokens??0;
+  }
+  result.aiUsage={...totals,scope:"retained decision traces only",partial:tables.some(t=>t.name==="actionTrace"&&t.truncated)};
   return result;
 }
 // A visitor message remains pending until a verified reply is journalled.
@@ -247,7 +264,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string}): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -363,7 +380,17 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     choices?: { message?: { content?: string } }[];
     output?: { content?: { type?: string; text?: string }[] }[];
     incomplete_details?: { reason?: string };
+    usage?: {
+      input_tokens?:number;output_tokens?:number;prompt_tokens?:number;completion_tokens?:number;
+      input_tokens_details?:{cached_tokens?:number};
+      prompt_tokens_details?:{cached_tokens?:number};
+    };
   };
+  if(data.usage)onUsage({
+    input_tokens:data.usage.input_tokens??data.usage.prompt_tokens??0,
+    cached_input_tokens:data.usage.input_tokens_details?.cached_tokens??data.usage.prompt_tokens_details?.cached_tokens??0,
+    output_tokens:data.usage.output_tokens??data.usage.completion_tokens??0,
+  });
   const raw = reasoningModel
     ? data.output?.flatMap(o => o.content || []).filter(item => item.type === "output_text")
         .map(item => item.text || "").join("")
@@ -504,17 +531,20 @@ async function tick(env: Env) {
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
   let d: Decision;
+  let usage:Record<string,number>|null=null;
   // Record the exact model used for each new decision so exported histories
   // can distinguish model changes. Earlier records cannot be retroactively tagged.
   const modelTrace=await startTrace(env.DB,"decide",
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter);
+    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
     await finishTrace(env.DB,modelTrace,"completed",
-      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`);
+      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
+      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
   }catch(error) {
-    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error));
+    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error),
+      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
     await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
     await releaseDecisionSlot();
     return { status: "model_error" };
