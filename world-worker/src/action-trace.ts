@@ -4,10 +4,11 @@ export async function startTrace(db:D1Database,kind:TraceKind,detail:string,meta
     .bind(kind,detail,metadata==null?null:JSON.stringify(metadata)).run();
   return Number(result.meta.last_row_id);
 }
-export async function finishTrace(db:D1Database,id:number,status:"completed"|"failed",result:string) {
+export async function finishTrace(db:D1Database,id:number,status:"completed"|"failed",result:string,metadata?:unknown) {
   await db.prepare(`UPDATE action_trace SET status=?,result=?,
+    metadata=COALESCE(?,metadata),
     finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='running'`)
-    .bind(status,result.slice(0,1000),id).run();
+    .bind(status,result.slice(0,1000),metadata===undefined?null:JSON.stringify(metadata),id).run();
 }
 export async function traced<T>(db:D1Database,kind:TraceKind,detail:string,run:()=>Promise<T>,describe:(out:T)=>string):Promise<T> {
   const id=await startTrace(db,kind,detail);
