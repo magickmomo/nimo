@@ -1206,3 +1206,23 @@ main:has(> .world-dashboard){
   background:#fafbf9;
   border-color:#cbdcd1;
 }
+
+/* Saved .txt workspace documents in their own accessible owner dialog. */
+.world-dashboard .world-notes-panel{width:min(100%,850px)}
+.world-notes-layout{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:14px;min-height:0;flex:1;overflow:hidden}
+.world-notes-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0;padding:2px}
+.world-notes-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:10px 12px;text-align:left;background:#f5f8f6;color:#234536;border:1px solid #cbdcd1;border-radius:9px;cursor:pointer;font:inherit}
+.world-notes-item strong{font-size:13px;overflow-wrap:anywhere}
+.world-notes-item small{font-size:11px;color:#50695a}
+.world-notes-item[aria-pressed="true"]{background:#e1efe6;border-color:#54896d}
+.world-notes-item:hover{background:#e9f3ec}
+.world-notes-item:focus-visible{outline:2px solid #176d53;outline-offset:2px}
+.world-notes-document{min-width:0;min-height:0;overflow:auto;background:#fafbf9;border:1px solid #cfddd3;border-radius:10px;color:#203a30}
+.world-notes-document-head{display:flex;flex-direction:column;gap:3px;padding:12px 15px;border-bottom:1px solid #dce8df}
+.world-notes-document-head strong{overflow-wrap:anywhere}
+.world-notes-document-head small{color:#496052;font-size:11px}
+.world-notes-document pre{margin:0;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.65;color:#203a30}
+@media(max-width:600px){
+  .world-notes-layout{grid-template-columns:1fr;grid-template-rows:minmax(80px,auto) minmax(160px,1fr)}
+  .world-notes-list{max-height:150px}
+}
