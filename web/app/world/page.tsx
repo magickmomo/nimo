@@ -61,6 +61,7 @@ export default function World() {
   const [projectsOpen,setProjectsOpen]=useState(false);
   const [artworksOpen,setArtworksOpen]=useState(false);
   const [oracleOpen,setOracleOpen]=useState(false);
+  const [oracleQuota,setOracleQuota]=useState<{remaining:number;limit:number}|null>(null);
   const [sidebarVisible,setSidebarVisible]=useState(true);
   const [mobilePanelOpen,setMobilePanelOpen]=useState(false);
   const [detailsOpen,setDetailsOpen]=useState(false);
@@ -72,6 +73,23 @@ export default function World() {
   const closeProjects=useCallback(()=>setProjectsOpen(false),[]);
   const closeArtworks=useCallback(()=>setArtworksOpen(false),[]);
   const closeOracle=useCallback(()=>setOracleOpen(false),[]);
+  const refreshOracleQuota=useCallback(async()=>{
+    if(document.visibilityState!=="visible")return;
+    try{
+      const response=await fetch("/api/world/oracle/quota",{cache:"no-store"});
+      if(!response.ok)throw Error("Quota unavailable");
+      const body=await response.json() as {remaining:number;limit:number};
+      if(!Number.isFinite(body.remaining)||body.limit!==3)throw Error("Invalid quota");
+      setOracleQuota({remaining:Math.max(0,Math.min(3,body.remaining)),limit:3});
+    }catch{setOracleQuota(null);}
+  },[]);
+  useEffect(()=>{
+    void refreshOracleQuota();
+    const timer=window.setInterval(()=>{void refreshOracleQuota();},5*60_000);
+    const onVisible=()=>{if(document.visibilityState==="visible")void refreshOracleQuota();};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{window.clearInterval(timer);document.removeEventListener("visibilitychange",onVisible);};
+  },[refreshOracleQuota]);
   const refreshRequestCount=useCallback(async()=>{
     try{const response=await fetch("/api/world/requests",{cache:"no-store"});
       if(!response.ok)return;
@@ -301,7 +319,8 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
         <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>
          <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
-        <button type="button" className="world-messages-link" onClick={()=>setOracleOpen(true)}>Oracle</button>
+        <button type="button" className="world-messages-link" onClick={()=>{void refreshOracleQuota();setOracleOpen(true);}}>Oracle</button>
+        {oracleQuota && <span className="world-oracle-quota" title={`Oracle consultations remaining today: ${oracleQuota.remaining} of ${oracleQuota.limit}. Resets at midnight UTC.`} aria-label={`Oracle consultations remaining today: ${oracleQuota.remaining} of ${oracleQuota.limit}`}>{oracleQuota.remaining}/{oracleQuota.limit}</span>}
         <button type="button" className="world-messages-link world-details-toggle" onClick={()=>setDetailsOpen(value=>!value)} aria-expanded={detailsOpen}>Details</button>
         <button type="button" className="world-messages-link world-sidebar-toggle" onClick={()=>setSidebarVisible(value=>!value)} aria-expanded={sidebarVisible}>{sidebarVisible?"Hide journal":"Show journal"}</button>
         <button type="button" className="world-messages-link world-mobile-panel-toggle" onClick={()=>setMobilePanelOpen(value=>!value)} aria-expanded={mobilePanelOpen}>{mobilePanelOpen?"Close journal":"Journal & status"}</button>
