@@ -1,0 +1,31 @@
+name: Nimo Worker checks
+
+on:
+  pull_request:
+    paths:
+      - 'world-worker/**'
+      - '.github/workflows/nimo-worker-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'world-worker/**'
+      - '.github/workflows/nimo-worker-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Worker dependencies
+        run: npm install --prefix world-worker --no-audit --no-fund
+      - name: Typecheck Worker
+        run: npm run typecheck --prefix world-worker
+      - name: Run Worker test suite
+        run: npm test --prefix world-worker
