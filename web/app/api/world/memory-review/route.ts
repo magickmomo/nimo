@@ -2,6 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {hasOwnerSession} from "../../../../lib/world-owner-session";
 
 export const dynamic="force-dynamic";
+export const maxDuration=60;
 
 /** Owner-only retrospective test: returns proposals without saving memories. */
 export async function POST(req:NextRequest) {
