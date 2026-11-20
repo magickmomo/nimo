@@ -22,17 +22,31 @@ test("only verified tool outcomes are eligible evidence",async()=>{
 
 test("LLM consolidation may save no memories, and rejects unsupported claims",async()=>{
  const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
- const events=[{id:10,action:"SELL_ITEM_OK",content:"SELL_ITEM OK: Sold crop",created_at:"2026-11-20T20:00:00Z"}];
+ const events=[{id:10,kind:"tool",action:"SELL_ITEM_OK",content:"SELL_ITEM OK: Sold crop",created_at:"2026-11-20T20:00:00Z"}];
  const known=[{id:1,subject:"world:store:crop-sale",statement:"Earlier attempt failed",category:"experience",status:"tentative"}];
  assert.deepEqual(validatedProposals({memories:[]},events,known),[]);
  const valid={operation:"update",subject:"world:store:crop-sale",statement:"A later crop sale succeeded after earlier failures.",category:"experience",confidence:0.75,evidenceIds:[10]};
  assert.deepEqual(validatedProposals({memories:[valid]},events,known),[valid]);
- assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[999]}]},events,known),/verified events/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[999]}]},events,known),/actual journal event IDs/);
  assert.throws(()=>validatedProposals({memories:[{...valid,operation:"create"}]},events,known),/existing memory/);
  assert.throws(()=>validatedProposals({memories:[{...valid,category:"food"}]},events,known),/category/);
  assert.throws(()=>validatedProposals({memories:[{...valid,subject:"oracle:question:100"}]},events,known),/subject/);
  assert.throws(()=>validatedProposals({memories:[valid,valid]},events,known),/Duplicate/);
- assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[]}]},events,known),/verified events/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[]}]},events,known),/actual journal event IDs/);
+});
+
+test("recorded reflections can support memories of reflections, but fabricated evidence IDs are rejected",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[
+  {id:20,kind:"thought",action:"THINK",content:"I want to explore a composition",created_at:"2026-11-20T21:01:00Z"},
+  {id:21,kind:"tool",action:"SKETCH_FINISHED",content:"Finished drawing #90",created_at:"2026-11-20T21:02:00Z"}
+ ];
+ const proposal={operation:"create",subject:"world:creative:exploration",
+   statement:"I explored an idea by finishing a drawing and reflecting on it.",
+   category:"experience",confidence:0.55,evidenceIds:[20,21]};
+ assert.deepEqual(validatedProposals({memories:[proposal]},events,[]),[proposal]);
+ assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[20,999]}]},events,[]),/actual journal event IDs/);
+ assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[]}]},events,[]),/actual journal event IDs/);
 });
 
 test("recall favours current context, not merely the newest memory",async()=>{
@@ -90,7 +104,7 @@ test("one hourly LLM pass, bounded input, and cursor advanced only with writes",
  const source=read("../src/personal-memory-consolidation.ts");
  assert.match(source,/ORDER BY id ASC LIMIT 401/);
  assert.match(source,/max_tokens:950/);
- assert.match(source,/validatedProposals\(parsed,relevant,existing.results\)/);
+ assert.match(source,/validatedProposals\(parsed,result.results,existing.results\)/);
  assert.match(source,/db\.batch\(statements\)/);
  assert.match(source,/pruneOverflowSql/);
  const worker=read("../src/index.ts");
@@ -103,8 +117,8 @@ test("recover missed hours separately without combining more than 400 events",as
  const {consolidatePersonalExperiences}=await loadTs("../src/personal-memory-consolidation.ts");
  const h20="2026-11-20T20:00:00.000Z",h21="2026-11-20T21:00:00.000Z",h22="2026-11-20T22:00:00.000Z";
  const events=[
-  ...Array.from({length:230},(_,i)=>({id:i+1,created_at:"2026-11-20T20:20:00.000Z",action:"THINK",content:"Ordinary thought"})),
-  ...Array.from({length:230},(_,i)=>({id:i+231,created_at:"2026-11-20T21:20:00.000Z",action:"THINK",content:"Ordinary thought"}))
+  ...Array.from({length:230},(_,i)=>({id:i+1,created_at:"2026-11-20T20:20:00.000Z",kind:"thought",action:"THINK",content:"Ordinary thought"})),
+  ...Array.from({length:230},(_,i)=>({id:i+231,created_at:"2026-11-20T21:20:00.000Z",kind:"thought",action:"THINK",content:"Ordinary thought"}))
  ];
  const state={last_event_id:0,last_completed_hour:h20};
  const queries=[];
@@ -112,6 +126,7 @@ test("recover missed hours separately without combining more than 400 events",as
   prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},
    async first(){if(sql.includes("SELECT last_event_id,last_completed_hour"))return {...state};throw Error("Unexpected first");},
    async all(){
+    if(sql.includes("FROM consolidated_memories_v2"))return {results:[]};
     if(!sql.includes("FROM events"))throw Error("Unexpected query");
     const [after,start,end]=this.args;queries.push([after,start,end]);
     return {results:events.filter(e=>e.id>after&&e.created_at>=start&&e.created_at<end).slice(0,401)};
@@ -123,6 +138,10 @@ test("recover missed hours separately without combining more than 400 events",as
   }
  };
  const env={DB:db,OPENAI_API_KEY:"unused"},now=new Date("2026-11-20T22:05:00.000Z");
+ // Every hour is now reviewed, even if it contains only journal reflections.
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"memories":[]}'}}]})});
+ try {
  const first=await consolidatePersonalExperiences(env,now);
  assert.equal(first.scanned,230);assert.equal(first.periodStart,h20);assert.equal(first.periodEnd,h21);
  assert.equal(state.last_event_id,230);
@@ -132,6 +151,7 @@ test("recover missed hours separately without combining more than 400 events",as
  const third=await consolidatePersonalExperiences(env,now);
  assert.equal(third.scanned,0);
  assert.deepEqual(queries,[[0,h20,h21],[230,h21,h22]]);
+ }finally{globalThis.fetch=originalFetch;}
 });
 
 test("memory revisions use proposed confidence and recompute established/tentative",()=>{
