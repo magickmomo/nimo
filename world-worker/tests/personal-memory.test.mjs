@@ -90,28 +90,3 @@ print('24-slot personal memory is bounded and independent from Oracle knowledge'
  const r=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
  assert.equal(r.status,0,r.stderr||r.stdout);
 });
-+'{MAX_ACTIVE_MEMORIES}','24')
-db=sqlite3.connect(':memory:')
-db.executescript("""
-CREATE TABLE consolidated_memories_v2(
- id INTEGER PRIMARY KEY,subject TEXT UNIQUE,statement TEXT,category TEXT,
- confidence REAL,status TEXT,updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
-""")
-for i in range(45):
- with db:
-  db.execute("INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status) VALUES(?,?,?,?,?)",
-   (f'experience:{i}',f'Learned {i}','experience',0.65,'tentative'))
-  db.execute(prune)
-assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE status!='retired'").fetchone()[0]==24
-db.execute("UPDATE consolidated_memories_v2 SET status='tentative' WHERE subject='experience:0'")
-db.execute(prune)
-assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE status!='retired'").fetchone()[0]==24
-db.execute("INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status) VALUES('oracle:question:1','research','knowledge',0.8,'established')")
-db.execute(prune)
-assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE category!='knowledge' AND status!='retired'").fetchone()[0]==24
-assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE category='knowledge' AND status!='retired'").fetchone()[0]==1
-print('24-slot personal memory is bounded and independent from Oracle knowledge')
-`;
- const r=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
- assert.equal(r.status,0,r.stderr||r.stdout);
-});
