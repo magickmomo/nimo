@@ -31,7 +31,7 @@ CREATE TABLE consolidated_memories_v2(
  status TEXT NOT NULL, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
  updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
  reviewed_at TEXT);
-CREATE TABLE oracle_queries(id INTEGER PRIMARY KEY,question TEXT NOT NULL,answer TEXT);
+CREATE TABLE oracle_queries(id INTEGER PRIMARY KEY,question TEXT NOT NULL,answer TEXT,memory_id INTEGER);
 CREATE TABLE memory_evidence_v2(memory_id INTEGER,event_id INTEGER,PRIMARY KEY(memory_id,event_id));
 INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status)
 VALUES ('fruit:amber','Amber fruit helps fullness','food',0.7,'retired'),
@@ -41,12 +41,12 @@ for i in range(60):
  db.execute("INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status) VALUES(?,?,?,?,?)",
   (f'oracle:question:{i+1}',f'Answer {i+1}','knowledge',0.8,
    'established' if i>=28 else 'retired'))
- db.execute("INSERT INTO oracle_queries(id,question,answer) VALUES(?,?,?)",(i+1,'question',f'Answer {i+1}'))
+ db.execute("INSERT INTO oracle_queries(id,question,answer,memory_id) VALUES(?,?,?,?)",(i+1,'question',f'Answer {i+1}',i+3))
 db.execute("INSERT INTO memory_evidence_v2 VALUES(1,100)")
 db.executescript((root/'migrations/024_personal_memory_vs_oracle.sql').read_text())
 db.executescript((root/'migrations/024_personal_memory_vs_oracle.sql').read_text())
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone()[0]==62
-assert db.execute("SELECT COUNT(*) FROM oracle_queries").fetchone()[0]==60
+assert db.execute("SELECT COUNT(*) FROM oracle_queries").fetchone()[0]==60\nassert db.execute("SELECT COUNT(*) FROM oracle_queries WHERE memory_id IS NOT NULL").fetchone()[0]==0
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE status!='retired'").fetchone()[0]==2
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE category='knowledge' AND status!='retired'").fetchone()[0]==0
 assert db.execute("SELECT subject FROM consolidated_memories_v2 WHERE status!='retired' ORDER BY subject").fetchall()==[('fruit:amber',),('inventory_capacity',)]
