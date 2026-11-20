@@ -46,7 +46,8 @@ db.execute("INSERT INTO memory_evidence_v2 VALUES(1,100)")
 db.executescript((root/'migrations/024_personal_memory_vs_oracle.sql').read_text())
 db.executescript((root/'migrations/024_personal_memory_vs_oracle.sql').read_text())
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone()[0]==62
-assert db.execute("SELECT COUNT(*) FROM oracle_queries").fetchone()[0]==60\nassert db.execute("SELECT COUNT(*) FROM oracle_queries WHERE memory_id IS NOT NULL").fetchone()[0]==0
+assert db.execute("SELECT COUNT(*) FROM oracle_queries").fetchone()[0]==60
+assert db.execute("SELECT COUNT(*) FROM oracle_queries WHERE memory_id IS NOT NULL").fetchone()[0]==0
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE status!='retired'").fetchone()[0]==2
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE category='knowledge' AND status!='retired'").fetchone()[0]==0
 assert db.execute("SELECT subject FROM consolidated_memories_v2 WHERE status!='retired' ORDER BY subject").fetchall()==[('fruit:amber',),('inventory_capacity',)]
@@ -62,9 +63,9 @@ test("Atomic personal-memory prune keeps exactly 24, including when reactivating
 import sqlite3,pathlib,sys,re
 root=pathlib.Path(sys.argv[1])
 src=(root/'src/consolidated-memory.ts').read_text()
-m=re.search(r'const pruneOverflowSql=`(.+?)`;',src,re.S)
+m=re.search('export const pruneOverflowSql='+chr(96)+r'(.+?)'+chr(96)+';',src,re.S)
 assert m,'Cannot find source prune SQL'
-prune=m.group(1).replace('${MAX_ACTIVE_MEMORIES}','24')
+prune=m.group(1).replace(chr(36)+chr(123)+'MAX_ACTIVE_MEMORIES'+chr(125),'24')
 db=sqlite3.connect(':memory:')
 db.executescript("""
 CREATE TABLE consolidated_memories_v2(
