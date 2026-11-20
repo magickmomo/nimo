@@ -154,6 +154,15 @@ test("recover missed hours separately without combining more than 400 events",as
  }finally{globalThis.fetch=originalFetch;}
 });
 
+test("preview asks the LLM to explain its decision even if no memory qualifies",()=>{
+ const source=read("../src/personal-memory-consolidation.ts");
+ assert.match(source,/reviewSummary:\{type:"string"\}/);
+ assert.match(source,/required:\["reviewSummary","memories"\]/);
+ assert.match(source,/typeof parsed.reviewSummary==="string"/);
+ assert.match(source,/reviewSummary,proposals/);
+ assert.match(source,/Do not manufacture a/);
+});
+
 test("memory revisions use proposed confidence and recompute established/tentative",()=>{
  const src=read("../src/personal-memory-consolidation.ts");
  assert.match(src,/statement=excluded.statement,\s*confidence=excluded.confidence,\s*status=excluded.status/);
