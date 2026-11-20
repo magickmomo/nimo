@@ -17,11 +17,11 @@ test("Oracle is an optional action offered within its approach area and not whil
  assert.match(worker,/oracleHistory:oracleHistory\.slice/);
  assert.match(worker,/researchOracleQuestion\(env\)/);
 });
-test("Oracle source record has no deduplication gate, preserves references in existing memories",()=>{
+test("Oracle source record has no deduplication gate and keeps research out of personal memories",()=>{
  const src=read("../src/oracle.ts");
  assert.doesNotMatch(src,/question_hash|embedding|SELECT .*question=/);
- assert.match(src,/recordVerifiedMemory\(env\.DB/);
- assert.match(src,/category:"knowledge"/);
+ assert.doesNotMatch(src,/recordVerifiedMemory\(env\.DB/);
+ assert.match(src,/memory_id=NULL/);
  assert.match(src,/url_citation/);
  assert.match(src,/sources_json/);
 });
@@ -118,7 +118,6 @@ test("Oracle has a two-tile speaking area around its 2x2 collision footprint",as
  const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
  const mapUrl="data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64");
  const code=read("../src/oracle.ts")
-   .replace('import {recordVerifiedMemory} from "./consolidated-memory";','const recordVerifiedMemory=()=>{};')
    .replace('import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";',
     'import {withinOracleInteractionArea} from "'+mapUrl+'";');
  const js=ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
