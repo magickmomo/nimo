@@ -11,6 +11,14 @@ UPDATE consolidated_memories_v2
 SET status='retired',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 WHERE subject LIKE 'oracle:question:%' AND category='knowledge' AND status!='retired';
 
+-- Oracle history remains intact, but the obsolete general-memory pointer should
+-- no longer label research as a consolidated personal memory in the UI.
+UPDATE oracle_queries SET memory_id=NULL
+WHERE memory_id IN (
+  SELECT id FROM consolidated_memories_v2
+  WHERE subject LIKE 'oracle:question:%' AND category='knowledge'
+);
+
 -- These two lived lessons were previously evicted by research answers.
 -- Re-establish them at their original evidence-derived confidence values.
 UPDATE consolidated_memories_v2
