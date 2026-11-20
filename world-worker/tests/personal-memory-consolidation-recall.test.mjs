@@ -12,26 +12,30 @@ async function loadTs(path){
  return import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
 }
 
-test("only grounded obstacles and their resolutions become candidate memories",async()=>{
- const {candidateFromEvent,latestCandidates}=await loadTs("../src/personal-memory-consolidation.ts");
- assert.equal(candidateFromEvent({id:1,action:"ORACLE_ANSWER",content:"A long science answer"}),null);
- assert.equal(candidateFromEvent({id:2,action:"SKETCH_FINISHED",content:"Finished drawing"}),null);
- assert.equal(candidateFromEvent({id:3,action:"TRAVEL_OK",content:"Arrived"}),null);
- const conflict=candidateFromEvent({id:4,action:"WRITE_ERROR",content:"WRITE FAILED: Sale conflict"});
- assert.equal(conflict?.subject,"world:store:crop-sale");
- const success=candidateFromEvent({id:5,action:"SELL_ITEM_OK",content:"SELL_ITEM OK: Sold crop for 3 coin(s)"});
- assert.equal(success?.subject,conflict?.subject);
- assert.match(success?.statement??"",/succeeded/);
- const latest=latestCandidates([
-   {id:4,action:"WRITE_ERROR",content:"WRITE FAILED: Sale conflict"},
-   {id:5,action:"SELL_ITEM_OK",content:"SELL_ITEM OK: Sold crop for 3 coin(s)"},
- ]);
- assert.equal(latest.length,1);
- assert.equal(latest[0].eventId,5);
- assert.equal(candidateFromEvent({id:6,action:"WRITE_ERROR",content:"WRITE FAILED: Workspace is full (12 documents)"}),null);
+test("only verified tool outcomes are eligible evidence",async()=>{
+ const {eligibleEvent}=await loadTs("../src/personal-memory-consolidation.ts");
+ assert.equal(eligibleEvent({id:1,created_at:"2026-11-20T20:00:00Z",action:"ORACLE_ANSWER",content:"Science"}),false);
+ assert.equal(eligibleEvent({id:2,created_at:"2026-11-20T20:00:00Z",action:"THINK",content:"I believe"}),false);
+ assert.equal(eligibleEvent({id:3,created_at:"2026-11-20T20:00:00Z",action:"SELL_ITEM_OK",content:"Sold crop"}),true);
+ assert.equal(eligibleEvent({id:4,created_at:"2026-11-20T20:00:00Z",action:"WRITE_ERROR",content:"Sale conflict"}),true);
 });
 
-test("relevant memory wins over recency, unrelated entries are not all injected",async()=>{
+test("LLM consolidation may save no memories, and rejects unsupported claims",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[{id:10,action:"SELL_ITEM_OK",content:"SELL_ITEM OK: Sold crop",created_at:"2026-11-20T20:00:00Z"}];
+ const known=[{id:1,subject:"world:store:crop-sale",statement:"Earlier attempt failed",category:"experience",status:"tentative"}];
+ assert.deepEqual(validatedProposals({memories:[]},events,known),[]);
+ const valid={operation:"update",subject:"world:store:crop-sale",statement:"A later crop sale succeeded after earlier failures.",category:"experience",confidence:0.75,evidenceIds:[10]};
+ assert.deepEqual(validatedProposals({memories:[valid]},events,known),[valid]);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[999]}]},events,known),/verified events/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,operation:"create"}]},events,known),/existing memory/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,category:"food"}]},events,known),/category/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,subject:"oracle:question:100"}]},events,known),/subject/);
+ assert.throws(()=>validatedProposals({memories:[valid,valid]},events,known),/Duplicate/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[]}]},events,known),/verified events/);
+});
+
+test("recall favours current context, not merely the newest memory",async()=>{
  const {selectRelevantMemories}=await loadTs("../src/personal-memory-recall.ts");
  const memory=(subject,statement)=>({subject,statement,category:"experience",status:"tentative",confidence:0.75,evidence_count:1});
  const records=[
@@ -42,40 +46,42 @@ test("relevant memory wins over recency, unrelated entries are not all injected"
  ];
  const result=selectRelevantMemories(records,{goal:"Sell my harvested crop",activity:"At the general store",visibleObjectIds:["store_001"],availableActions:["sell_item"]});
  assert.equal(result[0].subject,"world:store:crop-sale");
- assert.ok(result.length<=3,"one matching and up to two continuity memories");
- const food=selectRelevantMemories(records,{goal:"Need food",activity:"Eat amber",visibleObjectIds:["tree_004"],availableActions:["eat_fruit"],carriedFruits:["amber"]});
- assert.equal(food[0].subject,"fruit:amber");
+ assert.ok(result.length<=3);
  const none=selectRelevantMemories(records,{goal:null,activity:null,visibleObjectIds:[],availableActions:[]});
  assert.equal(none.length,2);
 });
 
-test("cursor migration is repeatable and never deletes journal events",()=>{
+test("hourly cursor migration preserves the old journal and is idempotent",()=>{
  const py=`
 import sqlite3,sys,pathlib
 root=pathlib.Path(sys.argv[1]);db=sqlite3.connect(':memory:')
-db.execute('CREATE TABLE events(id INTEGER PRIMARY KEY,action TEXT,content TEXT)')
-db.execute("INSERT INTO events(id,action,content) VALUES(1,'WRITE_ERROR','WRITE FAILED: Sale conflict')")
+db.execute('CREATE TABLE events(id INTEGER PRIMARY KEY,created_at TEXT,action TEXT,content TEXT)')
+db.execute("INSERT INTO events(id,created_at,action,content) VALUES(1,'2020-01-01T01:00:00.000Z','WRITE_ERROR','Sale conflict')")
 migration=(root/'migrations/025_personal_memory_consolidation.sql').read_text()
 db.executescript(migration);db.executescript(migration)
-assert db.execute('SELECT last_event_id FROM personal_memory_cursor WHERE id=1').fetchone()==(0,)
-db.execute('UPDATE personal_memory_cursor SET last_event_id=1 WHERE id=1')
+assert db.execute('SELECT COUNT(*) FROM personal_memory_cursor').fetchone()[0]==1
+cursor=db.execute('SELECT last_event_id,last_completed_hour FROM personal_memory_cursor').fetchone()
+assert cursor[0]==1,cursor
+assert cursor[1] is not None,cursor
+db.execute('UPDATE personal_memory_cursor SET last_event_id=75 WHERE id=1')
 db.executescript(migration)
-assert db.execute('SELECT last_event_id FROM personal_memory_cursor WHERE id=1').fetchone()==(1,)
+assert db.execute('SELECT last_event_id FROM personal_memory_cursor WHERE id=1').fetchone()[0]==75
 assert db.execute('SELECT COUNT(*) FROM events').fetchone()[0]==1
-print('Safe, repeatable migration')
+print('Safe and repeatable hourly cursor')
 `;
  const r=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
  assert.equal(r.status,0,r.stderr||r.stdout);
 });
 
-test("consolidation cursor advances only after writing candidates",()=>{
+test("one hourly LLM pass, bounded input, and cursor advanced only with writes",()=>{
  const source=read("../src/personal-memory-consolidation.ts");
- const save=source.indexOf("await storeCandidate(db,candidate)");
- const advance=source.indexOf('UPDATE personal_memory_cursor SET last_event_id=');
- assert.ok(save>0&&advance>save);
- assert.match(source,/WHERE id>\? ORDER BY id ASC LIMIT 250/);
- assert.match(source,/db\.prepare\(pruneOverflowSql\)/);
+ assert.match(source,/ORDER BY id ASC LIMIT 401/);
+ assert.match(source,/max_tokens:950/);
+ assert.match(source,/validatedProposals\(parsed,relevant,existing.results\)/);
+ assert.match(source,/db\.batch\(statements\)/);
+ assert.match(source,/pruneOverflowSql/);
  const worker=read("../src/index.ts");
- assert.match(worker,/consolidatePersonalExperiences\(env.DB\)/);
+ assert.match(worker,/getUTCMinutes\(\)===5/);
+ assert.match(worker,/consolidatePersonalExperiences\(env\)/);
  assert.match(worker,/selectRelevantMemories\(longTermMemories/);
 });
