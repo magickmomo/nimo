@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 type Evidence={id:number;created_at:string;kind:string;action:string|null;content:string};
 type ReviewProposal={operation:"create"|"update";subject:string;statement:string;category:string;confidence:number;evidenceIds:number[]};
-type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
+type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;reviewSummary?:string;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
 type Memory={id:number;statement:string;category:string;subject:string;confidence:number;status:string;updated_at:string;evidence_count:number;evidence:Evidence[]};
 export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
  const root=useRef<HTMLElement>(null);
@@ -81,6 +81,9 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
     {reviewError&&<p role="alert" className="world-warning">{reviewError}</p>}
     {review&&<div aria-live="polite">
       <p className="meta">Reviewed {review.scanned} events from {review.periodStart} to {review.periodEnd}. No changes saved.</p>
+      <h3>LLM memory review</h3>
+      {review.reviewSummary&&<p>{review.reviewSummary}</p>}
+      <p className="meta">{review.proposals.length} proposed memor{review.proposals.length===1?"y":"ies"} to create or update. These are previews only.</p>
       {review.validationError&&<div role="alert" className="world-warning">
         <strong>The LLM proposals failed validation. Nothing was saved.</strong>
         <p>{review.validationError}</p>
