@@ -63,9 +63,9 @@ test("Atomic personal-memory prune keeps exactly 24, including when reactivating
 import sqlite3,pathlib,sys,re
 root=pathlib.Path(sys.argv[1])
 src=(root/'src/consolidated-memory.ts').read_text()
-m=re.search(r'export const pruneOverflowSql=\\x60(.+?)\\x60;',src,re.S)
+m=re.search('export const pruneOverflowSql='+chr(96)+r'(.+?)'+chr(96)+';',src,re.S)
 assert m,'Cannot find source prune SQL'
-prune=m.group(1).replace('
+prune=m.group(1).replace(chr(36)+chr(123)+'MAX_ACTIVE_MEMORIES'+chr(125),'24')
 db=sqlite3.connect(':memory:')
 db.executescript("""
 CREATE TABLE consolidated_memories_v2(
