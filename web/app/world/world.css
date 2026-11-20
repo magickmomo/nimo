@@ -1226,3 +1226,17 @@ main:has(> .world-dashboard){
   .world-notes-layout{grid-template-columns:1fr;grid-template-rows:minmax(80px,auto) minmax(160px,1fr)}
   .world-notes-list{max-height:150px}
 }
+
+/* The hourly preview lives above the saved memory list; allow the entire
+   Memories dialog to scroll when a model review expands its contents. */
+.world-message-backdrop .world-memories-panel{
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  min-height:0;
+}
+.world-message-backdrop .world-memories-panel .world-message-thread{
+  flex:0 0 auto;
+  min-height:0;
+  max-height:none;
+  overflow:visible;
+}
