@@ -57,16 +57,17 @@ import sqlite3,sys,pathlib
 root=pathlib.Path(sys.argv[1]);db=sqlite3.connect(':memory:')
 db.execute('CREATE TABLE events(id INTEGER PRIMARY KEY,created_at TEXT,action TEXT,content TEXT)')
 db.execute("INSERT INTO events(id,created_at,action,content) VALUES(1,'2020-01-01T01:00:00.000Z','WRITE_ERROR','Sale conflict')")
+db.execute("INSERT INTO events(id,created_at,action,content) VALUES(2,strftime('%Y-%m-%dT%H:30:00.000Z','now'),'SELL_ITEM_OK','Sold crop')")
 migration=(root/'migrations/025_personal_memory_consolidation.sql').read_text()
 db.executescript(migration);db.executescript(migration)
 assert db.execute('SELECT COUNT(*) FROM personal_memory_cursor').fetchone()[0]==1
 cursor=db.execute('SELECT last_event_id,last_completed_hour FROM personal_memory_cursor').fetchone()
-assert cursor[0]==1,cursor
+assert cursor[0]==1,cursor # Initial cursor excludes the still-in-progress hour
 assert cursor[1] is not None,cursor
 db.execute('UPDATE personal_memory_cursor SET last_event_id=75 WHERE id=1')
 db.executescript(migration)
 assert db.execute('SELECT last_event_id FROM personal_memory_cursor WHERE id=1').fetchone()[0]==75
-assert db.execute('SELECT COUNT(*) FROM events').fetchone()[0]==1
+assert db.execute('SELECT COUNT(*) FROM events').fetchone()[0]==2
 print('Safe and repeatable hourly cursor')
 `;
  const r=spawnSync("python3",["-c",py,root],{encoding:"utf8"});
