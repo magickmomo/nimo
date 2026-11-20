@@ -34,6 +34,7 @@ type Env = {
   OPENAI_MODEL?: string;
   ORACLE_MODEL?: string;
   MEMORY_MODEL?: string;
+  MEMORY_CONSOLIDATION_ENABLED?: string;
   WORLD_INTERNAL_SECRET: string;
 };
 type EventRow = ExperienceEvent;
@@ -952,7 +953,7 @@ export default {
     }
     // Once each hour, reflect on the completed preceding hour of verified events.
     // A failed model call leaves the cursor unchanged, so the next run can retry.
-    if(new Date().getUTCMinutes()===5) {
+    if(env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()===5) {
       ctx.waitUntil(consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error)));
     }
     // Research queued questions independently of the awake decision loop.
