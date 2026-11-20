@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 type Evidence={id:number;created_at:string;kind:string;action:string|null;content:string};
 type ReviewProposal={operation:"create"|"update";subject:string;statement:string;category:string;confidence:number;evidenceIds:number[]};
-type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;proposals:ReviewProposal[]};
+type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
 type Memory={id:number;statement:string;category:string;subject:string;confidence:number;status:string;updated_at:string;evidence_count:number;evidence:Evidence[]};
 export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
  const root=useRef<HTMLElement>(null);
@@ -81,7 +81,16 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
     {reviewError&&<p role="alert" className="world-warning">{reviewError}</p>}
     {review&&<div aria-live="polite">
       <p className="meta">Reviewed {review.scanned} events from {review.periodStart} to {review.periodEnd}. No changes saved.</p>
-      {review.proposals.length===0?<p>No lasting memories proposed for this hour.</p>:review.proposals.map((m,i)=>
+      {review.validationError&&<div role="alert" className="world-warning">
+        <strong>The LLM proposals failed validation. Nothing was saved.</strong>
+        <p>{review.validationError}</p>
+        {review.invalidEvidenceIds?.length?<p>IDs not present in the selected hour: {review.invalidEvidenceIds.join(", ")}</p>:null}
+        {review.rejectedProposals?.map((m,i)=><article className="world-memory-entry" key={i}>
+          <p>{m.statement}</p>
+          <p className="meta">Proposed evidence IDs: {Array.isArray(m.evidenceIds)?m.evidenceIds.join(", "):"missing"}</p>
+        </article>)}
+       </div>}
+      {!review.validationError&&review.proposals.length===0?<p>No lasting memories proposed for this hour.</p>:review.proposals.map((m,i)=>
        <article className="world-memory-entry" key={i}>
         <div className="world-memory-meta"><strong>{m.operation} · {m.category}</strong>
          <span>Confidence {Math.round(m.confidence*100)}%</span></div>
