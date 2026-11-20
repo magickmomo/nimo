@@ -949,9 +949,11 @@ export default {
         .then(snapshot=>saveWorldSnapshot(env.ARCHIVES,snapshot,true))
         .catch(error=>console.error("World snapshot cache refresh failed",error)));
     }
-    // Consolidate a bounded slice of verified events independently of awake decisions.
-    // If migration 025 has not yet run, fail safely without disrupting the world.
-    ctx.waitUntil(consolidatePersonalExperiences(env.DB).catch(error=>console.error("Personal memory consolidation unavailable",error)));
+    // Once each hour, reflect on the completed preceding hour of verified events.
+    // A failed model call leaves the cursor unchanged, so the next run can retry.
+    if(new Date().getUTCMinutes()===5) {
+      ctx.waitUntil(consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error)));
+    }
     // Research queued questions independently of the awake decision loop.
     ctx.waitUntil(researchOracleQuestion(env).catch(error=>console.error("Oracle research failed",error)));
     // Archive even if Nimo is asleep or the owner has paused him. Write only
