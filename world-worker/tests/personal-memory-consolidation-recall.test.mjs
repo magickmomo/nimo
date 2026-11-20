@@ -104,7 +104,7 @@ test("one hourly LLM pass, bounded input, and cursor advanced only with writes",
  const source=read("../src/personal-memory-consolidation.ts");
  assert.match(source,/ORDER BY id ASC LIMIT 401/);
  assert.match(source,/max_tokens:950/);
- assert.match(source,/validatedProposals\(parsed,relevant,existing.results\)/);
+ assert.match(source,/validatedProposals\(parsed,result.results,existing.results\)/);
  assert.match(source,/db\.batch\(statements\)/);
  assert.match(source,/pruneOverflowSql/);
  const worker=read("../src/index.ts");
@@ -126,6 +126,7 @@ test("recover missed hours separately without combining more than 400 events",as
   prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},
    async first(){if(sql.includes("SELECT last_event_id,last_completed_hour"))return {...state};throw Error("Unexpected first");},
    async all(){
+    if(sql.includes("FROM consolidated_memories_v2"))return {results:[]};
     if(!sql.includes("FROM events"))throw Error("Unexpected query");
     const [after,start,end]=this.args;queries.push([after,start,end]);
     return {results:events.filter(e=>e.id>after&&e.created_at>=start&&e.created_at<end).slice(0,401)};
