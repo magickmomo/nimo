@@ -1,4 +1,4 @@
-import {recordVerifiedMemory} from "./consolidated-memory";
+import {pruneOverflowSql} from "./consolidated-memory";
 
 /** A deliberately conservative first pass: verified obstacles, plus verified
  * resolution events, are worth remembering. Routine travel, sketches, Oracle
@@ -60,6 +60,7 @@ async function storeCandidate(db:D1Database,c:Candidate){
        SELECT id,? FROM consolidated_memories_v2
        WHERE subject=? AND EXISTS(SELECT 1 FROM events WHERE id=?)`)
       .bind(c.eventId,c.subject,c.eventId),
+    db.prepare(pruneOverflowSql),
   ]);
 }
 
