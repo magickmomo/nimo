@@ -137,6 +137,10 @@ test("recover missed hours separately without combining more than 400 events",as
   }
  };
  const env={DB:db,OPENAI_API_KEY:"unused"},now=new Date("2026-11-20T22:05:00.000Z");
+ // Every hour is now reviewed, even if it contains only journal reflections.
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"memories":[]}'}}]})});
+ try {
  const first=await consolidatePersonalExperiences(env,now);
  assert.equal(first.scanned,230);assert.equal(first.periodStart,h20);assert.equal(first.periodEnd,h21);
  assert.equal(state.last_event_id,230);
@@ -146,6 +150,7 @@ test("recover missed hours separately without combining more than 400 events",as
  const third=await consolidatePersonalExperiences(env,now);
  assert.equal(third.scanned,0);
  assert.deepEqual(queries,[[0,h20,h21],[230,h21,h22]]);
+ }finally{globalThis.fetch=originalFetch;}
 });
 
 test("memory revisions use proposed confidence and recompute established/tentative",()=>{
