@@ -997,6 +997,17 @@ export default {
       if (path === "/experience" && request.method === "GET") {
         return json({evaluations:await recentExperiences(env.DB,60),mode:"observation_only"});
       }
+      // Owner-authenticated, one-off LLM test. Never writes memories or moves
+      // the production consolidation cursor.
+      if (path === "/memories/consolidation/preview" && request.method === "POST") {
+        const input=await request.json().catch(()=>null) as {start?:unknown}|null;
+        if(typeof input?.start!=="string")return json({error:"Expected UTC hour start"},400);
+        try {
+          return json(await consolidatePersonalExperiences(env,new Date(),input.start));
+        }catch(error){
+          return json({error:error instanceof Error?error.message:"Consolidation preview failed"},400);
+        }
+      }
       if (path === "/memories" && request.method === "GET") {
         const entries=await consolidatedMemories(env.DB);
         const memories=await Promise.all(entries.map(async m=>({...m,evidence:await memoryEvidence(env.DB,m.id)})));
