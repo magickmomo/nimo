@@ -1,7 +1,7 @@
 -- 024: Separate lived memories from Oracle reference research.
 -- The complete Oracle research remains available in oracle_queries.
 -- No rows or evidence are deleted; existing Oracle memory duplicates are retired.
--- Run once against nimo-world before deploying the matching Worker.
+-- Deploy the matching Worker first, then run this once against nimo-world.
 CREATE INDEX IF NOT EXISTS consolidated_memories_v2_personal
   ON consolidated_memories_v2(category,status,updated_at DESC);
 
