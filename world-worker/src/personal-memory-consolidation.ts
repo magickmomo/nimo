@@ -77,9 +77,8 @@ async function commitReview(db:D1Database,proposals:MemoryProposal[],cursorId:nu
       VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       ON CONFLICT(subject) DO UPDATE SET
         statement=excluded.statement,
-        confidence=MAX(consolidated_memories_v2.confidence,excluded.confidence),
-        status=CASE WHEN consolidated_memories_v2.status='retired' THEN excluded.status
-          ELSE consolidated_memories_v2.status END,
+        confidence=excluded.confidence,
+        status=excluded.status,
         reviewed_at=excluded.reviewed_at,
         updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
       .bind(p.subject,p.statement,p.category,p.confidence,status));
@@ -116,7 +115,7 @@ export async function consolidatePersonalExperiences(
 ) {
   const preview=previewStart!==undefined;
   if(preview) {
-    if(!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:00:00\\.000Z$/.test(previewStart) ||
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/.test(previewStart) ||
       !Number.isFinite(Date.parse(previewStart)) ||
       new Date(previewStart).toISOString()!==previewStart ||
       Date.parse(previewStart)+3_600_000>Date.now() ||
@@ -124,13 +123,18 @@ export async function consolidatePersonalExperiences(
       throw Error("Preview requires a completed UTC hour within the last 7 days");
   }
   const db=env.DB;
-  const hour=preview ? new Date(Date.parse(previewStart!)+3_600_000).toISOString() : completedHour(now);
   const state=await db.prepare("SELECT last_event_id,last_completed_hour FROM personal_memory_cursor WHERE id=1")
     .first<{last_event_id:number;last_completed_hour:string|null}>();
   if(!state)throw Error("Memory consolidation migration 025 is missing");
-  if(!preview && state.last_completed_hour && state.last_completed_hour>=hour)
-    return {scanned:0,stored:0,lastEventId:state.last_event_id};
-  const previousHour=new Date(Date.parse(hour)-3_600_000).toISOString();
+  // The cursor records the END of the last completed review, not the time of
+  // this invocation. Advance exactly one whole hour per call after an outage.
+  // A subsequent scheduled run handles the next pending hour.
+  const previousHour=preview
+    ? previewStart!
+    : state.last_completed_hour ?? completedHour(now);
+  const hour=new Date(Date.parse(previousHour)+3_600_000).toISOString();
+  if(!preview && Date.parse(hour)>Date.parse(completedHour(now)))
+    return {periodStart:previousHour,periodEnd:hour,preview:false,scanned:0,stored:0,lastEventId:state.last_event_id,proposals:[]};
   const result=await db.prepare(`SELECT id,created_at,action,content FROM events
     WHERE id>? AND created_at>=? AND created_at<? AND kind IN ('tool','thought')
     ORDER BY id ASC LIMIT 401`).bind(preview?0:state.last_event_id,previousHour,hour).all<VerifiedEvent>();
