@@ -42,7 +42,10 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
     if(!value||typeof value!=="object")throw Error("Invalid memory proposal");
     const m=value as Partial<MemoryProposal>;
     if(m.operation!=="create"&&m.operation!=="update")throw Error("Invalid memory operation");
-    if(typeof m.subject!=="string"||!/^([a-z][a-z0-9_-]*:){1,3}[a-z0-9_-]+$/.test(m.subject)||m.subject.length>100||m.subject.startsWith("oracle:"))
+    // Existing legacy subjects such as inventory_capacity remain updateable.
+    // New subjects use a predictable namespaced key.
+    if(typeof m.subject!=="string"||m.subject.length>100||m.subject.startsWith("oracle:")||
+      (m.operation==="create"&&!/^([a-z][a-z0-9_-]*:){1,3}[a-z0-9_-]+$/.test(m.subject)))
       throw Error("Invalid memory subject");
     if(used.has(m.subject))throw Error("Duplicate subject");
     used.add(m.subject);
