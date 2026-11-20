@@ -1,4 +1,3 @@
-import {recordVerifiedMemory} from "./consolidated-memory";
 import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";
 
 export type OracleSource={title:string;url:string};
@@ -125,11 +124,11 @@ export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:s
        const event=await env.DB.prepare("INSERT INTO events(kind,content,action) VALUES('tool',?,'ORACLE_ANSWER') RETURNING id")
          .bind("ORACLE #"+row.id+": Q: "+row.question+" A: "+answer.slice(0,950)+" Sources: "+sources.map(s=>s.url).join(", ").slice(0,550))
          .first<{id:number}>();
-       if(sources.length&&event){
-         await recordVerifiedMemory(env.DB,{subject:"oracle:question:"+row.id,statement:answer.slice(0,600),category:"knowledge",confidence:0.8,eventId:event.id});
-         const memory=await env.DB.prepare("SELECT id FROM consolidated_memories_v2 WHERE subject=?").bind("oracle:question:"+row.id).first<{id:number}>();
-         if(memory)await env.DB.prepare("UPDATE oracle_queries SET event_id=?,memory_id=? WHERE id=?").bind(event.id,memory.id,row.id).run();
-       }else if(event)await env.DB.prepare("UPDATE oracle_queries SET event_id=? WHERE id=?").bind(event.id,row.id).run();
+       // The Oracle answer is already durable in oracle_queries, with its question,
+       // sources and journal event. Do not create another general memory entry:
+       // reference research must never evict lessons Nimo learned in his world.
+       if(event)await env.DB.prepare("UPDATE oracle_queries SET event_id=?,memory_id=NULL WHERE id=?")
+         .bind(event.id,row.id).run();
      }catch(indexError){console.error("Oracle answer saved; indexing failed",indexError);}
      return {status,id:row.id};
    }catch(err){
