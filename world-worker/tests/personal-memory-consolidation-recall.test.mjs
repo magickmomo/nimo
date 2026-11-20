@@ -74,6 +74,18 @@ print('Safe and repeatable hourly cursor')
  assert.equal(r.status,0,r.stderr||r.stdout);
 });
 
+test("retrospective preview uses exact hour and never writes memories or cursor",()=>{
+ const src=read("../src/personal-memory-consolidation.ts");
+ assert.match(src,/previewStart\?:string/);
+ assert.match(src,/preview\?0:state\.last_event_id/);
+ assert.match(src,/if\(!preview\)await commitReview\(db,proposals,nextCursor,hour\)/);
+ assert.match(src,/if\(!preview\)await commitReview\(db,\[\],nextCursor,hour\)/);
+ assert.match(src,/periodStart:previousHour,periodEnd:hour,preview/);
+ const worker=read("../src/index.ts");
+ assert.match(worker,/path === "\/memories\/consolidation\/preview"/);
+ assert.match(worker,/consolidatePersonalExperiences\(env,new Date\(\),input\.start\)/);
+});
+
 test("one hourly LLM pass, bounded input, and cursor advanced only with writes",()=>{
  const source=read("../src/personal-memory-consolidation.ts");
  assert.match(source,/ORDER BY id ASC LIMIT 401/);
