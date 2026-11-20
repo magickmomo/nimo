@@ -98,3 +98,44 @@ test("one hourly LLM pass, bounded input, and cursor advanced only with writes",
  assert.match(worker,/consolidatePersonalExperiences\(env\)/);
  assert.match(worker,/selectRelevantMemories\(longTermMemories/);
 });
+
+test("recover missed hours separately without combining more than 400 events",async()=>{
+ const {consolidatePersonalExperiences}=await loadTs("../src/personal-memory-consolidation.ts");
+ const h20="2026-11-20T20:00:00.000Z",h21="2026-11-20T21:00:00.000Z",h22="2026-11-20T22:00:00.000Z";
+ const events=[
+  ...Array.from({length:230},(_,i)=>({id:i+1,created_at:"2026-11-20T20:20:00.000Z",action:"THINK",content:"Ordinary thought"})),
+  ...Array.from({length:230},(_,i)=>({id:i+231,created_at:"2026-11-20T21:20:00.000Z",action:"THINK",content:"Ordinary thought"}))
+ ];
+ const state={last_event_id:0,last_completed_hour:h20};
+ const queries=[];
+ const db={
+  prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},
+   async first(){if(sql.includes("SELECT last_event_id,last_completed_hour"))return {...state};throw Error("Unexpected first");},
+   async all(){
+    if(!sql.includes("FROM events"))throw Error("Unexpected query");
+    const [after,start,end]=this.args;queries.push([after,start,end]);
+    return {results:events.filter(e=>e.id>after&&e.created_at>=start&&e.created_at<end).slice(0,401)};
+   }};},
+  async batch(statements){
+   const last=statements.at(-1);assert.match(last.sql,/UPDATE personal_memory_cursor/);
+   state.last_event_id=last.args[0];state.last_completed_hour=last.args[1];
+   return statements.map(()=>({meta:{changes:1}}));
+  }
+ };
+ const env={DB:db,OPENAI_API_KEY:"unused"},now=new Date("2026-11-20T22:05:00.000Z");
+ const first=await consolidatePersonalExperiences(env,now);
+ assert.equal(first.scanned,230);assert.equal(first.periodStart,h20);assert.equal(first.periodEnd,h21);
+ assert.equal(state.last_event_id,230);
+ const second=await consolidatePersonalExperiences(env,now);
+ assert.equal(second.scanned,230);assert.equal(second.periodStart,h21);assert.equal(second.periodEnd,h22);
+ assert.equal(state.last_event_id,460);
+ const third=await consolidatePersonalExperiences(env,now);
+ assert.equal(third.scanned,0);
+ assert.deepEqual(queries,[[0,h20,h21],[230,h21,h22]]);
+});
+
+test("memory revisions use proposed confidence and recompute established/tentative",()=>{
+ const src=read("../src/personal-memory-consolidation.ts");
+ assert.match(src,/statement=excluded.statement,\s*confidence=excluded.confidence,\s*status=excluded.status/);
+ assert.doesNotMatch(src,/confidence=MAX\(consolidated_memories_v2.confidence,excluded.confidence\)/);
+});
