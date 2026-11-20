@@ -61,7 +61,7 @@ export async function recordVerifiedMemory(
       VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       ON CONFLICT(subject) DO UPDATE SET
       confidence=MAX(consolidated_memories_v2.confidence,excluded.confidence),
-      status=CASE WHEN consolidated_memories_v2.status IN ('retired','contradicted')
+      status=CASE WHEN consolidated_memories_v2.status='retired'
         THEN excluded.status ELSE consolidated_memories_v2.status END,
       reviewed_at=excluded.reviewed_at,
       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
