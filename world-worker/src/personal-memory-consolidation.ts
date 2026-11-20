@@ -59,8 +59,8 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
       throw Error("Invalid memory category");
     if(typeof m.confidence!=="number"||m.confidence<0.3||m.confidence>0.85)
       throw Error("Invalid memory confidence");
-    if(!Array.isArray(m.evidenceIds)||m.evidenceIds.length<1||m.evidenceIds.length>8)
-      throw Error("Memory "+m.subject+" must cite 1–8 journal event IDs from this hour");
+    if(!Array.isArray(m.evidenceIds)||m.evidenceIds.length<1||m.evidenceIds.length>12)
+      throw Error("Memory "+m.subject+" must cite 1–12 journal event IDs from this hour");
     const invalid=m.evidenceIds.filter(id=>!Number.isSafeInteger(id)||!evidence.has(id));
     if(invalid.length)
       throw Error("Memory "+m.subject+" cites event IDs outside the review hour: "+invalid.join(", "));
@@ -181,7 +181,7 @@ produce any lasting memory, without revealing private reasoning. If no memories
 were proposed, say so and briefly explain the judgment. Do not manufacture a
 memory or preference simply to fill the list.
 Use "update" with an existing subject when changing a previously stored memory,
-and "create" for genuinely new memories. Give each proposed memory 1–8 supporting
+and "create" for genuinely new memories. Give each proposed memory 1–12 supporting
 event IDs from the supplied hour. Cite the specific experiences the memory is
 based on, copying their IDs exactly; never invent an ID. Confidence must be
 between 0.3 and 0.85.
