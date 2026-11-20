@@ -58,6 +58,22 @@ test("invalid evidence diagnostics identify the affected subject and IDs",async(
  assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[]}]},events,[]),/world:fruit:amber must cite 1/);
 });
 
+test("hourly review accepts up to twelve genuine citations but rejects fabricated or excessive IDs",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=Array.from({length:13},(_,i)=>({
+  id:6402+i,kind:"tool",action:"EAT_OK",
+  content:"A verified fruit action "+i,created_at:"2026-11-20T21:07:00.000Z"
+ }));
+ const base={operation:"update",subject:"fruit:amber",
+  statement:"Amber fruit repeatedly helped restore fullness and could be sold.",
+  category:"food",confidence:0.8,evidenceIds:events.slice(0,10).map(e=>e.id)};
+ const known=[{id:1,subject:"fruit:amber",statement:"Amber helps fullness",
+  category:"food",status:"tentative"}];
+ assert.deepEqual(validatedProposals({memories:[base]},events,known),[base]);
+ assert.throws(()=>validatedProposals({memories:[{...base,evidenceIds:events.map(e=>e.id)}]},events,known),/1–12/);
+ assert.throws(()=>validatedProposals({memories:[{...base,evidenceIds:[6402,999999]}]},events,known),/outside the review hour/);
+});
+
 test("recall favours current context, not merely the newest memory",async()=>{
  const {selectRelevantMemories}=await loadTs("../src/personal-memory-recall.ts");
  const memory=(subject,statement)=>({subject,statement,category:"experience",status:"tentative",confidence:0.75,evidence_count:1});
