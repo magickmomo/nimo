@@ -34,7 +34,7 @@ export async function memoryEvidence(db:D1Database,id:number) {
  * the insert/update, so an existing retired subject being reactivated cannot
  * accidentally increase the active count beyond 24.
  */
-const pruneOverflowSql=`UPDATE consolidated_memories_v2
+export const pruneOverflowSql=`UPDATE consolidated_memories_v2
   SET status='retired',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
   WHERE id IN (
     SELECT id FROM (
