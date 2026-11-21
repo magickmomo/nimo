@@ -62,30 +62,3 @@ export const pruneOverflowSql=`WITH support AS (
   UPDATE consolidated_memories_v2
   SET status='retired',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
   WHERE id IN (SELECT id FROM ranked WHERE rank > ${MAX_ACTIVE_MEMORIES})`;
-
-/** Record only outcomes grounded in a real event, not model assertions. */
-export async function recordVerifiedMemory(
-  db:D1Database,
-  input:{subject:string;statement:string;category:'food'|'object'|'place'|'experience';confidence:number;eventId:number}
-) {
-  const {subject,statement,category,eventId}=input;
-  if(!subject.trim()||subject.length>100||!statement.trim()||statement.length>600||
-    !Number.isSafeInteger(eventId)||eventId<=0)throw Error("Invalid memory evidence");
-  const confidence=Math.max(0,Math.min(1,input.confidence));
-  const status=confidence>=0.8?'established':'tentative';
-  await db.batch([
-    db.prepare(`INSERT INTO consolidated_memories_v2(subject,statement,category,confidence,status,reviewed_at)
-      VALUES(?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-      ON CONFLICT(subject) DO UPDATE SET
-      confidence=MAX(consolidated_memories_v2.confidence,excluded.confidence),
-      status=CASE WHEN consolidated_memories_v2.status='retired'
-        THEN excluded.status ELSE consolidated_memories_v2.status END,
-      reviewed_at=excluded.reviewed_at,
-      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
-      .bind(subject,statement,category,confidence,status),
-    db.prepare(`INSERT OR IGNORE INTO memory_evidence_v2(memory_id,event_id)
-      SELECT id,? FROM consolidated_memories_v2 WHERE subject=? AND EXISTS(SELECT 1 FROM events WHERE id=?)`)
-      .bind(eventId,subject,eventId),
-    db.prepare(pruneOverflowSql)
-  ]);
-}
