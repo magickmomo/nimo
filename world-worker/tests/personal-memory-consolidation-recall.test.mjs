@@ -87,6 +87,37 @@ test("hourly review accepts up to twelve genuine citations but rejects fabricate
  assert.throws(()=>validatedProposals({memories:[{...base,evidenceIds:[6402,999999]}]},events,known),/outside the review hour/);
 });
 
+test("four model proposals do not invalidate the hour; Oracle-only research is omitted",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[
+  {id:6402,kind:"tool",action:"EAT_OK",content:"Amber fruit improved fullness",created_at:"2026-11-20T21:01:00Z"},
+  {id:6404,kind:"tool",action:"SKETCH_FINISHED",content:"Finished drawing #89",created_at:"2026-11-20T21:03:00Z"},
+  {id:6410,kind:"tool",action:"ORACLE_ASK",content:"Asked about animal play",created_at:"2026-11-20T21:05:00Z"},
+  {id:6413,kind:"tool",action:"ORACLE_ANSWER",content:"Animal play answer",created_at:"2026-11-20T21:06:00Z"},
+  {id:6414,kind:"thought",action:"THINK",content:"The Oracle's answer differentiates play from exploration",created_at:"2026-11-20T21:07:00Z"},
+  {id:6440,kind:"tool",action:"ORACLE_ASK",content:"Asked about cognition",created_at:"2026-11-20T21:08:00Z"},
+  {id:6444,kind:"tool",action:"ORACLE_ANSWER",content:"Attention versus awareness",created_at:"2026-11-20T21:09:00Z"},
+  {id:6446,kind:"thought",action:"THINK",content:"Oracle research differentiates attention and awareness",created_at:"2026-11-20T21:10:00Z"}
+ ];
+ const known=[{id:1,subject:"fruit:amber",statement:"Fruit helped with hunger",category:"food",status:"tentative"}];
+ const p=(subject,statement,category,evidenceIds,operation="create")=>({subject,statement,category,evidenceIds,operation,confidence:0.7});
+ const fruit=p("fruit:amber","Amber fruit relieves hunger", "food",[6402],"update");
+ const sketches=p("art:abstract-sketches","Completed several abstract sketches","experience",[6404]);
+ const play=p("animal:play","Oracle research distinguishes animal play behaviors","experience",[6410,6413,6414]);
+ const awareness=p("cognition:awareness","Oracle research distinguishes attention and awareness","experience",[6440,6444,6446]);
+ assert.deepEqual(validatedProposals({memories:[fruit,sketches,play,awareness]},events,known),[fruit,sketches]);
+ assert.throws(()=>validatedProposals({memories:[{...fruit,evidenceIds:[999]}]},events,known),/outside the review hour/);
+});
+
+test("extra independently grounded proposals are bounded to three",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=Array.from({length:4},(_,i)=>({id:i+1,kind:"tool",action:"SKETCH_FINISHED",
+  content:"Finished drawing",created_at:"2026-11-20T21:00:00Z"}));
+ const items=events.map((e,i)=>({operation:"create",subject:"sketch:study-"+i,
+   statement:"Completed abstract study "+i,category:"experience",confidence:0.6,evidenceIds:[e.id]}));
+ assert.deepEqual(validatedProposals({memories:items},events,[]),items.slice(0,3));
+});
+
 test("recall favours current context, not merely the newest memory",async()=>{
  const {selectRelevantMemories}=await loadTs("../src/personal-memory-recall.ts");
  const memory=(subject,statement)=>({subject,statement,category:"experience",status:"tentative",confidence:0.75,evidence_count:1});

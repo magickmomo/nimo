@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 type Evidence={id:number;created_at:string;kind:string;action:string|null;content:string};
 type ReviewProposal={operation:"create"|"update";subject:string;statement:string;category:string;confidence:number;evidenceIds:number[]};
-type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;reviewSummary?:string;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
+type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;reviewSummary?:string;excludedProposalCount?:number;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
 type Memory={id:number;statement:string;category:string;subject:string;confidence:number;status:string;updated_at:string;evidence_count:number;evidence:Evidence[]};
 export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
  const root=useRef<HTMLElement>(null);
@@ -86,6 +86,7 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
       <p className="meta">{review.validationError
         ? `The LLM returned ${review.rejectedProposals?.length??0} proposed memories; validation rejected the batch. Nothing was saved.`
         : `${review.proposals.length} proposed memor${review.proposals.length===1?"y":"ies"} to create or update. These are previews only.`}</p>
+      {!review.validationError&&!!review.excludedProposalCount&&<p className="meta">{review.excludedProposalCount} candidate{review.excludedProposalCount===1?" was":"s were"} not retained because of the three-memory limit or because the evidence came only from Oracle research. Research remains in the Oracle library.</p>}
       {review.validationError&&<div role="alert" className="world-warning">
         <strong>The LLM proposals failed validation. Nothing was saved.</strong>
         <p>{review.validationError}</p>
