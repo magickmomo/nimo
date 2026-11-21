@@ -15,6 +15,7 @@ export type ActionMenu = {
   saleItems: string[];
   projectIds: number[];
   sketchIds: number[];
+  inspectArtworkIds: number[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -33,8 +34,9 @@ export function buildActionMenu(
   projects:{canCreate:boolean;editableIds:number[]}={canCreate:false,editableIds:[]},
   sketchbook:{owned:boolean;activeId:number|null}={owned:false,activeId:null},
   oracle:{adjacent:boolean;busy:boolean;coins:number}={adjacent:false,busy:false,coins:0},
+  inspectableArtworkIds: readonly number[] = [],
 ):ActionMenu {
-  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[]};
+  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[],inspectArtworkIds:[]};
   const inspectDirections = directions
     .filter(d=>d.canInspect && d.objectId && !priority.blockedInspectIds.includes(d.objectId) && dir(d.direction))
     .map(d=>d.direction);
@@ -56,7 +58,8 @@ export function buildActionMenu(
   if(projects.canCreate)tools.push("create_project");
   if(projects.editableIds.length)tools.push("update_project");
   if(sketchbook.owned){if(sketchbook.activeId===null)tools.push("start_sketch");else tools.push("draw_strokes","finish_sketch");}
-  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId]};
+  if(inspectableArtworkIds.length)tools.push("inspect_artwork");
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId],inspectArtworkIds:[...inspectableArtworkIds]};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -90,6 +93,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       variants.push(obj({name:{type:"string",enum:["discard_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
     }
     if(menu.vendingItemIds.length)variants.push(obj({name:{type:"string",enum:["buy_item"]},itemId:{type:"string",enum:menu.vendingItemIds}}));
+    if(menu.inspectArtworkIds.length)variants.push(obj({name:{type:"string",enum:["inspect_artwork"]},sketchId:{type:"integer",enum:menu.inspectArtworkIds}}));
     if(menu.tools.includes("start_sketch"))variants.push(obj({name:{type:"string",enum:["start_sketch"]},title:string(100),intention:string(300)}));
     if(menu.sketchIds.length){
       variants.push(obj({name:{type:"string",enum:["draw_strokes"]},sketchId:{type:"integer",enum:menu.sketchIds},strokes:{type:"array",items:obj({points:{type:"array",items:{type:"array",items:{type:"integer"}}},color:{type:"string"},width:{type:"integer"}})}}));
