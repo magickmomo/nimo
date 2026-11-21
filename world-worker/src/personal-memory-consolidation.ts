@@ -127,7 +127,7 @@ async function commitReview(db:D1Database,proposals:MemoryProposal[],cursorId:nu
   // cursor instead. A concurrent run must never silently report success.
   const saved=await db.prepare("SELECT last_completed_hour FROM personal_memory_cursor WHERE id=1")
     .first<{last_completed_hour:string|null}>();
-  if(!saved||Date.parse(saved.last_completed_hour??"")<Date.parse(hour))
+  if(!saved?.last_completed_hour||Date.parse(saved.last_completed_hour)<Date.parse(hour))
     throw Error("Consolidation cursor did not advance");
 }
 
