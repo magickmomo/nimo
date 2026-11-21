@@ -21,13 +21,13 @@ export function validateStrokes(value:unknown):SketchStroke[]{
   return {points,color:s.color.toLowerCase(),width:s.width};
  });
 }
-export async function sketchbookSnapshot(db:D1Database,includeDrawings=false){
+export async function sketchbookSnapshot(db:D1Database,includeDrawings=false,allDrawings=false){
  const owned=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first<{owned_at:string}>();
  if(!owned)return {owned:false,drawings:[],active:null};
  const result=await db.prepare(`SELECT s.id,s.title,s.intention,s.status,s.strokes_json,s.stroke_count,s.created_at,s.updated_at,s.finished_at,
  i.description AS inspection,i.inspected_at
  FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'
- ORDER BY s.updated_at DESC`).all<Sketch>();
+ ORDER BY s.updated_at DESC LIMIT ?`).bind(allDrawings?2147483647:60).all<Sketch>();
  const drawings=result.results.map(s=>({...s,strokes:includeDrawings?JSON.parse(s.strokes_json) as SketchStroke[]:undefined,strokes_json:undefined}));
  return {owned:true,ownedAt:owned.owned_at,drawings,active:drawings.find(s=>s.status==="drawing")??null};
 }
