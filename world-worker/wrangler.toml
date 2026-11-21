@@ -19,3 +19,5 @@ bucket_name = "nimo-daily-archives"
 
 [vars]
 OPENAI_MODEL = "gpt-6-luna"
+# Run persisted hourly memory reviews automatically; the cursor prevents replays.
+MEMORY_CONSOLIDATION_ENABLED = "true"

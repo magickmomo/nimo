@@ -177,7 +177,7 @@ test("one hourly LLM pass, bounded input, and cursor advanced only with writes",
  assert.match(source,/db\.batch\(statements\)/);
  assert.match(source,/pruneOverflowSql/);
  const worker=read("../src/index.ts");
- assert.match(worker,/getUTCMinutes\(\)===5/);
+ assert.match(worker,/getUTCMinutes\(\)%5===0/);
  assert.match(worker,/consolidatePersonalExperiences\(env\)/);
  assert.match(worker,/selectRelevantMemories\(longTermMemories/);
 });

@@ -951,9 +951,12 @@ export default {
         .then(snapshot=>saveWorldSnapshot(env.ARCHIVES,snapshot,true))
         .catch(error=>console.error("World snapshot cache refresh failed",error)));
     }
-    // Once each hour, reflect on the completed preceding hour of verified events.
-    // A failed model call leaves the cursor unchanged, so the next run can retry.
-    if(env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()===5) {
+    // Catch up one completed UTC hour per five-minute slot. The durable cursor
+    // prevents skipping missed hours, including hours with zero experiences.
+    // At most one review runs per slot; a failure leaves the cursor for retry.
+    // Once caught up, the routine check below is a no-op until another hour
+    // has completed. Oracle research remains outside personal memory.
+    if(env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()%5===0) {
       ctx.waitUntil(consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error)));
     }
     // Research queued questions independently of the awake decision loop.
