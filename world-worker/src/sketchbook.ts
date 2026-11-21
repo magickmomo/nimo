@@ -31,6 +31,34 @@ export async function sketchbookSnapshot(db:D1Database,includeDrawings=false,all
  const drawings=result.results.map(s=>({...s,strokes:includeDrawings?JSON.parse(s.strokes_json) as SketchStroke[]:undefined,strokes_json:undefined}));
  return {owned:true,ownedAt:owned.owned_at,drawings,active:drawings.find(s=>s.status==="drawing")??null};
 }
+
+export type SketchFilter="all"|"finished"|"drawing"|"abandoned";
+/** Cursor pagination keeps the gallery scalable without dropping older drawings. */
+export async function sketchbookPage(db:D1Database,status:SketchFilter="all",before:number|null=null,limit=24){
+ if(!["all","finished","drawing","abandoned"].includes(status))throw Error("Invalid artwork filter");
+ if(before!==null&&(!Number.isSafeInteger(before)||before<1))throw Error("Invalid artwork cursor");
+ if(!Number.isSafeInteger(limit)||limit<1||limit>48)throw Error("Artwork page size must be 1-48");
+ const owned=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first<{owned_at:string}>();
+ if(!owned)return {owned:false,drawings:[],nextCursor:null,hasMore:false,counts:{all:0,finished:0,drawing:0,abandoned:0}};
+ const where=[...(status==="all"?[]:["s.status=?"]),...(before===null?[]:["s.id<?"])];
+ const params:(string|number)[]=[...(status==="all"?[]:[status]),...(before===null?[]:[before])];
+ const query=`SELECT s.id,s.title,s.intention,s.status,s.strokes_json,s.stroke_count,s.created_at,s.updated_at,s.finished_at,
+ i.description AS inspection,i.inspected_at
+ FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'
+ ${where.length?"WHERE "+where.join(" AND "):""}
+ ORDER BY s.id DESC LIMIT ?`;
+ const [page,totals]=await Promise.all([
+  db.prepare(query).bind(...params,limit+1).all<Sketch>(),
+  db.prepare("SELECT status,COUNT(*) AS n FROM nimo_sketches GROUP BY status").all<{status:Sketch["status"];n:number}>(),
+ ]);
+ const counts={all:0,finished:0,drawing:0,abandoned:0};
+ for(const row of totals.results){counts[row.status]=row.n;counts.all+=row.n;}
+ const hasMore=page.results.length>limit;
+ const rows=page.results.slice(0,limit);
+ return {owned:true,ownedAt:owned.owned_at,drawings:rows.map(row=>({...row,strokes:JSON.parse(row.strokes_json) as SketchStroke[],strokes_json:undefined})),
+   hasMore,nextCursor:hasMore&&rows.length?rows[rows.length-1].id:null,counts};
+}
+
 export async function buySketchbook(db:D1Database,sourceKey:string){
  const existing=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first();
  if(existing)return "Already own the sketchbook; no coins deducted";
