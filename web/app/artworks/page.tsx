@@ -8,7 +8,7 @@ type Stroke={points:[number,number][];color:string;width:number};
 type Sketch={id:number;title:string;intention:string;status:"drawing"|"finished"|"abandoned";strokes:Stroke[];stroke_count:number;created_at:string;updated_at:string;inspection?:string|null;inspected_at?:string|null};
 type Shelf="all"|"finished"|"drawing"|"abandoned";
 type Counts=Record<Shelf,number>;
-type ArtworkPage={owned:boolean;drawings:Sketch[];hasMore:boolean;nextCursor:number|null;counts:Counts;error?:string};
+type ArtworkPage={owned:boolean;drawings:Sketch[];page:number;pageSize:number;totalPages:number;counts:Counts;error?:string};
 const EMPTY_COUNTS:Counts={all:0,finished:0,drawing:0,abandoned:0};
 export default function ArtworksPage(){
  const [drawings,setDrawings]=useState<Sketch[]>([]);
@@ -16,30 +16,49 @@ export default function ArtworksPage(){
  const [error,setError]=useState(""),[filter,setFilter]=useState<Shelf>("all");
  const [selected,setSelected]=useState<number|null>(null);
  const [counts,setCounts]=useState<Counts>(EMPTY_COUNTS);
- const [pageIndex,setPageIndex]=useState(0),[cursors,setCursors]=useState<(number|null)[]>([null]);
- const [nextCursor,setNextCursor]=useState<number|null>(null),[hasMore,setHasMore]=useState(false);
- const cursor=cursors[pageIndex]??null;
- const load=useCallback(async(status:Shelf,before:number|null)=>{
+ const [page,setPage]=useState(1),[totalPages,setTotalPages]=useState(0);
+ const load=useCallback(async(status:Shelf,number:number)=>{
   setLoading(true);
   try{
-   const query=new URLSearchParams({page:"1",status});
-   if(before!==null)query.set("before",String(before));
+   const query=new URLSearchParams({page:"1",status,number:String(number)});
    const res=await fetch("/api/world/artworks?"+query.toString(),{cache:"no-store"});
    const data=await res.json() as ArtworkPage;
    if(!res.ok)throw Error(data.error||"Could not retrieve Nimo's artworks");
    setOwned(Boolean(data.owned));setDrawings(data.drawings??[]);
-   setCounts(data.counts??EMPTY_COUNTS);setHasMore(Boolean(data.hasMore));setNextCursor(data.nextCursor??null);setError("");
+   setCounts(data.counts??EMPTY_COUNTS);
+   setTotalPages(data.totalPages??0);
+   if(data.page!==number)setPage(data.page);
+   setError("");
   }catch(e){setError(e instanceof Error?e.message:"Could not retrieve artworks");}
   finally{setLoading(false);setRefreshing(false);}
  },[]);
- useEffect(()=>{void load(filter,cursor);},[load,filter,cursor]);
- const chooseFilter=(next:Shelf)=>{if(next===filter)return;setFilter(next);setPageIndex(0);setCursors([null]);setSelected(null);};
- const next=()=>{
-  if(!hasMore||nextCursor===null||loading)return;
-  setCursors(old=>[...old.slice(0,pageIndex+1),nextCursor]);
-  setPageIndex(i=>i+1);setSelected(null);
+ useEffect(()=>{void load(filter,page);},[load,filter,page]);
+ const chooseFilter=(next:Shelf)=>{if(next===filter)return;setFilter(next);setPage(1);setSelected(null);};
+ const goToPage=(next:number)=>{
+  if(loading||next<1||next>totalPages||next===page)return;
+  setSelected(null);setPage(next);
  };
- const previous=()=>{if(pageIndex>0&&!loading){setPageIndex(i=>i-1);setSelected(null);}};
+ const pageChoices=(()=>{
+  const options=new Set<number>();
+  for(let n=1;n<=Math.min(2,totalPages);n++)options.add(n);
+  for(let n=Math.max(1,page-2);n<=Math.min(totalPages,page+2);n++)options.add(n);
+  for(let n=Math.max(1,totalPages-1);n<=totalPages;n++)options.add(n);
+  return [...options].sort((a,b)=>a-b);
+ })();
+ const pagination=(placement:"top"|"bottom")=>
+  owned&&totalPages>0?<nav className="nimo-gallery-pagination" aria-label={"Artwork pagination "+placement}>
+   <span className="nimo-gallery-page-total">{counts[filter]} drawings · Page {page} of {totalPages}</span>
+   <div className="nimo-gallery-page-controls">
+    <button type="button" disabled={page===1||loading} onClick={()=>goToPage(1)}>First</button>
+    <button type="button" disabled={page===1||loading} onClick={()=>goToPage(page-1)}>Previous</button>
+    {pageChoices.map((number,index)=><span key={number} className="nimo-gallery-page-option">
+      {index>0&&number-pageChoices[index-1]>1&&<span className="nimo-gallery-page-ellipsis" aria-hidden="true">…</span>}
+      <button type="button" aria-current={number===page?"page":undefined} disabled={loading} onClick={()=>goToPage(number)}>{number}</button>
+    </span>)}
+    <button type="button" disabled={page===totalPages||loading} onClick={()=>goToPage(page+1)}>Next</button>
+    <button type="button" disabled={page===totalPages||loading} onClick={()=>goToPage(totalPages)}>Last</button>
+   </div>
+  </nav>:null;
  const focused=selected===null?null:drawings.find(d=>d.id===selected)??null;
  const drawing=(d:Sketch)=> <svg viewBox="0 0 240 180" role="img" aria-label={d.title} className="world-artwork-canvas">
    <rect width="240" height="180" fill="#faf5e9"/>
@@ -49,13 +68,14 @@ export default function ArtworksPage(){
   <header className="nimo-gallery-header">
    <div><Link href="/world" className="nimo-gallery-back">Back to Nimo's world</Link><h1>Nimo's Artworks</h1>
     <p>Every drawing is made from the strokes Nimo chose, not generated by an image model.</p></div>
-   <button type="button" disabled={refreshing||loading} onClick={()=>{setRefreshing(true);void load(filter,cursor);}}>{refreshing?"Refreshing…":"Refresh gallery"}</button>
+   <button type="button" disabled={refreshing||loading} onClick={()=>{setRefreshing(true);void load(filter,page);}}>{refreshing?"Refreshing…":"Refresh gallery"}</button>
   </header>
   <nav className="nimo-gallery-filters" aria-label="Filter artworks">
    {(["all","finished","drawing","abandoned"] as const).map(t=><button key={t} type="button" aria-pressed={filter===t} onClick={()=>chooseFilter(t)}>
     {t==="all"?"All artworks":t==="drawing"?"In progress":t==="finished"?"Finished":"Abandoned"} ({counts[t]})
    </button>)}
   </nav>
+  {pagination("top")}
   {error&&<p role="alert" className="nimo-gallery-error">{error}</p>}
   {loading?<p>Loading Nimo's artworks…</p>:!owned?<p>Nimo hasn't acquired a sketchbook yet.</p>:drawings.length===0?<p>No drawings in this category yet.</p>:
   <div className="nimo-gallery-grid">{drawings.map(d=><article className="nimo-gallery-card" key={d.id}>
@@ -64,11 +84,7 @@ export default function ArtworksPage(){
    <p className="nimo-gallery-meta">{d.status} · {d.stroke_count} strokes · {new Date(d.updated_at).toLocaleString()}</p>
    {d.inspection&&<p className="nimo-gallery-inspection"><strong>Nimo's visual feedback:</strong> {d.inspection}</p>}</div>
   </article>)}</div>}
-  {owned&&counts[filter]>0&&<nav className="nimo-gallery-pagination" aria-label="Artwork pages">
-   <button type="button" disabled={pageIndex===0||loading} onClick={previous}>Previous</button>
-   <span>Page {pageIndex+1} · {counts[filter]} drawings</span>
-   <button type="button" disabled={!hasMore||loading} onClick={next}>Next</button>
-  </nav>}
+  {pagination("bottom")}
   {focused&&<div className="nimo-gallery-overlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setSelected(null);}}>
    <section role="dialog" aria-modal="true" aria-label={focused.title} className="nimo-gallery-detail">
     <button type="button" className="nimo-gallery-close" onClick={()=>setSelected(null)}>Close</button>
