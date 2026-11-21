@@ -12,9 +12,12 @@
 @media(max-width:760px){.nimo-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.nimo-gallery-grid{grid-template-columns:minmax(0,1fr)}}
 .nimo-gallery-card{overflow:hidden;background:white;border:1px solid #d4ded5;border-radius:14px;box-shadow:0 5px 22px #14291e0c}
-.nimo-gallery-art{display:block;width:100%;border:0;padding:18px;background:#f5efe4;cursor:zoom-in}
+.nimo-gallery-card-button{display:flex;flex-direction:column;width:100%;height:100%;padding:0;border:0;background:#fff;color:inherit;text-align:left;font:inherit;cursor:zoom-in}
+.nimo-gallery-card-button:focus-visible{outline:3px solid #346d52;outline-offset:-3px}
+.nimo-gallery-card-button:hover .nimo-gallery-info h2{text-decoration:underline}
+.nimo-gallery-art{display:block;width:100%;padding:18px;background:#f5efe4}
 .nimo-gallery-art .world-artwork-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3}
-.nimo-gallery-info{padding:16px 18px}
+.nimo-gallery-info{padding:16px 18px;flex:1;display:flex;align-items:center}
 .nimo-gallery-info h2{font-size:18px;margin:0 0 8px}
 .nimo-gallery-info p{line-height:1.5;margin:6px 0}
 .nimo-gallery-meta{color:#66786d;font-size:12px}
