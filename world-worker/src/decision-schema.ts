@@ -8,6 +8,7 @@ export type DecisionTool =
   | { name:"start_sketch";title:string;intention:string }
   | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
   | { name:"finish_sketch";sketchId:number;status:"finished"|"abandoned" }
+  | { name: "expand_world";changeType:"add"|"modify";title:string;target:string;description:string;reason:string }
   | { name: "ask_oracle";question:string }
   | { name: "write_document"; path: string; content: string }
   | { name: "travel_to"; x: number; y: number }
@@ -34,7 +35,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","ask_oracle"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -85,7 +86,10 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   let toolCall: DecisionTool | null = null;
   if (tool !== null) {
     if (!object(tool) || typeof tool.name !== "string") fail("invalid toolCall");
-    if (tool.name === "ask_oracle") {
+    if (tool.name === "expand_world") {
+      if(!["add","modify"].includes(String(tool.changeType))||!string(tool.title,100)||!tool.title.trim()||!string(tool.target,120)||!tool.target.trim()||!string(tool.description,700)||!tool.description.trim()||!string(tool.reason,400)||!tool.reason.trim())fail("Invalid world expansion proposal");
+      toolCall={name:"expand_world",changeType:tool.changeType as "add"|"modify",title:tool.title.trim(),target:tool.target.trim(),description:tool.description.trim(),reason:tool.reason.trim()};
+    } else if (tool.name === "ask_oracle") {
       if(!string(tool.question,500)||!tool.question.trim())fail("Oracle question must be 1–500 characters");
       toolCall={name:"ask_oracle",question:tool.question.trim()};
     } else if (tool.name === "write_document") {

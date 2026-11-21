@@ -25,8 +25,14 @@ export async function requestContext(db:D1Database){
     ORDER BY id DESC LIMIT 20`).all<Pick<CreatorRequest,"id"|"content"|"status"|"times_asked">>();
  return r.results;
 }
-export async function recordCreatorRequest(db:D1Database,eventId:number,content:string){
- const key=content.trim().toLowerCase().slice(0,240);
+/** Full-content deduplication is opt-in so existing general requests keep their keys. */
+export async function recordCreatorRequest(db:D1Database,eventId:number,content:string,fullProposalKey?:string){
+ let key=content.trim().toLowerCase().slice(0,240);
+ if(fullProposalKey!==undefined){
+  const bytes=new TextEncoder().encode(fullProposalKey);
+  const digest=await crypto.subtle.digest("SHA-256",bytes);
+  key="world-expansion:"+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+ }
  if(!key)return;
  const result=await db.prepare(`INSERT INTO creator_requests
     (source_event_id,dedupe_key,content,last_event_id) VALUES(?,?,?,?)
