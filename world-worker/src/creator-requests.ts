@@ -94,6 +94,16 @@ export async function respondToCreatorRequest(
       WHERE id=?`)
     .bind(idempotencyKey,idempotencyKey,id)
  ]);
- if(results[2].meta.changes!==1)throw Error("Could not update request");
- return {ok:true,delivered:true,duplicate:results[0].meta.changes===0};
+ // Audit triggers may change D1's mutation count even when the request was
+ // updated successfully. Verify the persisted reply, status and delivery event.
+ const [savedRequest,savedReply,savedEvent]=await Promise.all([
+  db.prepare("SELECT status FROM creator_requests WHERE id=?").bind(id).first<{status:string}>(),
+  db.prepare("SELECT request_id,status,message FROM creator_request_responses WHERE idempotency_key=?")
+    .bind(idempotencyKey).first<{request_id:number;status:string;message:string}>(),
+  db.prepare("SELECT id FROM events WHERE action=? LIMIT 1").bind(action).first<{id:number}>(),
+ ]);
+ if(savedRequest?.status!==status||savedReply?.request_id!==id||
+    savedReply.status!==status||savedReply.message!==content||!savedEvent)
+  throw Error("Could not verify request update; refresh before trying again");
+ return {ok:true,delivered:true,duplicate:existingReply!==null};
 }
