@@ -4,6 +4,7 @@ export type MemoryRow = {
   id:number; subject:string; statement:string; category:string; confidence:number;
   status:string; created_at:string; updated_at:string; reviewed_at:string|null;
   evidence_count:number;
+  reinforcement_hours:number;
 };
 export const MAX_ACTIVE_MEMORIES=24;
 
@@ -12,7 +13,10 @@ export const MAX_ACTIVE_MEMORIES=24;
 export async function consolidatedMemories(db:D1Database):Promise<MemoryRow[]> {
   const result=await db.prepare(`SELECT m.id,m.subject,m.statement,m.category,m.confidence,m.status,
       m.created_at,m.updated_at,m.reviewed_at,
-      (SELECT COUNT(*) FROM memory_evidence_v2 e WHERE e.memory_id=m.id) AS evidence_count
+      (SELECT COUNT(*) FROM memory_evidence_v2 e WHERE e.memory_id=m.id) AS evidence_count,
+      (SELECT COUNT(DISTINCT substr(ev.created_at,1,13))
+        FROM memory_evidence_v2 me JOIN events ev ON ev.id=me.event_id
+        WHERE me.memory_id=m.id) AS reinforcement_hours
       FROM consolidated_memories_v2 m
       WHERE m.status NOT IN ('retired','contradicted') AND m.category!='knowledge'
       ORDER BY m.updated_at DESC,m.id DESC LIMIT ?`)
