@@ -1054,11 +1054,9 @@ export default {
         if(params.get("page")!=="1")return json(await sketchbookSnapshot(env.DB,true));
         const status=params.get("status")??"all";
         if(!["all","finished","drawing","abandoned"].includes(status))return json({error:"Invalid artwork filter"},400);
-        const cursor=params.get("before");
-        const before=cursor===null?null:Number(cursor);
-        if(cursor!==null&&(!Number.isSafeInteger(before)||before===null||before<1))
-          return json({error:"Invalid artwork cursor"},400);
-        return json(await sketchbookPage(env.DB,status as SketchFilter,before,24));
+        const numberText=params.get("number")??"1";
+        if(!/^[1-9][0-9]{0,5}$/.test(numberText))return json({error:"Invalid artwork page number"},400);
+        return json(await sketchbookPage(env.DB,status as SketchFilter,Number(numberText),32));
       }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
