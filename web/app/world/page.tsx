@@ -9,7 +9,6 @@ import WorldMessagesPanel from "./world-messages-panel";
 import WorldMemoriesPanel from "./world-memories-panel";
 import WorldRequestsPanel from "./world-requests-panel";
 import WorldProjectsPanel from "./world-projects-panel";
-import WorldArtworksPanel from "./world-artworks-panel";
 import WorldOraclePanel from "./world-oracle-panel";
 import WorldNotesPanel from "./world-notes-panel";
 import "./world-artworks.css";
@@ -61,7 +60,6 @@ export default function World() {
   const [notesOpen,setNotesOpen]=useState(false);
   const [requestsOpen,setRequestsOpen]=useState(false);
   const [projectsOpen,setProjectsOpen]=useState(false);
-  const [artworksOpen,setArtworksOpen]=useState(false);
   const [oracleOpen,setOracleOpen]=useState(false);
   const [oracleQuota,setOracleQuota]=useState<{remaining:number;limit:number}|null>(null);
   const [sidebarVisible,setSidebarVisible]=useState(true);
@@ -74,7 +72,6 @@ export default function World() {
   const closeNotes=useCallback(()=>setNotesOpen(false),[]);
   const closeRequests=useCallback(()=>setRequestsOpen(false),[]);
   const closeProjects=useCallback(()=>setProjectsOpen(false),[]);
-  const closeArtworks=useCallback(()=>setArtworksOpen(false),[]);
   const closeOracle=useCallback(()=>setOracleOpen(false),[]);
   const refreshOracleQuota=useCallback(async()=>{
     if(document.visibilityState!=="visible")return;
@@ -321,7 +318,7 @@ export default function World() {
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setMessagesOpen(true)}>Messages</button>}
         {isOwner && <button type="button" className="world-messages-link" onClick={()=>setRequestsOpen(true)}>Requests {pendingRequests>0&&<span className="nimo-unread-count" aria-label={pendingRequests+" pending requests"}>{pendingRequests}</span>}</button>}
         <button type="button" className="world-messages-link" onClick={()=>setProjectsOpen(true)}>Projects</button>
-         <button type="button" className="world-messages-link" onClick={()=>setArtworksOpen(true)}>Artworks</button>
+         <a className="world-messages-link" href="/artworks">Artworks</a>
         <button type="button" className="world-messages-link" onClick={()=>{void refreshOracleQuota();setOracleOpen(true);}}>Oracle</button>
         {oracleQuota && <span className="world-oracle-quota" title={`Oracle consultations remaining today: ${oracleQuota.remaining} of ${oracleQuota.limit}. Resets at midnight UTC.`} aria-label={`Oracle consultations remaining today: ${oracleQuota.remaining} of ${oracleQuota.limit}`}>{oracleQuota.remaining}/{oracleQuota.limit}</span>}
         <button type="button" className="world-messages-link world-details-toggle" onClick={()=>setDetailsOpen(value=>!value)} aria-expanded={detailsOpen}>Details</button>
@@ -339,7 +336,6 @@ export default function World() {
       {isOwner && notesOpen && <WorldNotesPanel notes={data?.documents} offline={Boolean(data?.offline)} onClose={closeNotes} onRefresh={refresh}/>}
       {isOwner && requestsOpen && <WorldRequestsPanel onClose={closeRequests} onUpdated={refreshRequestCount}/>}
       {projectsOpen && <WorldProjectsPanel onClose={closeProjects}/>}
-       {artworksOpen && <WorldArtworksPanel onClose={closeArtworks}/>}
       {oracleOpen && <WorldOraclePanel onClose={closeOracle}/>}
       {initialLoading && !data ? <section className="world-loading" role="status" aria-live="polite">
         <span className="world-loading-spinner" aria-hidden="true"/>
