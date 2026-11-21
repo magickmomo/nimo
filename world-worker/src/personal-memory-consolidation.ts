@@ -183,10 +183,16 @@ export async function consolidatePersonalExperiences(
     const result=await reviewHour(env,now);
     // Record real counts and explanation after the atomic commit.
     if(result.periodEnd===end && result.periodStart===start && result.periodStart!==result.periodEnd){
-      await env.DB.prepare(`UPDATE personal_memory_reviews SET
-        scanned=?,stored=?,review_summary=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE period_start=? AND status='completed'`)
-        .bind(result.scanned,result.stored,("reviewSummary" in result ? String(result.reviewSummary??""):"").slice(0,1200),start).run();
+      try {
+        await env.DB.prepare(`UPDATE personal_memory_reviews SET
+          scanned=?,stored=?,review_summary=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE period_start=? AND status='completed'`)
+          .bind(result.scanned,result.stored,("reviewSummary" in result ? String(result.reviewSummary??""):"").slice(0,1200),start).run();
+      }catch(auditError){
+        // A noncritical summary-write failure must not mislabel an already
+        // committed hour as failed or send it through the skip/retry path.
+        console.error("Memory review summary audit unavailable",auditError);
+      }
     }
     return result;
   }catch(error){
