@@ -25,8 +25,15 @@ export default function ArtworksPage(){
    const data=await res.json() as ArtworkPage;
    if(!res.ok)throw Error(data.error||"Could not retrieve Nimo's artworks");
    setOwned(Boolean(data.owned));setDrawings(data.drawings??[]);
-   setCounts(data.counts??EMPTY_COUNTS);
-   setTotalPages(data.totalPages??0);
+   // Older Workers may return drawings without pagination metadata. Never
+   // save an absent page as undefined: it would be sent as "number=undefined".
+   if(!Number.isSafeInteger(data.page)||data.page<1||
+      !Number.isSafeInteger(data.totalPages)||data.totalPages<0||
+      !data.counts){
+    throw Error("The World Worker has not been updated for numbered artwork pages yet.");
+   }
+   setCounts(data.counts);
+   setTotalPages(data.totalPages);
    if(data.page!==number)setPage(data.page);
    setError("");
   }catch(e){setError(e instanceof Error?e.message:"Could not retrieve artworks");}
