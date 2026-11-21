@@ -3,6 +3,7 @@ import type {SketchStroke} from "./sketchbook";
 export const ARTWORK_INSPECTION_COST=10;
 export const ARTWORK_INSPECTION_MODEL="gpt-4.1-mini";
 const WIDTH=240,HEIGHT=180;
+export const ARTWORK_CLAIM_LEASE_MS=120_000;
 
 function u32(value:number){return Uint8Array.of((value>>>24)&255,(value>>>16)&255,(value>>>8)&255,value&255);}
 function join(parts:readonly Uint8Array[]){const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let i=0;for(const p of parts){out.set(p,i);i+=p.length;}return out;}
@@ -50,21 +51,42 @@ export async function inspectArtwork(env:{DB:D1Database;OPENAI_API_KEY:string;AR
  const sketch=await db.prepare("SELECT id,title,intention,status,strokes_json FROM nimo_sketches WHERE id=? AND status='finished'")
   .bind(sketchId).first<{id:number;title:string;intention:string;status:string;strokes_json:string}>();
  if(!sketch)throw Error("Only finished drawings can be inspected");
+ // A prior Worker may have died after taking coins. Recover a claim only after
+ // its lease expires, refunding once in the same D1 transaction. A late owner
+ // cannot complete or refund a replacement claim because each attempt has a token.
+ const recovered=await db.batch([
+  db.prepare(`UPDATE nimo_artwork_inspections SET status='failed',
+     error='Inspection lease expired; coins refunded',expires_at=NULL
+     WHERE sketch_id=? AND status='pending' AND expires_at<=?`)
+   .bind(sketchId,new Date().toISOString()),
+  db.prepare("UPDATE vending_state SET coins=coins+? WHERE id=1 AND changes()=1")
+   .bind(ARTWORK_INSPECTION_COST),
+ ]);
+ // The refund statement is contingent on precisely one successful expiry claim.
+ if(recovered[0].meta.changes!==recovered[1].meta.changes)
+  throw Error("Could not reconcile an expired inspection claim");
  const saved=await db.prepare("SELECT status,description FROM nimo_artwork_inspections WHERE sketch_id=?").bind(sketchId)
   .first<{status:string;description:string|null}>();
  if(saved?.status==="completed")return "Drawing #"+sketchId+" was already inspected: "+saved.description;
  if(saved?.status==="pending")throw Error("A visual inspection is already underway for this drawing");
- // Reservation and debit execute together. changes() applies to the immediately preceding statement.
+ const claimToken=crypto.randomUUID();
+ const expiresAt=new Date(Date.now()+ARTWORK_CLAIM_LEASE_MS).toISOString();
+ // Both statements in a D1 batch execute transactionally. The debit depends on
+ // the insertion/update succeeding, so a refused claim never charges coins.
  const claim=await db.batch([
-  db.prepare(`INSERT INTO nimo_artwork_inspections(sketch_id,status)
-    SELECT ?, 'pending' WHERE EXISTS(SELECT 1 FROM nimo_sketches WHERE id=? AND status='finished')
+  db.prepare(`INSERT INTO nimo_artwork_inspections(sketch_id,status,claim_token,expires_at)
+    SELECT ?,'pending',?,? WHERE EXISTS(SELECT 1 FROM nimo_sketches WHERE id=? AND status='finished')
       AND (SELECT coins FROM vending_state WHERE id=1)>=?
-    ON CONFLICT(sketch_id) DO UPDATE SET status='pending',description=NULL,error=NULL,inspected_at=NULL
-      WHERE nimo_artwork_inspections.status='failed'`).bind(sketchId,sketchId,ARTWORK_INSPECTION_COST),
+    ON CONFLICT(sketch_id) DO UPDATE SET status='pending',claim_token=excluded.claim_token,
+      expires_at=excluded.expires_at,description=NULL,error=NULL,inspected_at=NULL
+      WHERE nimo_artwork_inspections.status='failed'
+        AND (SELECT coins FROM vending_state WHERE id=1)>=?`)
+     .bind(sketchId,claimToken,expiresAt,sketchId,ARTWORK_INSPECTION_COST,ARTWORK_INSPECTION_COST),
   db.prepare("UPDATE vending_state SET coins=coins-? WHERE id=1 AND coins>=? AND changes()=1")
    .bind(ARTWORK_INSPECTION_COST,ARTWORK_INSPECTION_COST)
  ]);
- if(claim[0].meta.changes!==1||claim[1].meta.changes!==1)throw Error("Inspection unavailable: already in progress or requires 10 coins");
+ if(claim[0].meta.changes!==1||claim[1].meta.changes!==1)
+  throw Error("Inspection unavailable: already in progress or requires 10 coins");
  try{
   const strokes=JSON.parse(sketch.strokes_json) as SketchStroke[];
   const png=await artworkPng(strokes);
@@ -81,17 +103,29 @@ export async function inspectArtwork(env:{DB:D1Database;OPENAI_API_KEY:string;AR
   if(!res.ok)throw Error("Vision API HTTP "+res.status+": "+(await res.text()).slice(0,200));
   const description=responseText(await res.json());
   if(!description)throw Error("Vision model returned no description");
-  const update=await db.prepare("UPDATE nimo_artwork_inspections SET status='completed',description=?,inspected_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE sketch_id=? AND status='pending'")
-   .bind(description,sketchId).run();
-  if(update.meta.changes!==1)throw Error("Could not persist artwork inspection");
+  const update=await db.prepare(`UPDATE nimo_artwork_inspections SET status='completed',description=?,
+    expires_at=NULL,inspected_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE sketch_id=? AND status='pending' AND claim_token=? AND expires_at>?`)
+   .bind(description,sketchId,claimToken,new Date().toISOString()).run();
+  if(update.meta.changes!==1)throw Error("Inspection lease expired or superseded; visual result discarded");
   return "VISUAL INSPECTION OF #"+sketchId+" (10 coins spent): "+description;
  }catch(error){
-  // Refund precisely once if the inspection did not finish.
-  await db.batch([
-   db.prepare("UPDATE nimo_artwork_inspections SET status='failed',error=? WHERE sketch_id=? AND status='pending'")
-    .bind(String(error).slice(0,300),sketchId),
-   db.prepare("UPDATE vending_state SET coins=coins+? WHERE id=1 AND changes()=1").bind(ARTWORK_INSPECTION_COST)
-  ]);
+  // Only the owner of the current pending token can refund it. A stale
+  // invocation must not interfere with a newer claim or double-credit coins.
+  // If this transaction cannot complete, the expiring claim remains recoverable.
+  try {
+   const refund=await db.batch([
+    db.prepare(`UPDATE nimo_artwork_inspections SET status='failed',expires_at=NULL,error=?
+       WHERE sketch_id=? AND status='pending' AND claim_token=?`)
+     .bind(String(error).slice(0,300),sketchId,claimToken),
+    db.prepare("UPDATE vending_state SET coins=coins+? WHERE id=1 AND changes()=1")
+     .bind(ARTWORK_INSPECTION_COST)
+   ]);
+   if(refund[0].meta.changes!==refund[1].meta.changes)
+    throw Error("Artwork inspection refund reconciliation failed");
+  } catch(refundError) {
+   console.error("Artwork refund failed; expiring claim will allow recovery",refundError);
+  }
   throw error;
  }
 }
