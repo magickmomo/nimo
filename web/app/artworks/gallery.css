@@ -7,7 +7,10 @@
 .nimo-gallery-header button:disabled{opacity:.6}
 .nimo-gallery-filters{max-width:1500px;margin:0 auto 24px;display:flex;flex-wrap:wrap;gap:8px}
 .nimo-gallery-filters button[aria-pressed="true"]{background:#294c40;color:#fff}
-.nimo-gallery-grid{max-width:1500px;margin:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:20px}
+.nimo-gallery-grid{max-width:1500px;margin:auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+@media(max-width:1100px){.nimo-gallery-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.nimo-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.nimo-gallery-grid{grid-template-columns:minmax(0,1fr)}}
 .nimo-gallery-card{overflow:hidden;background:white;border:1px solid #d4ded5;border-radius:14px;box-shadow:0 5px 22px #14291e0c}
 .nimo-gallery-art{display:block;width:100%;border:0;padding:18px;background:#f5efe4;cursor:zoom-in}
 .nimo-gallery-art .world-artwork-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3}
@@ -21,7 +24,12 @@
 .nimo-gallery-detail .world-artwork-canvas{width:100%;max-height:65vh}
 .nimo-gallery-close{float:right;margin-bottom:12px}
 .nimo-gallery-error{color:#8f2828}
-.nimo-gallery-pagination{max-width:1500px;margin:28px auto 8px;display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
-.nimo-gallery-pagination button{font:inherit;border:1px solid #b8cbbd;border-radius:8px;padding:10px 18px;background:#fff;color:#294c40;cursor:pointer}
+.nimo-gallery-pagination{max-width:1500px;margin:22px auto;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.nimo-gallery-page-controls{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap}
+.nimo-gallery-pagination button{font:inherit;border:1px solid #b8cbbd;border-radius:8px;padding:8px 12px;min-width:38px;background:#fff;color:#294c40;cursor:pointer}
+.nimo-gallery-pagination button[aria-current="page"]{background:#294c40;color:#fff;border-color:#294c40;font-weight:700}
 .nimo-gallery-pagination button:disabled{opacity:.45;cursor:default}
-.nimo-gallery-pagination span{font-size:14px;color:#586b61}
+.nimo-gallery-page-option{display:inline-flex;align-items:center;gap:5px}
+.nimo-gallery-page-total{font-size:14px;color:#586b61}
+.nimo-gallery-page-ellipsis{padding:0 4px;color:#66786d}
+@media(max-width:760px){.nimo-gallery-pagination{justify-content:center}}
