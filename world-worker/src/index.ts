@@ -18,7 +18,7 @@ import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, se
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
-import { sketchbookSnapshot, buySketchbook, beginSketch, drawStrokes, closeSketch } from "./sketchbook";
+import { sketchbookSnapshot, sketchbookPage, buySketchbook, beginSketch, drawStrokes, closeSketch, type SketchFilter } from "./sketchbook";
 import { inspectArtwork, ARTWORK_INSPECTION_COST } from "./artwork-inspection";
 import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
 import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
@@ -1049,7 +1049,17 @@ export default {
         return json({used,limit:3,remaining:3-used,resetAt:new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()});
       }
       if (path === "/oracle" && request.method === "GET") return json({queries:await recentOracle(env.DB,50)});
-       if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true,true));
+       if (path === "/artworks" && request.method === "GET") {
+        const params=new URL(request.url).searchParams;
+        if(params.get("page")!=="1")return json(await sketchbookSnapshot(env.DB,true));
+        const status=params.get("status")??"all";
+        if(!["all","finished","drawing","abandoned"].includes(status))return json({error:"Invalid artwork filter"},400);
+        const cursor=params.get("before");
+        const before=cursor===null?null:Number(cursor);
+        if(cursor!==null&&(!Number.isSafeInteger(before)||before===null||before<1))
+          return json({error:"Invalid artwork cursor"},400);
+        return json(await sketchbookPage(env.DB,status as SketchFilter,before,24));
+      }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
           "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply') ORDER BY id DESC LIMIT 250"
