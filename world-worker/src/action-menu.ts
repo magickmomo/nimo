@@ -71,7 +71,8 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
   const variants:unknown[]=[{type:"null"}];
   if(!hasPendingVisitor) {
     if(menu.tools.includes("ask_oracle"))variants.push(obj({name:{type:"string",enum:["ask_oracle"]},question:string(500)}));
-    if(menu.tools.includes("expand_world"))variants.push(obj({name:{type:"string",enum:["expand_world"]},changeType:{type:"string",enum:["add","modify"]},title:string(100),target:string(120),description:string(700),reason:string(400)}));\n    if(menu.tools.includes("write_document"))variants.push(obj({
+    if(menu.tools.includes("expand_world"))variants.push(obj({name:{type:"string",enum:["expand_world"]},changeType:{type:"string",enum:["add","modify"]},title:string(100),target:string(120),description:string(700),reason:string(400)}));
+    if(menu.tools.includes("write_document"))variants.push(obj({
       name:{type:"string",enum:["write_document"]},
       path:string(44),content:string(2000),
     }));
