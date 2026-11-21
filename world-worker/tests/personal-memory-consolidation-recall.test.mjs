@@ -27,12 +27,25 @@ test("LLM consolidation may save no memories, and rejects unsupported claims",as
  assert.deepEqual(validatedProposals({memories:[]},events,known),[]);
  const valid={operation:"update",subject:"world:store:crop-sale",statement:"A later crop sale succeeded after earlier failures.",category:"experience",confidence:0.75,evidenceIds:[10]};
  assert.deepEqual(validatedProposals({memories:[valid]},events,known),[valid]);
- assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[999]}]},events,known),/actual journal event IDs/);
- assert.throws(()=>validatedProposals({memories:[{...valid,operation:"create"}]},events,known),/existing memory/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[999]}]},events,known),/event IDs/);
+ assert.deepEqual(validatedProposals({memories:[{...valid,operation:"create"}]},events,known),[valid]);
  assert.throws(()=>validatedProposals({memories:[{...valid,category:"food"}]},events,known),/category/);
  assert.throws(()=>validatedProposals({memories:[{...valid,subject:"oracle:question:100"}]},events,known),/subject/);
  assert.throws(()=>validatedProposals({memories:[valid,valid]},events,known),/Duplicate/);
- assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[]}]},events,known),/actual journal event IDs/);
+ assert.throws(()=>validatedProposals({memories:[{...valid,evidenceIds:[]}]},events,known),/event IDs/);
+});
+
+test("model update of absent subject becomes a create, preserving citations and confidence",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[{id:6513,kind:"tool",action:"SELL_ITEM_OK",content:"Sold harvested crop for 3 coins",created_at:"2026-11-20T21:47:21Z"},
+ {id:6518,kind:"tool",action:"OBJECT_NOTE_OK",content:"Recorded sale results",created_at:"2026-11-20T21:49:12Z"}];
+ const existing=[{id:1,subject:"fruit:amber",statement:"Amber helps fullness",category:"food",status:"tentative"}];
+ const proposed={operation:"update",subject:"experience:produce-sale",statement:"A crop sold for three coins.",
+  category:"experience",confidence:0.8,evidenceIds:[6513,6518]};
+ assert.deepEqual(validatedProposals({memories:[proposed]},events,existing),
+  [{...proposed,operation:"create"}]);
+ assert.throws(()=>validatedProposals({memories:[{...proposed,subject:"unscoped"}]},events,existing),/subject/);
+ assert.throws(()=>validatedProposals({memories:[{...proposed,evidenceIds:[999]}]},events,existing),/event IDs/);
 });
 
 test("recorded reflections can support memories of reflections, but fabricated evidence IDs are rejected",async()=>{
@@ -45,8 +58,33 @@ test("recorded reflections can support memories of reflections, but fabricated e
    statement:"I explored an idea by finishing a drawing and reflecting on it.",
    category:"experience",confidence:0.55,evidenceIds:[20,21]};
  assert.deepEqual(validatedProposals({memories:[proposal]},events,[]),[proposal]);
- assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[20,999]}]},events,[]),/actual journal event IDs/);
- assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[]}]},events,[]),/actual journal event IDs/);
+ assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[20,999]}]},events,[]),/event IDs/);
+ assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[]}]},events,[]),/event IDs/);
+});
+
+test("invalid evidence diagnostics identify the affected subject and IDs",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[{id:6402,kind:"tool",action:"EAT_OK",content:"Observed fullness increase",created_at:"2026-11-20T21:07:00Z"}];
+ const proposal={operation:"create",subject:"world:fruit:amber",statement:"Amber fruit restored my fullness.",
+  category:"food",confidence:0.6,evidenceIds:[6402,9999]};
+ assert.throws(()=>validatedProposals({memories:[proposal]},events,[]),/world:fruit:amber cites event IDs outside the review hour: 9999/);
+ assert.throws(()=>validatedProposals({memories:[{...proposal,evidenceIds:[]}]},events,[]),/world:fruit:amber must cite 1/);
+});
+
+test("hourly review accepts up to twelve genuine citations but rejects fabricated or excessive IDs",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=Array.from({length:13},(_,i)=>({
+  id:6402+i,kind:"tool",action:"EAT_OK",
+  content:"A verified fruit action "+i,created_at:"2026-11-20T21:07:00.000Z"
+ }));
+ const base={operation:"update",subject:"fruit:amber",
+  statement:"Amber fruit repeatedly helped restore fullness and could be sold.",
+  category:"food",confidence:0.8,evidenceIds:events.slice(0,10).map(e=>e.id)};
+ const known=[{id:1,subject:"fruit:amber",statement:"Amber helps fullness",
+  category:"food",status:"tentative"}];
+ assert.deepEqual(validatedProposals({memories:[base]},events,known),[base]);
+ assert.throws(()=>validatedProposals({memories:[{...base,evidenceIds:events.map(e=>e.id)}]},events,known),/1–12/);
+ assert.throws(()=>validatedProposals({memories:[{...base,evidenceIds:[6402,999999]}]},events,known),/outside the review hour/);
 });
 
 test("recall favours current context, not merely the newest memory",async()=>{

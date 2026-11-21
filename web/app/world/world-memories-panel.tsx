@@ -83,14 +83,17 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
       <p className="meta">Reviewed {review.scanned} events from {review.periodStart} to {review.periodEnd}. No changes saved.</p>
       <h3>LLM memory review</h3>
       {review.reviewSummary&&<p>{review.reviewSummary}</p>}
-      <p className="meta">{review.proposals.length} proposed memor{review.proposals.length===1?"y":"ies"} to create or update. These are previews only.</p>
+      <p className="meta">{review.validationError
+        ? `The LLM returned ${review.rejectedProposals?.length??0} proposed memories; validation rejected the batch. Nothing was saved.`
+        : `${review.proposals.length} proposed memor${review.proposals.length===1?"y":"ies"} to create or update. These are previews only.`}</p>
       {review.validationError&&<div role="alert" className="world-warning">
         <strong>The LLM proposals failed validation. Nothing was saved.</strong>
         <p>{review.validationError}</p>
         {review.invalidEvidenceIds?.length?<p>IDs not present in the selected hour: {review.invalidEvidenceIds.join(", ")}</p>:null}
         {review.rejectedProposals?.map((m,i)=><article className="world-memory-entry" key={i}>
+          <p><strong>Proposal {i+1}: {m.operation} · {m.category}</strong></p>
           <p>{m.statement}</p>
-          <p className="meta">Proposed evidence IDs: {Array.isArray(m.evidenceIds)?m.evidenceIds.join(", "):"missing"}</p>
+          <p className="meta">Subject: {m.subject}; confidence: {Math.round(m.confidence*100)}%; proposed evidence IDs: {Array.isArray(m.evidenceIds)?m.evidenceIds.join(", "):"missing"}</p>
         </article>)}
        </div>}
       {!review.validationError&&review.proposals.length===0?<p>No lasting memories proposed for this hour.</p>:review.proposals.map((m,i)=>
