@@ -686,7 +686,7 @@ async function tick(env: Env) {
         if(!menu.tools.includes("expand_world"))throw Error("World expansion proposals unavailable");
         const description = `WORLD EXPANSION (${call.changeType}): ${call.title}\nTarget: ${call.target}\nProposal: ${call.description}\nReason: ${call.reason}`;
         const eventId=await log(env.DB,"request",description,"WORLD_EXPANSION_REQUEST");
-        await recordCreatorRequest(env.DB,eventId,description);
+        await recordCreatorRequest(env.DB,eventId,description,JSON.stringify([call.changeType,call.title.trim(),call.target.trim(),call.description.trim(),call.reason.trim()]));
         toolOutcome=`WORLD EXPANSION REQUESTED: ${call.title}; pending creator review. No world changes were made.`;
         await log(env.DB,"tool",toolOutcome,"WORLD_EXPANSION_QUEUED");
       } else if (call.name === "create_project") {
