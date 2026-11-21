@@ -46,10 +46,14 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
     if(!value||typeof value!=="object")throw Error("Invalid memory proposal");
     const m=value as Partial<MemoryProposal>;
     if(m.operation!=="create"&&m.operation!=="update")throw Error("Invalid memory operation");
+    // The LLM can mislabel an operation. Reconcile it against the existing
+    // subject after validating the subject itself, instead of rejecting the
+    // entire batch for an otherwise valid new or updated memory.
+    const old=typeof m.subject==="string"?existing.get(m.subject):undefined;
     // Existing legacy subjects such as inventory_capacity remain updateable.
-    // New subjects use a predictable namespaced key.
+    // Brand-new memories still require a predictable namespaced key.
     if(typeof m.subject!=="string"||m.subject.length>100||m.subject.startsWith("oracle:")||
-      (m.operation==="create"&&!/^([a-z][a-z0-9_-]*:){1,3}[a-z0-9_-]+$/.test(m.subject)))
+      (!old&&!/^([a-z][a-z0-9_-]*:){1,3}[a-z0-9_-]+$/.test(m.subject)))
       throw Error("Invalid memory subject");
     if(used.has(m.subject))throw Error("Duplicate subject");
     used.add(m.subject);
@@ -64,11 +68,8 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
     const invalid=m.evidenceIds.filter(id=>!Number.isSafeInteger(id)||!evidence.has(id));
     if(invalid.length)
       throw Error("Memory "+m.subject+" cites event IDs outside the review hour: "+invalid.join(", "));
-    const old=existing.get(m.subject);
-    if(m.operation==="create"&&old)throw Error("Creating an existing memory");
-    if(m.operation==="update"&&!old)throw Error("Cannot update absent memory");
     if(old&&old.category!==m.category)throw Error("Cannot change existing memory category");
-    return m as MemoryProposal;
+    return {...m,operation:old?"update":"create"} as MemoryProposal;
   });
 }
 
@@ -180,8 +181,8 @@ Include a short, neutral reviewSummary explaining why the hour did or did not
 produce any lasting memory, without revealing private reasoning. If no memories
 were proposed, say so and briefly explain the judgment. Do not manufacture a
 memory or preference simply to fill the list.
-Use "update" with an existing subject when changing a previously stored memory,
-and "create" for genuinely new memories. Give each proposed memory 1–12 supporting
+Use "update" only for an exact subject in existingMemories; otherwise use
+"create". Never guess that a subject exists. Give each proposed memory 1–12 supporting
 event IDs from the supplied hour. Cite the specific experiences the memory is
 based on, copying their IDs exactly; never invent an ID. Confidence must be
 between 0.3 and 0.85.
