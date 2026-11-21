@@ -1049,7 +1049,7 @@ export default {
         return json({used,limit:3,remaining:3-used,resetAt:new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()});
       }
       if (path === "/oracle" && request.method === "GET") return json({queries:await recentOracle(env.DB,50)});
-       if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true));
+       if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true,true));
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
           "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply') ORDER BY id DESC LIMIT 250"
