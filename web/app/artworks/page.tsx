@@ -79,10 +79,10 @@ export default function ArtworksPage(){
   {error&&<p role="alert" className="nimo-gallery-error">{error}</p>}
   {loading?<p>Loading Nimo's artworks…</p>:!owned?<p>Nimo hasn't acquired a sketchbook yet.</p>:drawings.length===0?<p>No drawings in this category yet.</p>:
   <div className="nimo-gallery-grid">{drawings.map(d=><article className="nimo-gallery-card" key={d.id}>
-   <button className="nimo-gallery-art" type="button" onClick={()=>setSelected(d.id)} aria-label={"View "+d.title}>{drawing(d)}</button>
-   <div className="nimo-gallery-info"><h2>{d.title}</h2><p>{d.intention}</p>
-   <p className="nimo-gallery-meta">{d.status} · {d.stroke_count} strokes · {new Date(d.updated_at).toLocaleString()}</p>
-   {d.inspection&&<p className="nimo-gallery-inspection"><strong>Nimo's visual feedback:</strong> {d.inspection}</p>}</div>
+   <button className="nimo-gallery-card-button" type="button" onClick={()=>setSelected(d.id)} aria-label={"View "+d.title+" and its full description"}>
+    <div className="nimo-gallery-art">{drawing(d)}</div>
+    <div className="nimo-gallery-info"><h2>{d.title}</h2></div>
+   </button>
   </article>)}</div>}
   {pagination("bottom")}
   {focused&&<div className="nimo-gallery-overlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setSelected(null);}}>
@@ -90,7 +90,7 @@ export default function ArtworksPage(){
     <button type="button" className="nimo-gallery-close" onClick={()=>setSelected(null)}>Close</button>
     {drawing(focused)}<h2>{focused.title}</h2><p><strong>Intention:</strong> {focused.intention}</p>
     {focused.inspection&&<p><strong>Visual feedback:</strong> {focused.inspection}</p>}
-    <p className="nimo-gallery-meta">{focused.stroke_count} strokes · {focused.status}</p>
+    <p className="nimo-gallery-meta">{focused.status} · {focused.stroke_count} strokes · {new Date(focused.updated_at).toLocaleString()}</p>
    </section>
   </div>}
  </main>;
