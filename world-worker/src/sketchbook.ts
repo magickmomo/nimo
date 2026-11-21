@@ -2,7 +2,7 @@
  * No AI image endpoint and no generated SVG/HTML are accepted.
  */
 export type SketchStroke={points:[number,number][];color:string;width:number};
-export type Sketch={id:number;title:string;intention:string;status:"drawing"|"finished"|"abandoned";strokes_json:string;stroke_count:number;created_at:string;updated_at:string;finished_at:string|null};
+export type Sketch={id:number;title:string;intention:string;status:"drawing"|"finished"|"abandoned";strokes_json:string;stroke_count:number;created_at:string;updated_at:string;finished_at:string|null;inspection?:string|null;inspected_at?:string|null};
 const CANVAS_WIDTH=240,CANVAS_HEIGHT=180;
 export function validateStrokes(value:unknown):SketchStroke[]{
  if(!Array.isArray(value)||value.length<1||value.length>8)throw Error("Draw 1–8 strokes per action");
@@ -21,14 +21,44 @@ export function validateStrokes(value:unknown):SketchStroke[]{
   return {points,color:s.color.toLowerCase(),width:s.width};
  });
 }
-export async function sketchbookSnapshot(db:D1Database,includeDrawings=false){
+export async function sketchbookSnapshot(db:D1Database,includeDrawings=false,allDrawings=false){
  const owned=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first<{owned_at:string}>();
  if(!owned)return {owned:false,drawings:[],active:null};
- const result=await db.prepare(`SELECT id,title,intention,status,strokes_json,stroke_count,created_at,updated_at,finished_at
- FROM nimo_sketches ORDER BY updated_at DESC LIMIT 60`).all<Sketch>();
+ const result=await db.prepare(`SELECT s.id,s.title,s.intention,s.status,s.strokes_json,s.stroke_count,s.created_at,s.updated_at,s.finished_at,
+ i.description AS inspection,i.inspected_at
+ FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'
+ ORDER BY s.updated_at DESC LIMIT ?`).bind(allDrawings?2147483647:60).all<Sketch>();
  const drawings=result.results.map(s=>({...s,strokes:includeDrawings?JSON.parse(s.strokes_json) as SketchStroke[]:undefined,strokes_json:undefined}));
  return {owned:true,ownedAt:owned.owned_at,drawings,active:drawings.find(s=>s.status==="drawing")??null};
 }
+
+export type SketchFilter="all"|"finished"|"drawing"|"abandoned";
+/** Numbered server-side pagination supports direct page access, First and Last. */
+export async function sketchbookPage(db:D1Database,status:SketchFilter="all",pageNumber=1,pageSize=32){
+ if(!["all","finished","drawing","abandoned"].includes(status))throw Error("Invalid artwork filter");
+ if(!Number.isSafeInteger(pageNumber)||pageNumber<1||pageNumber>100000)throw Error("Invalid artwork page");
+ if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>48)throw Error("Invalid page size");
+ const owned=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first<{owned_at:string}>();
+ const emptyCounts={all:0,finished:0,drawing:0,abandoned:0};
+ if(!owned)return {owned:false,drawings:[],page:1,pageSize,totalPages:0,counts:emptyCounts};
+ const totals=await db.prepare("SELECT status,COUNT(*) AS n FROM nimo_sketches GROUP BY status").all<{status:Sketch["status"];n:number}>();
+ const counts={...emptyCounts};
+ for(const row of totals.results){counts[row.status]=row.n;counts.all+=row.n;}
+ const totalPages=Math.ceil(counts[status]/pageSize);
+ const page=totalPages===0?1:Math.min(pageNumber,totalPages);
+ const offset=(page-1)*pageSize;
+ const query=`SELECT s.id,s.title,s.intention,s.status,s.strokes_json,s.stroke_count,s.created_at,s.updated_at,s.finished_at,
+ i.description AS inspection,i.inspected_at
+ FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'
+ ${status==="all"?"":"WHERE s.status=?"}
+ ORDER BY s.id DESC LIMIT ? OFFSET ?`;
+ const params:(string|number)[]=status==="all"?[pageSize,offset]:[status,pageSize,offset];
+ const result=await db.prepare(query).bind(...params).all<Sketch>();
+ return {owned:true,ownedAt:owned.owned_at,
+   drawings:result.results.map(row=>({...row,strokes:JSON.parse(row.strokes_json) as SketchStroke[],strokes_json:undefined})),
+   page,pageSize,totalPages,counts};
+}
+
 export async function buySketchbook(db:D1Database,sourceKey:string){
  const existing=await db.prepare("SELECT owned_at FROM nimo_sketchbook WHERE id=1").first();
  if(existing)return "Already own the sketchbook; no coins deducted";

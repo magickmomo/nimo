@@ -18,7 +18,8 @@ import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, se
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
-import { sketchbookSnapshot, buySketchbook, beginSketch, drawStrokes, closeSketch } from "./sketchbook";
+import { sketchbookSnapshot, sketchbookPage, buySketchbook, beginSketch, drawStrokes, closeSketch, type SketchFilter } from "./sketchbook";
+import { inspectArtwork, ARTWORK_INSPECTION_COST } from "./artwork-inspection";
 import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
 import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
@@ -33,6 +34,7 @@ type Env = {
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
   ORACLE_MODEL?: string;
+  ARTWORK_VISION_MODEL?: string;
   MEMORY_MODEL?: string;
   MEMORY_CONSOLIDATION_ENABLED?: string;
   WORLD_INTERNAL_SECRET: string;
@@ -41,7 +43,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","expand_world"];
+const AVAILABLE_TOOLS = ["ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","expand_world"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
@@ -291,7 +293,7 @@ Inspect only if the currently offered action menu includes inspect and choose an
 Each world object has a stable environment-owned ID. Inspections automatically save a new observation and compare it with the previous recorded observation as first, unchanged or changed. The environment supplies objectMemory with observation counts and your own notes; repeated unchanged results mean only that no change was detected, not that change is impossible. Use remember_object to give an interesting known object your own label or note; IDs and physical properties are not yours to change. You may choose not to label anything. The environment supplies remembered visited tiles and inspected objects; treat these as records of actual events, not an assignment to keep exploring. You may revisit places, pursue other interests, or stop moving. You have no requirement to explore or fill the map.
 Experience context groups repeated actions into factual counts and selects a few significant past events. These counts are not goals, scores or incentives. Your currentGoal is a revisable note, not a standing instruction: you may keep it, change it or set it to null when it no longer serves you. Use your own judgement rather than continuing an activity merely because it dominates previous actions.
 To travel, choose any reachable walkable destination using one-based coordinates: ACT with toolCall: {name:"travel_to",x:5,y:6}. The environment calculates the entire shortest obstacle-aware route. You make NO new decisions during travel; your next decision happens after arrival. A tree, rock or shrub occupies its tile and cannot be a destination, so travel next to it to inspect. You can also remain still, write, observe, think or request capabilities. Exploration is possible but not compulsory.
-If you buy the small sketchpad from the vending machine, it permanently unlocks creative drawing. You alone choose WHAT to draw. start_sketch records a title and a clear intention, draw_strokes draws actual pencil strokes (no image generator), and finish_sketch completes or abandons the page. Canvas is 240 wide by 180 high; points are integer [x,y] pairs from [0,0] top left to [240,180] bottom right. Each draw_strokes action accepts 1–8 strokes; each stroke has 2–24 points, #RRGGBB color and integer width 1–8. Plan deliberate shapes with several small batches; simple line sketches are fine. Your saved strokes and current progress are in sketchbook. Drawing is optional; do it when genuinely interested, not as a mandatory daily task. Finished work appears in your art gallery. The view does not provide visual image understanding yet, so do not claim you have inspected the finished appearance.\nexpand_world lets you propose adding something to the world or changing something that exists. It records a proposal in the creator Requests inbox; it does not change the world immediately. Choose your own idea, if any, and explain what you would change and why. It is optional, not an objective or a routine. Use REQUEST for general help or missing capabilities instead.
+If you buy the small sketchpad from the vending machine, it permanently unlocks creative drawing. You alone choose WHAT to draw. start_sketch records a title and a clear intention, draw_strokes draws actual pencil strokes (no image generator), and finish_sketch completes or abandons the page. Canvas is 240 wide by 180 high; points are integer [x,y] pairs from [0,0] top left to [240,180] bottom right. Each draw_strokes action accepts 1–8 strokes; each stroke has 2–24 points, #RRGGBB color and integer width 1–8. Plan deliberate shapes with several small batches; simple line sketches are fine. Your saved strokes and current progress are in sketchbook. Drawing is optional; do it when genuinely interested, not as a mandatory daily task. Finished work appears in your art gallery. The strokes alone do not tell you what the finished page looks like. If you have enough coins, you can pay 10 coins to inspect a finished artwork using an external visual model. The tool gives you a grounded visual description and a comparison with your intention, not an objective judgement of quality. Each finished drawing can be inspected successfully only once; failed calls refund the coins. The inspection is optional, not a routine. Past inspection descriptions appear in sketchbook.\nexpand_world lets you propose adding something to the world or changing something that exists. It records a proposal in the creator Requests inbox; it does not change the world immediately. Choose your own idea, if any, and explain what you would change and why. It is optional, not an objective or a routine. Use REQUEST for general help or missing capabilities instead.
 The write_document tool creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
 Content is limited to 2000 characters, workspace to 12 files.
@@ -357,7 +359,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
   });
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,12).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ state:{identity:state.identity,currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,emotions:modelEmotions,tools:menu.tools,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,12).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:q.sources})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-20)}:null,recent:sketchbook.drawings.slice(0,24).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count,visualFeedback:d.inspection??null}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100),energy:Math.round(state.emotions.energy*100),happiness:Math.round(state.emotions.happiness*100),boredom:Math.round(state.emotions.boredom*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(displayPoint),
           visited: memory.visited.map(({x,y,visit_count}) => ({...displayPoint({x,y}),visits:visit_count})),
           inspected: memory.inspected.map(({x,y,kind,description,inspection_count}) =>
@@ -534,7 +536,8 @@ async function tick(env: Env) {
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
     {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
      {owned:sketchbook.owned,activeId:sketchbook.active?.id??null},
-     {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins});
+     {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins},
+     vending.coins>=ARTWORK_INSPECTION_COST ? sketchbook.drawings.filter(d=>d.status==="finished"&&!d.inspection).map(d=>d.id) : []);
   // Only offer novelty among actions the deterministic controller currently permits.
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
   // Perception remains factual; execution opportunities are a separate constrained menu.
@@ -689,6 +692,10 @@ async function tick(env: Env) {
         await recordCreatorRequest(env.DB,eventId,description,JSON.stringify([call.changeType,call.title.trim(),call.target.trim(),call.description.trim(),call.reason.trim()]));
         toolOutcome=`WORLD EXPANSION REQUESTED: ${call.title}; pending creator review. No world changes were made.`;
         await log(env.DB,"tool",toolOutcome,"WORLD_EXPANSION_QUEUED");
+      } else if (call.name === "inspect_artwork") {
+        if(!menu.inspectArtworkIds.includes(call.sketchId))throw Error("Artwork unavailable for paid inspection");
+        toolOutcome=await inspectArtwork(env,call.sketchId);
+        await log(env.DB,"tool",toolOutcome,"ARTWORK_INSPECTED");
       } else if (call.name === "create_project") {
         if(!menu.tools.includes("create_project"))throw Error("Project limit reached");
         toolOutcome=await createProject(env.DB,call.title,call.objective,call.nextStep);
@@ -1042,7 +1049,15 @@ export default {
         return json({used,limit:3,remaining:3-used,resetAt:new Date(Date.parse(today+"T00:00:00Z")+86400000).toISOString()});
       }
       if (path === "/oracle" && request.method === "GET") return json({queries:await recentOracle(env.DB,50)});
-       if (path === "/artworks" && request.method === "GET") return json(await sketchbookSnapshot(env.DB,true));
+       if (path === "/artworks" && request.method === "GET") {
+        const params=new URL(request.url).searchParams;
+        if(params.get("page")!=="1")return json(await sketchbookSnapshot(env.DB,true));
+        const status=params.get("status")??"all";
+        if(!["all","finished","drawing","abandoned"].includes(status))return json({error:"Invalid artwork filter"},400);
+        const numberText=params.get("number")??"1";
+        if(!/^[1-9][0-9]{0,5}$/.test(numberText))return json({error:"Invalid artwork page number"},400);
+        return json(await sketchbookPage(env.DB,status as SketchFilter,Number(numberText),32));
+      }
       if (path === "/messages" && request.method === "GET") {
         const history=await env.DB.prepare(
           "SELECT id,created_at,kind,content,action FROM events WHERE kind IN ('visitor','reply') ORDER BY id DESC LIMIT 250"
