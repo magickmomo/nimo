@@ -77,7 +77,7 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
     const onlyOracle= m.evidenceIds.every(id=>{
       const e=byId.get(id)!;
       return NON_EXPERIENTIAL.has(e.action)||
-        (e.kind==="thought"&&/\\boracle\\b/i.test(e.content));
+        (e.kind==="thought"&&/\boracle\b/i.test(e.content));
     });
     return onlyOracle?null:{...m,operation:old?"update":"create"} as MemoryProposal;
   }).filter((m):m is MemoryProposal=>m!==null);
