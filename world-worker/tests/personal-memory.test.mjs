@@ -128,7 +128,7 @@ assert db.execute("SELECT status FROM consolidated_memories_v2 WHERE id=25").fet
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2 WHERE status!='retired'").fetchone()[0]==24
 assert db.execute("SELECT COUNT(*) FROM consolidated_memories_v2").fetchone()[0]==25
 # Dozens of citations in a single hour do NOT become independent reinforcements.
-db.execute("UPDATE consolidated_memories_v2 SET status='tentative' WHERE id=2")
+db.execute("UPDATE consolidated_memories_v2 SET status='tentative',updated_at='2026-11-17T00:00:00.000Z' WHERE id=2")
 for n in range(300,335):
  db.execute("INSERT INTO events VALUES(?,'2026-11-20T21:30:00.000Z')",(n,))
  db.execute("INSERT INTO memory_evidence_v2 VALUES(2,?)",(n,))
