@@ -31,7 +31,8 @@ export function buildCapabilityCatalogue(
   const seedCost = vending.items.find(item=>item.id==="seed_packet")?.price;
   const items = [
     ["ask_oracle","Explore questions about the world beyond this one: sciences, arts, nature, cultures, technology, computing and unexpected interests",["Come within two cardinal steps of the ancient Oracle monument","The Oracle must not be processing another question"]],
-    ["expand_world","Propose adding an object or changing an existing part of your world for creator review; nothing changes until implemented",["Describe the intended change and your reason"]],\n    ["write_document","Write or revise a short virtual text document",["Workspace must have room for new files; existing documents can be revised"]],
+    ["expand_world","Propose adding an object or changing an existing part of your world for creator review; nothing changes until implemented",["Describe the intended change and your reason"]],
+    ["write_document","Write or revise a short virtual text document",["Workspace must have room for new files; existing documents can be revised"]],
     ["travel_to","Travel to a reachable walkable location",["Destination must be reachable and unblocked"]],
     ["inspect","Examine an adjacent object",["Stand next to an inspectable object; repeated inspection may be restricted"]],
     ["remember_object","Record a label or note for a known object",["Object must be known and eligible for a note"]],
