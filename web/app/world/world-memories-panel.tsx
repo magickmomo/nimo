@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState} from "react";
 type Evidence={id:number;created_at:string;kind:string;action:string|null;content:string};
 type ReviewProposal={operation:"create"|"update";subject:string;statement:string;category:string;confidence:number;evidenceIds:number[]};
 type Review={periodStart:string;periodEnd:string;preview:boolean;scanned:number;reviewSummary?:string;excludedProposalCount?:number;proposals:ReviewProposal[];validationError?:string;invalidEvidenceIds?:unknown[];rejectedProposals?:ReviewProposal[]};
-type Memory={id:number;statement:string;category:string;subject:string;confidence:number;status:string;updated_at:string;evidence_count:number;evidence:Evidence[]};
+type Memory={id:number;statement:string;category:string;subject:string;confidence:number;status:string;updated_at:string;evidence_count:number;reinforcement_hours?:number;evidence:Evidence[]};
 export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
  const root=useRef<HTMLElement>(null);
  const [memories,setMemories]=useState<Memory[]>([]);
@@ -110,7 +110,7 @@ export default function WorldMemoriesPanel({onClose}:{onClose:()=>void}) {
    <div className="world-message-thread">
     {loading?<p>Loading memories…</p>:memories.length===0?<p className="meta">No consolidated memories yet. Verified discoveries will appear as Nimo learns.</p>:
      memories.map(m=><article className="world-memory-entry" key={m.id}>
-      <div className="world-memory-meta"><strong>{m.category}</strong><span>{m.status} · confidence {Math.round(m.confidence*100)}%</span></div>
+      <div className="world-memory-meta"><strong>{m.category}</strong><span>{m.status} · confidence {Math.round(m.confidence*100)}%{typeof m.reinforcement_hours==="number"&&m.reinforcement_hours>0?` · ${m.reinforcement_hours} evidence hour${m.reinforcement_hours===1?"":"s"}`:""}</span></div>
       <p>{m.statement}</p>
       <details><summary>Evidence ({m.evidence_count})</summary>
        {m.evidence.length?m.evidence.map(e=><p key={e.id} className="world-memory-evidence"><time>{new Date(e.created_at).toLocaleString()}</time> · {e.content}</p>):<p>No linked events</p>}
