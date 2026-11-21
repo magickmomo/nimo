@@ -14,8 +14,10 @@ test("Oracle research stays in Oracle history instead of personal memory",()=>{
   assert.match(oracle,/UPDATE oracle_queries SET event_id=\?,memory_id=NULL/);
   assert.match(memory,/m\.category!='knowledge'/);
   assert.match(memory,/ROW_NUMBER\(\) OVER/);
-  assert.match(memory,/db\.batch\(\[/);
-  assert.match(memory,/db\.prepare\(pruneOverflowSql\)/);
+  const worker=read("../src/index.ts");
+  assert.doesNotMatch(worker,/recordVerifiedMemory/);
+  assert.doesNotMatch(memory,/recordVerifiedMemory/);
+  assert.match(worker,/await log\(env\.DB,"tool",toolOutcome,"EAT_OK"\)/);
 });
 
 test("Migration preserves Oracle research and restores lived lessons without deleting anything",()=>{
