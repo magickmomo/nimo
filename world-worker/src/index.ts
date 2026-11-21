@@ -19,7 +19,7 @@ import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memor
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
 import { sketchbookSnapshot, buySketchbook, beginSketch, drawStrokes, closeSketch } from "./sketchbook";
-import { consolidatedMemories, memoryEvidence, recordVerifiedMemory } from "./consolidated-memory";
+import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
 import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
@@ -646,16 +646,8 @@ async function tick(env: Env) {
         state.emotions.hunger=eaten.hunger;
         toolOutcome=`EAT OK: ${eaten.fruit}; observed fullness ${Math.round((100-eaten.before)*100)/100}% to ${Math.round((100-eaten.after)*100)/100}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
-        const evidenceEventId=await log(env.DB,"tool",toolOutcome,"EAT_OK");
-        const fullnessDelta=Math.round((eaten.before-eaten.after)*100)/100;
-        // A food lesson is one ordinary evidence-backed memory (not a second food-memory UI).
-        await recordVerifiedMemory(env.DB,{
-          subject:"fruit:"+eaten.fruit,category:"food",eventId:evidenceEventId,
-          statement:eaten.censored
-            ? eaten.fruit+" fruit changed observed fullness by "+fullnessDelta+" percentage points (boundary-limited observation)."
-            : eaten.fruit+" fruit changed observed fullness by "+fullnessDelta+" percentage points in a verified meal.",
-          confidence:eaten.censored?0.35:0.7
-        }).catch(e=>console.warn("Memory consolidation unavailable",e));
+        // Food outcomes enter the same hourly consolidation as every other experience.
+        await log(env.DB,"tool",toolOutcome,"EAT_OK");
         verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
       } else if (call.name === "discard_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
