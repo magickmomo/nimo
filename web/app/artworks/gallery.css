@@ -1,16 +1,17 @@
-.nimo-gallery{min-height:100vh;background:#f4f2eb;color:#263c35;padding:clamp(18px,4vw,48px);font-family:inherit}
-.nimo-gallery-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;max-width:1500px;margin:0 auto 28px}
+/* The root layout constrains generic <main> elements to 980px.
+   Let this route span the viewport without affecting the world and settings pages. */
+body > main:has(> .nimo-gallery){width:100%;max-width:none;margin:0;padding:0;min-height:0}
+.nimo-gallery{width:100%;max-width:none;margin:0;min-height:100vh;background:#f4f2eb;color:#263c35;padding:clamp(18px,4vw,48px);font-family:inherit}
+.nimo-gallery-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;width:100%;margin:0 0 28px}
 .nimo-gallery-back{display:inline-block;margin-bottom:16px;color:#346d52;text-decoration:underline}
 .nimo-gallery-header h1{font-size:clamp(28px,4vw,48px);line-height:1.15;margin:0 0 10px}
 .nimo-gallery-header p{max-width:600px;color:#586b61;line-height:1.5;margin:0}
 .nimo-gallery-header button,.nimo-gallery-filters button,.nimo-gallery-close{cursor:pointer;padding:10px 16px;border:1px solid #b8cbbd;border-radius:8px;background:#fff;color:#294c40;font:inherit}
 .nimo-gallery-header button:disabled{opacity:.6}
-.nimo-gallery-filters{max-width:1500px;margin:0 auto 24px;display:flex;flex-wrap:wrap;gap:8px}
+.nimo-gallery-filters{width:100%;margin:0 0 24px;display:flex;flex-wrap:wrap;gap:8px}
 .nimo-gallery-filters button[aria-pressed="true"]{background:#294c40;color:#fff}
-.nimo-gallery-grid{max-width:1500px;margin:auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
-@media(max-width:1100px){.nimo-gallery-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:760px){.nimo-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){.nimo-gallery-grid{grid-template-columns:minmax(0,1fr)}}
+/* Fit as many artwork cards as the available width comfortably allows. */
+.nimo-gallery-grid{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:20px}
 .nimo-gallery-card{overflow:hidden;background:white;border:1px solid #d4ded5;border-radius:14px;box-shadow:0 5px 22px #14291e0c}
 .nimo-gallery-card-button{display:flex;flex-direction:column;width:100%;height:100%;padding:0;border:0;background:#fff;color:inherit;text-align:left;font:inherit;cursor:zoom-in}
 .nimo-gallery-card-button:focus-visible{outline:3px solid #346d52;outline-offset:-3px}
@@ -27,7 +28,7 @@
 .nimo-gallery-detail .world-artwork-canvas{width:100%;max-height:65vh}
 .nimo-gallery-close{float:right;margin-bottom:12px}
 .nimo-gallery-error{color:#8f2828}
-.nimo-gallery-pagination{max-width:1500px;margin:22px auto;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.nimo-gallery-pagination{width:100%;margin:22px 0;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
 .nimo-gallery-page-controls{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap}
 .nimo-gallery-pagination button{font:inherit;border:1px solid #b8cbbd;border-radius:8px;padding:8px 12px;min-width:38px;background:#fff;color:#294c40;cursor:pointer}
 .nimo-gallery-pagination button[aria-current="page"]{background:#294c40;color:#fff;border-color:#294c40;font-weight:700}
@@ -36,3 +37,5 @@
 .nimo-gallery-page-total{font-size:14px;color:#586b61}
 .nimo-gallery-page-ellipsis{padding:0 4px;color:#66786d}
 @media(max-width:760px){.nimo-gallery-pagination{justify-content:center}}
+
+@media(max-width:600px){.nimo-gallery{padding:18px 14px}.nimo-gallery-grid{gap:12px}.nimo-gallery-art{padding:12px}.nimo-gallery-info{padding:12px 14px}}
