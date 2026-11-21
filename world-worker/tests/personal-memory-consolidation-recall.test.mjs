@@ -217,8 +217,8 @@ test("review audit, catch-up, and retryable missed hours",async()=>{
   async batch(statements){
    for(const statement of statements){
     if(statement.sql.includes("UPDATE personal_memory_cursor")){
-      if(statement.args.length===3){state.last_completed_hour=statement.args[0];state.last_event_id=statement.args[1];}
-      else{state.last_event_id=statement.args[0];state.last_completed_hour=statement.args[1];}
+      if(statement.sql.includes("SET last_event_id=?")){state.last_event_id=statement.args[0];state.last_completed_hour=statement.args[1];}
+      else{state.last_completed_hour=statement.args[0];state.last_event_id=statement.args[1];}
     }
     if(statement.sql.includes("INSERT INTO personal_memory_reviews")){
       const [start,end,stored]=statement.args;
