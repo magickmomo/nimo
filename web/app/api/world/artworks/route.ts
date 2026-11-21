@@ -6,7 +6,7 @@ export async function GET(request:Request){
  if(incoming.get("page")==="1"){
   query.set("page","1");
   if(incoming.has("status"))query.set("status",incoming.get("status")!);
-  if(incoming.has("before"))query.set("before",incoming.get("before")!);
+  if(incoming.has("number"))query.set("number",incoming.get("number")!);
  }
  const url=process.env.WORLD_WORKER_URL,secret=process.env.WORLD_INTERNAL_SECRET;
  if(!url||!secret)return NextResponse.json({error:"Worker unavailable"},{status:503});
