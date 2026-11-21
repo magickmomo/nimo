@@ -8,6 +8,7 @@ export type DecisionTool =
   | { name:"start_sketch";title:string;intention:string }
   | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
   | { name:"finish_sketch";sketchId:number;status:"finished"|"abandoned" }
+  | { name:"inspect_artwork";sketchId:number }
   | { name: "expand_world";changeType:"add"|"modify";title:string;target:string;description:string;reason:string }
   | { name: "ask_oracle";question:string }
   | { name: "write_document"; path: string; content: string }
@@ -35,7 +36,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","ask_oracle","expand_world"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -122,6 +123,9 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
       // Validation is repeated by the storage boundary before any database mutation.
       const strokes=validateStrokes(tool.strokes);
       toolCall={name:"draw_strokes",sketchId:tool.sketchId as number,strokes};
+    } else if (tool.name === "inspect_artwork") {
+      if(!Number.isSafeInteger(tool.sketchId)||(tool.sketchId as number)<1)fail("Invalid artwork inspection ID");
+      toolCall={name:"inspect_artwork",sketchId:tool.sketchId as number};
     } else if (tool.name === "finish_sketch") {
       if(!Number.isSafeInteger(tool.sketchId)||(tool.sketchId as number)<1||!["finished","abandoned"].includes(String(tool.status)))fail("Invalid finish sketch action");
       toolCall={name:"finish_sketch",sketchId:tool.sketchId as number,status:tool.status as "finished"|"abandoned"};
