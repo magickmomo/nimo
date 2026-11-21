@@ -182,7 +182,7 @@ test("one hourly LLM pass, bounded input, and cursor advanced only with writes",
  assert.match(worker,/selectRelevantMemories\(longTermMemories/);
 });
 
-test("recover missed hours separately without combining more than 400 events",async()=>{
+test("review audit, catch-up, and retryable missed hours",async()=>{
  const {consolidatePersonalExperiences}=await loadTs("../src/personal-memory-consolidation.ts");
  const h20="2026-11-20T20:00:00.000Z",h21="2026-11-20T21:00:00.000Z",h22="2026-11-20T22:00:00.000Z";
  const events=[
@@ -190,37 +190,99 @@ test("recover missed hours separately without combining more than 400 events",as
   ...Array.from({length:230},(_,i)=>({id:i+231,created_at:"2026-11-20T21:20:00.000Z",kind:"thought",action:"THINK",content:"Ordinary thought"}))
  ];
  const state={last_event_id:0,last_completed_hour:h20};
- const queries=[];
+ const reviews=new Map(),queries=[];
  const db={
   prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},
-   async first(){if(sql.includes("SELECT last_event_id,last_completed_hour"))return {...state};throw Error("Unexpected first");},
+   async first(){
+    if(sql.includes("FROM personal_memory_cursor"))return {...state};
+    if(sql.includes("FROM personal_memory_reviews"))return {attempts:reviews.get(this.args[0])?.attempts??0};
+    if(sql.includes("MAX(id) AS id"))return {id:Math.max(0,...events.filter(e=>e.created_at>=this.args[0]&&e.created_at<this.args[1]).map(e=>e.id))};
+    throw Error("Unexpected first "+sql);
+   },
+   async run(){
+    if(sql.includes("INSERT INTO personal_memory_reviews")){
+      const [start,end,error]=this.args;
+      const old=reviews.get(start);
+      reviews.set(start,{status:"failed",attempts:(old?.attempts??0)+1,end,error});
+    }
+    if(sql.includes("UPDATE personal_memory_reviews"))Object.assign(reviews.get(this.args.at(-1))??{}, {summary:this.args[2]});
+    return {meta:{changes:1}};
+   },
    async all(){
     if(sql.includes("FROM consolidated_memories_v2"))return {results:[]};
-    if(!sql.includes("FROM events"))throw Error("Unexpected query");
+    if(!sql.includes("FROM events"))throw Error("Unexpected query "+sql);
     const [after,start,end]=this.args;queries.push([after,start,end]);
     return {results:events.filter(e=>e.id>after&&e.created_at>=start&&e.created_at<end).slice(0,401)};
    }};},
   async batch(statements){
-   const last=statements.at(-1);assert.match(last.sql,/UPDATE personal_memory_cursor/);
-   state.last_event_id=last.args[0];state.last_completed_hour=last.args[1];
-   return statements.map(()=>({meta:{changes:1}}));
+   for(const statement of statements){
+    if(statement.sql.includes("UPDATE personal_memory_cursor")){
+      if(statement.sql.includes("SET last_event_id=?")){state.last_event_id=statement.args[0];state.last_completed_hour=statement.args[1];}
+      else{state.last_completed_hour=statement.args[0];state.last_event_id=statement.args[1];}
+    }
+    if(statement.sql.includes("INSERT INTO personal_memory_reviews")){
+      const [start,end,stored]=statement.args;
+      reviews.set(start,{status:"completed",attempts:1,end,stored});
+    }
+    if(statement.sql.includes("status='skipped'"))reviews.get(statement.args[0]).status="skipped";
+   }
+   return statements.map(()=>({meta:{changes:0}})); // simulate trigger-sensitive D1 counters
   }
  };
  const env={DB:db,OPENAI_API_KEY:"unused"},now=new Date("2026-11-20T22:05:00.000Z");
- // Every hour is now reviewed, even if it contains only journal reflections.
  const originalFetch=globalThis.fetch;
- globalThis.fetch=async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"memories":[]}'}}]})});
+ globalThis.fetch=async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"reviewSummary":"Nothing enduring","memories":[]}'}}]})});
  try {
- const first=await consolidatePersonalExperiences(env,now);
- assert.equal(first.scanned,230);assert.equal(first.periodStart,h20);assert.equal(first.periodEnd,h21);
- assert.equal(state.last_event_id,230);
- const second=await consolidatePersonalExperiences(env,now);
- assert.equal(second.scanned,230);assert.equal(second.periodStart,h21);assert.equal(second.periodEnd,h22);
- assert.equal(state.last_event_id,460);
- const third=await consolidatePersonalExperiences(env,now);
- assert.equal(third.scanned,0);
- assert.deepEqual(queries,[[0,h20,h21],[230,h21,h22]]);
+  const first=await consolidatePersonalExperiences(env,now);
+  assert.equal(first.scanned,230);assert.equal(first.periodStart,h20);assert.equal(first.periodEnd,h21);
+  assert.equal(state.last_event_id,230);assert.equal(reviews.get(h20).status,"completed");
+  const second=await consolidatePersonalExperiences(env,now);
+  assert.equal(second.scanned,230);assert.equal(second.periodStart,h21);assert.equal(second.periodEnd,h22);
+  assert.equal(state.last_event_id,460);
+  const third=await consolidatePersonalExperiences(env,now);
+  assert.equal(third.scanned,0);
+  assert.deepEqual(queries,[[0,h20,h21],[230,h21,h22]]);
  }finally{globalThis.fetch=originalFetch;}
+});
+
+test("three failed review attempts are recorded and permit the next hour",async()=>{
+ const {consolidatePersonalExperiences}=await loadTs("../src/personal-memory-consolidation.ts");
+ const start="2026-11-20T20:00:00.000Z",end="2026-11-20T21:00:00.000Z";
+ const cursor={last_event_id:0,last_completed_hour:start};
+ const reviews=new Map();
+ const db={
+  prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},
+   async first(){
+    if(sql.includes("FROM personal_memory_cursor"))return {...cursor};
+    if(sql.includes("FROM personal_memory_reviews"))return {attempts:reviews.get(this.args[0])?.attempts??0};
+    if(sql.includes("MAX(id) AS id"))return {id:12};
+    throw Error("Unexpected "+sql);
+   },
+   async all(){return {results:[{id:12,created_at:"2026-11-20T20:15:00.000Z",kind:"thought",action:"THINK",content:"Reflecting"}]}},
+   async run(){
+    if(sql.includes("INSERT INTO personal_memory_reviews")){
+      const [key,periodEnd,error]=this.args;
+      const previous=reviews.get(key); reviews.set(key,{attempts:(previous?.attempts??0)+1,status:"failed",error});
+    }
+    return {meta:{changes:1}};
+   }};},
+  async batch(statements){
+    for(const item of statements){
+      if(item.sql.includes("UPDATE personal_memory_cursor")){cursor.last_completed_hour=item.args[0];cursor.last_event_id=item.args[1];}
+      if(item.sql.includes("status='skipped'"))reviews.get(item.args[0]).status="skipped";
+    }
+    return statements.map(()=>({meta:{changes:1}}));
+  }
+ };
+ const fetchBefore=globalThis.fetch;
+ globalThis.fetch=async()=>{throw Error("Model unavailable")};
+ try{
+  for(let i=0;i<3;i++)await assert.rejects(consolidatePersonalExperiences({DB:db,OPENAI_API_KEY:"unused"},new Date("2026-11-20T22:05:00.000Z")),/Model unavailable/);
+  assert.equal(cursor.last_completed_hour,end);
+  assert.equal(cursor.last_event_id,12);
+  assert.equal(reviews.get(start).status,"skipped");
+  assert.equal(reviews.get(start).attempts,3);
+ }finally{globalThis.fetch=fetchBefore;}
 });
 
 test("preview asks the LLM to explain its decision even if no memory qualifies",()=>{

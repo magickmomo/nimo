@@ -115,8 +115,52 @@ async function commitReview(db:D1Database,proposals:MemoryProposal[],cursorId:nu
     SET last_event_id=?,last_completed_hour=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
     WHERE id=1 AND (last_completed_hour IS NULL OR last_completed_hour<?)`)
     .bind(cursorId,hour,hour));
-  const outcome=await db.batch(statements);
-  if(outcome.at(-1)?.meta.changes!==1)throw Error("Consolidation hour was already committed");
+  // Audit is part of the same D1 transaction as memory inserts and the cursor.
+  statements.push(db.prepare(`INSERT INTO personal_memory_reviews
+    (period_start,period_end,status,attempts,scanned,stored,review_summary,error)
+    VALUES(?,?,'completed',1,0,?,NULL,NULL)
+    ON CONFLICT(period_start) DO UPDATE SET status='completed',stored=excluded.stored,
+      error=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
+    .bind(new Date(Date.parse(hour)-3_600_000).toISOString(),hour,proposals.length));
+  await db.batch(statements);
+  // D1 change counts can include audit-trigger writes; verify the durable
+  // cursor instead. A concurrent run must never silently report success.
+  const saved=await db.prepare("SELECT last_completed_hour FROM personal_memory_cursor WHERE id=1")
+    .first<{last_completed_hour:string|null}>();
+  if(!saved?.last_completed_hour||Date.parse(saved.last_completed_hour)<Date.parse(hour))
+    throw Error("Consolidation cursor did not advance");
+}
+
+/** Persist failed attempts and make a repeatedly poisoned hour visible
+ * without blocking every later hour forever. Skipping loses no raw journal
+ * events: they remain in events and can be re-reviewed in preview. */
+async function markFailedReview(db:D1Database,start:string,end:string,reason:string){
+ const error=reason.slice(0,700);
+ await db.prepare(`INSERT INTO personal_memory_reviews
+   (period_start,period_end,status,attempts,error)
+   VALUES(?,?,'failed',1,?)
+   ON CONFLICT(period_start) DO UPDATE SET
+     status='failed',attempts=attempts+1,error=excluded.error,
+     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
+   .bind(start,end,error).run();
+ const log=await db.prepare("SELECT attempts FROM personal_memory_reviews WHERE period_start=?")
+   .bind(start).first<{attempts:number}>();
+ if((log?.attempts??0)<3)return;
+ const latest=await db.prepare(`SELECT MAX(id) AS id FROM events WHERE created_at>=? AND created_at<? AND kind IN ('tool','thought')`)
+   .bind(start,end).first<{id:number|null}>();
+ const state=await db.prepare("SELECT last_event_id,last_completed_hour FROM personal_memory_cursor WHERE id=1")
+   .first<{last_event_id:number;last_completed_hour:string|null}>();
+ // Only move the cursor if this exact hour remains next in sequence.
+ if(state?.last_completed_hour!==start)return;
+ await db.batch([
+  db.prepare(`UPDATE personal_memory_cursor SET
+    last_completed_hour=?,last_event_id=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id=1 AND last_completed_hour=?`)
+    .bind(end,Math.max(state.last_event_id,latest?.id??0),start),
+  db.prepare(`UPDATE personal_memory_reviews SET status='skipped',
+    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE period_start=? AND attempts>=3`)
+    .bind(start)
+ ]);
 }
 
 export function completedHour(now:Date):string {
@@ -127,6 +171,39 @@ export function completedHour(now:Date):string {
 
 type ReviewResult={memories:unknown;reviewSummary?:unknown};
 export async function consolidatePersonalExperiences(
+  env:{DB:D1Database;OPENAI_API_KEY:string;MEMORY_MODEL?:string},
+  now=new Date(), previewStart?:string
+) {
+  if(previewStart!==undefined)return reviewHour(env,now,previewStart);
+  const state=await env.DB.prepare("SELECT last_completed_hour FROM personal_memory_cursor WHERE id=1")
+    .first<{last_completed_hour:string|null}>();
+  const start=state?.last_completed_hour??completedHour(now);
+  const end=new Date(Date.parse(start)+3_600_000).toISOString();
+  try {
+    const result=await reviewHour(env,now);
+    // Record real counts and explanation after the atomic commit.
+    if(result.periodEnd===end && result.periodStart===start && result.periodStart!==result.periodEnd){
+      try {
+        await env.DB.prepare(`UPDATE personal_memory_reviews SET
+          scanned=?,stored=?,review_summary=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE period_start=? AND status='completed'`)
+          .bind(result.scanned,result.stored,("reviewSummary" in result ? String(result.reviewSummary??""):"").slice(0,1200),start).run();
+      }catch(auditError){
+        // A noncritical summary-write failure must not mislabel an already
+        // committed hour as failed or send it through the skip/retry path.
+        console.error("Memory review summary audit unavailable",auditError);
+      }
+    }
+    return result;
+  }catch(error){
+    const reason=error instanceof Error?error.message:String(error);
+    try { await markFailedReview(env.DB,start,end,reason); }
+    catch(logError){console.error("Memory review audit logging failed",logError);}
+    throw error;
+  }
+}
+
+async function reviewHour(
   env:{DB:D1Database;OPENAI_API_KEY:string;MEMORY_MODEL?:string},
   now=new Date(), previewStart?:string
 ) {
@@ -169,7 +246,7 @@ export async function consolidatePersonalExperiences(
   // require a verified tool outcome as supporting evidence.
   const existing=await db.prepare(`SELECT id,subject,statement,category,status
     FROM consolidated_memories_v2 WHERE category!='knowledge' AND status!='contradicted'
-    ORDER BY updated_at DESC LIMIT 100`).all<ExistingMemory>();
+    ORDER BY CASE WHEN status='retired' THEN 1 ELSE 0 END,updated_at DESC LIMIT 100`).all<ExistingMemory>();
   const instructions=`You review Nimo's experiences from the past hour and decide
 whether anything from that hour is worth retaining in his long-term personal memory.
 
@@ -180,6 +257,15 @@ previous memory when new experience changes its meaning, or retain nothing.
 Use your judgement. Do not favour any particular activity, topic, object, type
 of experience or existing memory. Do not try to fill the memory capacity. An
 experience being frequent or recent doesn't by itself mean it is important.
+
+Treat a memory as an enduring observation or lesson, not an hourly activity
+summary. When a new event teaches something materially different, propose a
+distinct, specific subject rather than adding it to a broad existing subject.
+When it really extends or corrects the *same* lesson, update the existing
+subject and reconcile old and new evidence. Do not create three near-duplicate
+memories about the same activity just to maximize recall. A novel proposal,
+artwork or its observed result can be worth remembering when the timeline
+supports it; don't assume every recent project deserves permanence.
 
 Keep memories faithful to what happened. His reflections provide context about
 what he said or intended, not proof of external outcomes or permanent preferences.
