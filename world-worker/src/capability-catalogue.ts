@@ -46,6 +46,7 @@ export function buildCapabilityCatalogue(
         "A seed packet costs "+seedCost+" coins; current balance is "+coins,
       "Have sufficient coins and free inventory capacity",
     ]],
+    ["inspect_artwork","Pay 10 coins to receive an image-based visual report for one completed drawing",["Have at least 10 coins","Choose a finished drawing that has not already been inspected","The same finished drawing can only receive one successful paid inspection"]],
     ["start_sketch","Begin a new drawing in your sketchbook",["Purchase the reusable sketchpad at the vending machine","Finish an existing sketch before opening another"]],
     ["draw_strokes","Draw vector pencil strokes on the current page",["Own the sketchpad","Have an unfinished sketch","Canvas 240×180; up to eight strokes per turn"]],
     ["finish_sketch","Finish or abandon the drawing on the current page",["Own the sketchpad","Have an unfinished sketch"]],
