@@ -1,0 +1,23 @@
+.nimo-gallery{min-height:100vh;background:#f4f2eb;color:#263c35;padding:clamp(18px,4vw,48px);font-family:inherit}
+.nimo-gallery-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;max-width:1500px;margin:0 auto 28px}
+.nimo-gallery-back{display:inline-block;margin-bottom:16px;color:#346d52;text-decoration:underline}
+.nimo-gallery-header h1{font-size:clamp(28px,4vw,48px);line-height:1.15;margin:0 0 10px}
+.nimo-gallery-header p{max-width:600px;color:#586b61;line-height:1.5;margin:0}
+.nimo-gallery-header button,.nimo-gallery-filters button,.nimo-gallery-close{cursor:pointer;padding:10px 16px;border:1px solid #b8cbbd;border-radius:8px;background:#fff;color:#294c40;font:inherit}
+.nimo-gallery-header button:disabled{opacity:.6}
+.nimo-gallery-filters{max-width:1500px;margin:0 auto 24px;display:flex;flex-wrap:wrap;gap:8px}
+.nimo-gallery-filters button[aria-pressed="true"]{background:#294c40;color:#fff}
+.nimo-gallery-grid{max-width:1500px;margin:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:20px}
+.nimo-gallery-card{overflow:hidden;background:white;border:1px solid #d4ded5;border-radius:14px;box-shadow:0 5px 22px #14291e0c}
+.nimo-gallery-art{display:block;width:100%;border:0;padding:18px;background:#f5efe4;cursor:zoom-in}
+.nimo-gallery-art .world-artwork-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3}
+.nimo-gallery-info{padding:16px 18px}
+.nimo-gallery-info h2{font-size:18px;margin:0 0 8px}
+.nimo-gallery-info p{line-height:1.5;margin:6px 0}
+.nimo-gallery-meta{color:#66786d;font-size:12px}
+.nimo-gallery-inspection{border-top:1px solid #e0e7df;padding-top:10px;font-size:13px}
+.nimo-gallery-overlay{position:fixed;inset:0;background:#0c1712c7;z-index:999;display:flex;align-items:center;justify-content:center;padding:16px}
+.nimo-gallery-detail{background:#fff;border-radius:14px;padding:20px;max-height:94vh;overflow:auto;width:min(94vw,850px)}
+.nimo-gallery-detail .world-artwork-canvas{width:100%;max-height:65vh}
+.nimo-gallery-close{float:right;margin-bottom:12px}
+.nimo-gallery-error{color:#8f2828}
