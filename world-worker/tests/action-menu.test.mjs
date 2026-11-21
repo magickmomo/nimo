@@ -19,20 +19,23 @@ test("only eligible tools and object targets reach the model",()=>{
  const menu=buildActionMenu(policy,directions,["rock_002","tree_003"],objects);
  assert.deepEqual(menu.inspectDirections,["east"]);
  assert.deepEqual(menu.noteObjectIds,["tree_003"]);
- assert.deepEqual(menu.tools,["write_document","travel_to","inspect","remember_object"]);
+ assert.deepEqual(menu.tools,["write_document","travel_to","expand_world","inspect","remember_object"]);
  const schema=decisionResponseFormat(menu).json_schema.schema;
  const variants=schema.properties.toolCall.anyOf;
  assert.deepEqual(variants.find(v=>v.properties?.name?.enum?.[0]==="inspect").properties.direction.enum,["east"]);
  assert.deepEqual(variants.find(v=>v.properties?.name?.enum?.[0]==="remember_object").properties.objectId.enum,["tree_003"]);
  assert.equal(JSON.stringify(schema).includes("rock_002"),false);
+ const expansion=variants.find(v=>v.properties?.name?.enum?.[0]==="expand_world");
+ assert.deepEqual(expansion.properties.changeType.enum,["add","modify"]);
+ assert.deepEqual(expansion.required,["name","changeType","title","target","description","reason"]);
 });
 
 test("unavailable tool names disappear entirely when no target qualifies",()=>{
  const menu=buildActionMenu(policy,[directions[0]],["rock_002"],objects);
- assert.deepEqual(menu.tools,["write_document","travel_to"]);
+ assert.deepEqual(menu.tools,["write_document","travel_to","expand_world"]);
  const schema=decisionResponseFormat(menu).json_schema.schema;
  const toolNames=schema.properties.toolCall.anyOf.flatMap(v=>v.properties?.name?.enum??[]);
- assert.deepEqual(toolNames,["write_document","travel_to"]);
+ assert.deepEqual(toolNames,["expand_world","write_document","travel_to"]);
 });
 
 test("visitor turn exposes no executable tools",()=>{
