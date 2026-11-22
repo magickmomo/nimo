@@ -12,6 +12,9 @@ const ACTIONS:Record<string,Activity> = {
   inspect:{name:"investigating",category:"exploration",phase:"instant"},
   remember_object:{name:"recording_observations",category:"exploration",phase:"instant"},
   pick_fruit:{name:"foraging",category:"survival",phase:"instant"},
+  pick_flowers:{name:"flower_gathering",category:"nature",phase:"instant"},
+  plant_wildflower_seed:{name:"gardening",category:"gardening",phase:"instant"},
+  discard_wildflower:{name:"inventory_management",category:"survival",phase:"instant"},
   eat_fruit:{name:"eating",category:"survival",phase:"instant"},
   discard_fruit:{name:"inventory_management",category:"survival",phase:"instant"},
   take_can:{name:"gardening",category:"gardening",phase:"instant"},
@@ -94,7 +97,7 @@ export function noveltyAssessment(evidence:NoveltyEvidence,seen:readonly string[
 export function verifiedActivityEvidence(action:string,detail:{
   subject?:string; comparison?:"first"|"changed"|"unchanged";
   revision?:number; first?:boolean; informativeTrials?:number;
-  censored?:boolean; difference?:number; completed?:boolean;
+  censored?:boolean; difference?:number; completed?:boolean; seedFound?:boolean;
   inspectionVersion?:number;
 }={}):NoveltyEvidence {
  const subject=(detail.subject??"").slice(0,64);
@@ -113,6 +116,15 @@ export function verifiedActivityEvidence(action:string,detail:{
    return subject&&detail.first?{key:"object:note:"+subject,strength:"progress"}:null;
   case "pick_fruit":
    return subject?{key:"foraging:first:"+subject,strength:"progress"}:null;
+  case "pick_flowers":
+   // The first surprise seed is new information, and is more valuable than
+   // the first successful pick from a given patch. Repeated picks are routine.
+   if(detail.seedFound)return {key:"wildflowers:first_seed",strength:"meaningful"};
+   return subject?{key:"wildflowers:first_pick:"+subject,strength:"progress"}:null;
+  case "plant_wildflower_seed":
+   return detail.completed?{key:"wildflowers:first_plant",strength:"progress"}:null;
+  case "discard_wildflower":
+   return null; // Inventory housekeeping is not discovery.
   case "finish_sketch":
    return detail.completed?{key:"drawing:first_completed",strength:"progress"}:null;
   case "inspect_artwork":
