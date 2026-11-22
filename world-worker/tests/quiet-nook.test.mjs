@@ -45,7 +45,14 @@ test("map animates journeys and seated pose with reduced-motion support",()=>{
  assert.match(map,/function GardenNook/);
  assert.match(map,/function SeatedCharacter/);
  assert.match(map,/walking=\{moving\}/);
+ assert.match(map,/const moving = journey\?\.status === "travelling" && hasJourney && progress < route\.length - 1/);
+ assert.match(map,/const current = hasJourney \?/);
+ assert.match(map,/journey\?\.status === "paused"/);
  assert.match(map,/const seated=!sleeping&&!moving/);
+ assert.match(map,/const restEndsAt = lastRestedAt \? Date\.parse\(lastRestedAt\) \+ 60_000/);
+ assert.match(map,/const timer = window\.setInterval/);
+ assert.match(map,/lastRestedAt, sleeping\]/);
+ assert.match(map,/now >= restEndsAt/);
  assert.match(map,/withNimo=\{seated\}/);
  assert.match(map,/lastRestedAt/);
  assert.match(css,/@keyframes nimo-walk-bob/);
