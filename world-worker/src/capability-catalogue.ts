@@ -26,7 +26,7 @@ export function buildCapabilityCatalogue(
   const hasCan = supplies.find(item=>item.kind === "watering_can");
   const knownPlot = ["plot_001","plot_002","plot_003"].some(id=>known.has(id));
   const hasFruit = food.inventory.length > 0;
-  const saleable = carries("crop") || hasFruit || menu.heldFlowerKinds.includes("wildflower");
+  const saleable = carries("crop") || hasFruit || menu.heldFlowerKinds?.includes("wildflower")===true;
   const room = garden.inventoryUsed < garden.capacity;
   const coins = vending.coins;
   const seedCost = vending.items.find(item=>item.id==="seed_packet")?.price;
