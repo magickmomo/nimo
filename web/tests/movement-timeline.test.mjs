@@ -72,6 +72,22 @@ test("rest appears near bench and expires on the same timeline",()=>{
  assert.equal(movementFrame({position:near,now:t+60000,lastRestedAt:restTime}).seated,false);
  assert.equal(movementFrame({position:p,now:t+100,lastRestedAt:restTime}).seated,false);
 });
+test("late travelling snapshots advance the clock before checking if a timer is needed",()=>{
+ const renderer=readFileSync(new URL("../app/world/isometric-world.tsx",import.meta.url),"utf8");
+ const effect=renderer.slice(renderer.indexOf("const startsAt=journey?.startedAt"),renderer.indexOf("// D1 owns the route"));
+ assert.ok(effect.indexOf("setClock(Date.now());")>=0,"A new journey snapshot must cause an immediate frame");
+ assert.ok(effect.indexOf("setClock(Date.now());")<effect.indexOf("if(!travelling&&!replaying&&!resting)return;"),"Refresh must happen before short-circuiting expired journeys");
+ const arrived=frame(trip,t+2000);
+ assert.equal(arrived.walking,false);
+ assert.deepEqual(arrived.position,{x:5,y:4});
+});
+test("reduced motion preserves positional interpolation but disables pose motion",()=>{
+ const renderer=readFileSync(new URL("../app/world/isometric-world.tsx",import.meta.url),"utf8");
+ assert.match(renderer,/matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
+ assert.match(renderer,/legSwing=\{reducedMotion\?0:frame\.legSwing\}/);
+ assert.match(renderer,/bodyBob=\{reducedMotion\?0:frame\.bodyBob\}/);
+ assert.equal(frame(trip,t+375).position.x,4.25);
+});
 test("walking CSS must not have a free-running animation and the worker retains completion metadata",()=>{
  const css=readFileSync(new URL("../app/world/world.css",import.meta.url),"utf8");
  const renderer=readFileSync(new URL("../app/world/isometric-world.tsx",import.meta.url),"utf8");
