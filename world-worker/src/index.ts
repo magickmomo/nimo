@@ -44,7 +44,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "pick_flowers", "plant_wildflower_seed", "discard_wildflower", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","expand_world"];
+const AVAILABLE_TOOLS = ["rest","ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "pick_flowers", "plant_wildflower_seed", "discard_wildflower", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","expand_world"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
@@ -560,7 +560,8 @@ async function tick(env: Env) {
         ? adjacentFlowerPatches(position,wildflowers.patches):[],
       plantDirections:wildflowers.inventory.some(item=>item.kind==="flower_seed")
         ? plantableDirections(position,wildflowers.patches):[],
-      carriedKinds:[...new Set(wildflowers.inventory.map(item=>item.kind))]});
+      carriedKinds:[...new Set(wildflowers.inventory.map(item=>item.kind))]},
+     nearObject(position,"garden_nook_001"));
   // Only offer novelty among actions the deterministic controller currently permits.
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
   // Perception remains factual; execution opportunities are a separate constrained menu.
@@ -661,6 +662,12 @@ async function tick(env: Env) {
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:found.objectId,comparison:found.comparison,inspectionVersion:found.recordedObservations});
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
+      } else if (call.name === "rest") {
+        // Rest is a place-specific, observable action, not a meter refill.
+        if(!menu.restAtNook||!nearObject(position,"garden_nook_001"))
+          throw Error("Rest is available only beside the quiet garden nook");
+        toolOutcome="RESTED: Sat quietly on the garden nook bench.";
+        await log(env.DB,"tool",toolOutcome,"RESTED");
       } else if (call.name === "pick_flowers") {
         if(!menu.flowerPatchIds.includes(call.patchId))throw Error("No pickable flowers adjacent");
         const picked=await pickFlowers(env.DB,position,call.patchId,decisionKey);
@@ -829,6 +836,8 @@ async function tick(env: Env) {
     curiosityNoveltyKeys:novelty.keys,
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
     currentActivity: pendingMessage ? state.currentActivity : d.activity,
+    lastRestedAt: !toolFailed&&d.toolCall?.name==="rest" ? now.toISOString()
+      : (d.toolCall&&!toolFailed?null:state.lastRestedAt??null),
     oracleNearbyLastDecision:pendingMessage?state.oracleNearbyLastDecision:oracleWithinReach,
     pendingIntent:nextVisitorIntent(state.pendingIntent,pendingMessage?.id??null,d.replyIntent,
       d.intentDisposition,!!d.toolCall&&!toolFailed,now.toISOString()),
