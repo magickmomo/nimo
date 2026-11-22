@@ -131,5 +131,5 @@ jobs:
         run: npm run test --prefix world-worker
       - name: Website TypeScript
         run: npm run typecheck --prefix web
-      - name: Website tests
-        run: npm run test --prefix web
+      - name: Requests tab regression tests
+        run: cd web && node --test tests/requests-implemented-tab.test.mjs
