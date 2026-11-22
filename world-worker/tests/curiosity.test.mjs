@@ -4,7 +4,7 @@ import {test} from "node:test";
 import ts from "typescript";
 const source=readFileSync(new URL("../src/curiosity.ts",import.meta.url),"utf8");
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {curiosityStep,curiosityGuidance,choiceName,recentChoices,activityFor}=await import("data:text/javascript;base64,"+Buffer.from(compiled).toString("base64"));
+const {curiosityStep,curiosityGuidance,choiceName,recentChoices,activityFor,verifiedActivityEvidence,noveltyAssessment}=await import("data:text/javascript;base64,"+Buffer.from(compiled).toString("base64"));
 
 test("all sketch steps are one drawing activity; only a new drawing is counted",()=>{
  assert.deepEqual(["start_sketch","draw_strokes","finish_sketch"].map(n=>activityFor(n).name),["drawing","drawing","drawing"]);
@@ -107,10 +107,71 @@ test("nutrition has priority and curiosity is bounded",()=>{
  assert.equal(recentChoices(Array(20).fill("travel_to")).length,10);
 });
 
-test("Worker only grants meaningful novelty on verified first or changed inspections",()=>{
+test("verified novelty is available across activities but not ordinary repeats",()=>{
+ const cases=[
+  ["inspect",{subject:"tree_001",comparison:"first",inspectionVersion:1},"meaningful"],
+  ["eat_fruit",{subject:"amber",informativeTrials:0,censored:false,difference:-0.35},"meaningful"],
+  ["write_document",{subject:"notes.txt",revision:1},"progress"],
+  ["remember_object",{subject:"tree_001",first:true},"progress"],
+  ["pick_fruit",{subject:"tree_001"},"progress"],
+  ["finish_sketch",{completed:true},"progress"],
+  ["inspect_artwork",{subject:"123",completed:true},"meaningful"],
+  ["plant_seed",{subject:"plot_001",completed:true},"progress"],
+  ["water_plot",{subject:"plot_001",completed:true},"progress"],
+  ["harvest_crop",{subject:"plot_001",completed:true},"progress"],
+  ["sell_item",{subject:"crop",completed:true},"progress"],
+  ["buy_item",{subject:"seed_packet",completed:true},"progress"],
+  ["create_project",{completed:true},"progress"],
+  ["update_project",{completed:true},"progress"]
+ ];
+ for(const [action,details,strength] of cases){
+   const evidence=verifiedActivityEvidence(action,details);
+   assert.ok(evidence,action);
+   assert.equal(evidence.strength,strength,action);
+   const first=noveltyAssessment(evidence,[]);
+   assert.equal(first.novelty,strength,action);
+   assert.equal(noveltyAssessment(evidence,first.keys).novelty,"none",action);
+ }
+});
+test("routine outcomes do not manufacture discovery",()=>{
+ const no=[
+  ["inspect",{subject:"tree_001",comparison:"unchanged"}],
+  ["eat_fruit",{subject:"amber",informativeTrials:3,censored:false,difference:-0.35}],
+  ["eat_fruit",{subject:"amber",informativeTrials:0,censored:true,difference:-0.1}],
+  ["write_document",{subject:"notes.txt",revision:8}],
+  ["remember_object",{subject:"tree_001",first:false}],
+  ["finish_sketch",{completed:false}],
+  ["ask_oracle",{subject:"new question",completed:true}],
+  ["travel_to",{subject:"x_01",completed:true}],
+  ["expand_world",{completed:true}]
+ ];
+ for(const [name,details] of no)assert.equal(verifiedActivityEvidence(name,details),null,name);
+});
+test("verified milestones reduce curiosity without changing tool categories",()=>{
+ const previous=["gardening","gardening","gardening"];
+ const evidence=verifiedActivityEvidence("harvest_crop",{subject:"plot_002",completed:true});
+ const next=noveltyAssessment(evidence,[]);
+ const progress=curiosityStep(0.7,previous,"harvest_crop",{novelty:next.novelty});
+ const routine=curiosityStep(0.7,previous,"harvest_crop",{novelty:"none"});
+ assert.equal(routine.value-progress.value,0.06);
+ assert.deepEqual(progress.history,routine.history);
+ const art=curiosityStep(0.7,["drawing"],"finish_sketch",{novelty:"progress"});
+ assert.ok(art.value<0.7);
+ assert.equal(art.counted,false);
+});
+test("novelty history is bounded and repeated milestones are idempotent",()=>{
+ const keys=Array.from({length:128},(_,i)=>"milestone:"+i);
+ const more=noveltyAssessment({key:"milestone:new",strength:"progress"},keys);
+ assert.equal(more.keys.length,128);
+ assert.equal(more.novelty,"progress");
+ assert.equal(noveltyAssessment({key:"milestone:new",strength:"progress"},more.keys).novelty,"none");
+});
+
+test("Worker only grants novelty after verified action results",()=>{
  const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
- assert.ok(worker.includes('verifiedExperience?.type==="inspection"'));
- assert.ok(worker.includes('verifiedExperience.comparison!=="unchanged"'));
+ assert.ok(worker.includes('noveltyAssessment(noveltyEvidence'));
+ assert.ok(worker.includes('noveltyEvidence=verifiedActivityEvidence(call.name'));
+ assert.ok(worker.includes('curiosityNoveltyKeys:novelty.keys'));
  assert.ok(worker.includes('d.action==="REPLY" || toolFailed ? null'));
  assert.ok(worker.includes('curiosityStep(state.emotions.curiosity'));
 });
