@@ -1368,3 +1368,16 @@ main:has(> .world-dashboard){
     width:min(310px,calc(100% - 400px));
   }
 }
+
+/* Keep every navigation action reachable even when the owner buttons appear.
+   Centering an overflowing flex row clips its leading actions; start-alignment
+   lets the full row be scrolled instead. */
+@media (min-width:1250px){
+  .world-dashboard>.world-topbar{
+    justify-content:flex-start;
+    overscroll-behavior-x:contain;
+  }
+  .world-dashboard>.world-topbar>.world-messages-link{
+    flex-shrink:0;
+  }
+}
