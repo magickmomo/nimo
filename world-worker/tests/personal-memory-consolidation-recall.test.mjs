@@ -18,6 +18,11 @@ test("only verified tool outcomes are eligible evidence",async()=>{
  assert.equal(eligibleEvent({id:2,created_at:"2026-11-20T20:00:00Z",action:"THINK",content:"I believe"}),false);
  assert.equal(eligibleEvent({id:3,created_at:"2026-11-20T20:00:00Z",action:"SELL_ITEM_OK",content:"Sold crop"}),true);
  assert.equal(eligibleEvent({id:4,created_at:"2026-11-20T20:00:00Z",action:"WRITE_ERROR",content:"Sale conflict"}),true);
+ for(const [index,action] of ["FLOWERS_PICKED","FLOWER_SEED_PLANTED","FLOWER_DISCARDED"].entries()){
+  assert.equal(eligibleEvent({id:5+index,kind:"tool",created_at:"2026-11-22T08:00:00Z",action,content:"Confirmed flower action"}),true,action);
+  assert.equal(eligibleEvent({id:9+index,kind:"tool",created_at:"2026-11-22T08:00:00Z",action,content:""}),false,"Empty outcome is not evidence");
+ }
+ assert.equal(eligibleEvent({id:15,kind:"thought",created_at:"2026-11-22T08:00:00Z",action:"FLOWERS_PICKED_FAILED",content:"Attempt failed"}),false);
 });
 
 test("LLM consolidation may save no memories, and rejects unsupported claims",async()=>{
