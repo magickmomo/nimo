@@ -17,7 +17,22 @@ const noise = (x: number, y: number, seed = 0) => {
 const tiles = Array.from({ length: SIZE * SIZE }, (_, i) => ({ x: i % SIZE, y: Math.floor(i / SIZE) }));
 const project = (p: Point) => ({ x: ORIGIN_X + (p.x - p.y) * HW, y: ORIGIN_Y + (p.x + p.y) * HH });
 
+function GardenNook({withNimo=false}:{withNimo?:boolean}) {
+ return <g aria-label="Quiet garden nook with wooden bench">
+  <ellipse cy="4" rx="26" ry="11" fill="#4b7957" opacity=".18"/>
+  <path d="M-24 3 q-4 -8 -1 -16 M24 3 q4 -7 1 -14 M-19 4 q-5 -8 -9 -5 M19 4 q4 -9 10 -7"
+   stroke="#5d9760" strokeWidth="2" fill="none" strokeLinecap="round"/>
+  <circle cx="-26" cy="-13" r="2.3" fill="#edd4b6"/><circle cx="27" cy="-12" r="2" fill="#e6c5dc"/>
+  <path d="M-19 -4 L-19 -18 L19 -18 L19 -4" fill="#a5784f" stroke="#76563e" strokeWidth="3" strokeLinejoin="round"/>
+  <rect x="-23" y="-21" width="46" height="8" rx="2.5" fill="#b78b5b" stroke="#73583f" strokeWidth="1.5"/>
+  <path d="M-18 -18 H18 M-20 -6 H20" stroke="#d3aa76" strokeWidth="1.5"/>
+  <rect x="-24" y="-7" width="48" height="6" rx="2" fill="#bb905e" stroke="#71553e" strokeWidth="1.5"/>
+  <path d="M-17 0 V7 M17 0 V7" stroke="#71553e" strokeWidth="3" strokeLinecap="round"/>
+  {withNimo&&<g transform="translate(0 -10)"><SeatedCharacter/></g>}
+ </g>;
+}
 function Scenery({ kind, stage, oracleActive=false }: { kind: ObjectKind; stage?:string; oracleActive?:boolean }) {
+  if(kind==="garden_nook")return <GardenNook/>;
   if(kind==="oracle")return (
     <g aria-label="Ancient Oracle monument" className={oracleActive?"nimo-oracle-awakened":undefined}>
       <ellipse cx="20" cy="5" rx="47" ry="19" fill="#102f35" opacity=".43"/>
@@ -105,15 +120,25 @@ function Wildflowers({blooms}:{blooms:number}) {
  </g>;
 }
 
-function Character({sleeping=false,oracleActive=false}: {sleeping?:boolean;oracleActive?:boolean}) {
+function SeatedCharacter(){
+ return <g className="nimo-character-seated" aria-label="Nimo sitting quietly on the bench">
+  <ellipse cy="-2" rx="10" ry="4" fill="#33463d" opacity=".17"/>
+  <path d="M-8 -10 L-10 -1 H-3 M8 -10 L10 -1 H3" fill="none" stroke="#514964" strokeWidth="4" strokeLinecap="round"/>
+  <rect x="-12" y="-33" width="24" height="24" rx="9" fill="#f5e8c7" stroke="#534762" strokeWidth="2.5"/>
+  <rect x="-9" y="-28" width="18" height="12" rx="4" fill="#38354e"/>
+  <path d="M-6 -22 Q-3 -19 0 -22 M2 -22 Q5 -19 8 -22" stroke="#f6e5a6" strokeWidth="1.6" fill="none" strokeLinecap="round"/>
+  <path d="M-7 -10 L-8 -1 M7 -10 L8 -1" stroke="#534762" strokeWidth="3" strokeLinecap="round"/>
+ </g>;
+}
+function Character({sleeping=false,oracleActive=false,walking=false}: {sleeping?:boolean;oracleActive?:boolean;walking?:boolean}) {
   return (
-    <g className={sleeping?"nimo-character-sleeping":"nimo-character-awake"}>
+    <g className={sleeping?"nimo-character-sleeping":walking?"nimo-character-walking":"nimo-character-awake"}>
       {oracleActive && <g className="nimo-oracle-character-halo" aria-hidden="true">
         <ellipse cy="4" rx="24" ry="11" fill="#9de9d7" opacity=".24"/>
         <ellipse cy="4" rx="21" ry="9" fill="none" stroke="#a7fff0" strokeWidth="2"/>
       </g>}
       <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".36"/>
-      <path d="M-10 -10 L-11 1 M10 -10 L11 1" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/>
+      <g className="nimo-walking-legs"><path className="nimo-walking-leg-left" d="M-9 -10 L-11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/><path className="nimo-walking-leg-right" d="M9 -10 L11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/></g>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
       <rect x="-10" y="-31" width="20" height="14" rx="5" fill="#38354e"/>
       {sleeping ? <g className="nimo-sleep-face"><path d="M-7 -24 Q-4 -21 -1 -24 M2 -24 Q5 -21 8 -24" stroke="#f6e5a6" strokeWidth="2" fill="none" strokeLinecap="round"/><text x="16" y="-37" fill="#e7ede4" fontSize="11" className="nimo-sleep-z">z</text></g> : <g className="nimo-awake-eyes"><circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/><circle cx="5" cy="-24" r="2" fill="#f6e5a6"/></g>}
@@ -134,9 +159,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], flowers, sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], flowers, sleeping=false, lastRestedAt=null, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; plots?:{id:string;stage:string}[]; flowers?:{id:string;x:number;y:number;blooms:number}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; plots?:{id:string;stage:string}[]; flowers?:{id:string;x:number;y:number;blooms:number}[]; sleeping?:boolean; lastRestedAt?:string|null; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   const [zoom, setZoom] = useState(1.3);
@@ -168,6 +193,9 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     x: from.x + (to.x-from.x)*portion,
     y: from.y + (to.y-from.y)*portion,
   } : authoritative;
+  const seated=!sleeping&&!moving&&!!lastRestedAt
+    &&clock-Date.parse(lastRestedAt)>=0&&clock-Date.parse(lastRestedAt)<60_000
+    &&Math.abs(authoritative.x-5)+Math.abs(authoritative.y-12)===1;
   const oracleActive = withinOracleInteractionArea(current);
   const focalPoint = project(current);
   const viewWidth = BASE_WIDTH / zoom;
@@ -188,7 +216,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     {id:"wildflowers_005",x:5,y:14,blooms:2},
   ]).map(f=>({...f,kind:"wildflowers" as const}));
   const sprites = [...objects.map(o => ({ ...o })), ...flowerSprites,
-    { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
+    ...(seated?[]:[{ x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }])]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
   return (
@@ -257,9 +285,9 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive} walking={moving}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
-              <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
+              <>{sprite.kind==="garden_nook" ? <GardenNook withNimo={seated}/> : <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>}</>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
               <title>{remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`) ? `Inspect Nimo’s saved memory for ${sprite.id}` : `${sprite.id} · visible to you, not yet discovered by Nimo`}</title>
             </>}
