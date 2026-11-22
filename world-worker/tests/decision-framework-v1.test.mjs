@@ -64,5 +64,5 @@ test("visitor reply bypasses Decisions and is a generation task",()=>{
 test("does not offer unavailable physical tools and remains safely idle-capable",()=>{
  const record=archived();const context=JSON.parse(record.request.input[1].content);context.availableActions=[];
  record.request.input[1].content=JSON.stringify(context);
- assert.deepEqual(buildChoices(context).map(x=>x.id),["idle","reflect"]);
+ assert.deepEqual(buildChoices(context).map(x=>x.id),["idle","observe","reflect","request_capability"]);
 });
