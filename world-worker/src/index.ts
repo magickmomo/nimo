@@ -573,7 +573,7 @@ async function tick(env: Env) {
      nearObject(position,"garden_nook_001"));
   // Only offer novelty among actions the deterministic controller currently permits.
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
-  const goalReview=goalReviewContext(state.currentGoal,fullnessFromHunger(emotions.hunger),food.inventory.length,history,pendingMessage!==null);
+  const goalReview=goalReviewContext(state.currentGoal,fullnessFromHunger(emotions.hunger),food.inventory.map(item=>item.fruit),history,pendingMessage!==null);
   // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
