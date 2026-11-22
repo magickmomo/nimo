@@ -65,7 +65,7 @@ test("optional goal may be omitted but malformed optional state is rejected",()=
 });
 
 test("remember_object accepts genuine object IDs including rock_002",()=>{
-  for (const objectId of ["tree_001","rock_002","shrub_003"]) {
+  for (const objectId of ["tree_001","rock_002","shrub_002"]) {
     const toolCall = {name:"remember_object",objectId,label:"rock at (7,6)",note:"A solid grey rock resting on the grass."};
     const d = validateDecision(base("ACT",toolCall),false);
     assert.deepEqual(d.toolCall,toolCall);
