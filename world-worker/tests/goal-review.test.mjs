@@ -21,29 +21,40 @@ test("passive streak counts genuine consecutive autonomous decisions, not system
 });
 test("completed-looking reserve gets verified context but no forced retirement",()=>{
  const events=Array.from({length:7},()=>({kind:"thought",action:"THINK"}));
- const ctx=goalReviewContext("Maintain a modest food reserve",0.64,1,events,false);
+ const ctx=goalReviewContext("Maintain a modest food reserve",0.64,["amber"],events,false);
  assert.equal(ctx.existingGoal,"Maintain a modest food reserve");
  assert.equal(ctx.passiveDecisionStreak,7);
  assert.match(ctx.evidence.join(" "),/Fruit currently carried: 1/);
- assert.match(ctx.evidence.join(" "),/reserve exists/);
+ assert.match(ctx.evidence.join(" "),/inventory alone does not prove a usable food reserve/);
+ assert.match(ctx.evidence.join(" "),/Carried fruit types: amber/);
  assert.match(ctx.guidance,/goal:null/);
  assert.match(ctx.guidance,/not required to be productive/);
 });
 test("unfulfilled food need is never declared satisfied and no goal is fabricated",()=>{
  const e=[{kind:"thought",action:"THINK"}];
- const hungry=goalReviewContext("Find food",0.18,0,e,false);
+ const hungry=goalReviewContext("Find food",0.18,[],e,false);
  assert.doesNotMatch(hungry.evidence.join(" "),/reserve exists/);
- const without=goalReviewContext(null,0.88,2,e,false);
+ const without=goalReviewContext(null,0.88,["blue","red"],e,false);
  assert.equal(without.existingGoal,null);
  assert.deepEqual(without.evidence,[]);
 });
 test("a waiting visitor suppresses passive-loop nudge",()=>{
  const events=Array.from({length:9},()=>({kind:"thought",action:"THINK"}));
- assert.doesNotMatch(goalReviewContext("Maintain a reserve",0.7,1,events,true).guidance,/repeatedly paused/);
+ assert.doesNotMatch(goalReviewContext("Maintain a reserve",0.7,["amber"],events,true).guidance,/repeatedly paused/);
 });
 test("goal-review input is included in model snapshots without extra D1 calls",()=>{
  assert.match(world,/goalReview=goalReviewContext\(/);
  assert.match(world,/curiosityGuidance:curiosityPrompt,goalReview/);
  assert.match(world,/curiosityPrompt,goalReview,seenObjectIds/);
  assert.doesNotMatch(src,/D1Database|\.prepare\(|\.batch\(/);
+});
+
+test("blue or red fruit are never presented as a verified usable reserve",()=>{
+ const events=[{kind:"thought",action:"THINK"}];
+ for(const carried of [["blue"],["red"],["blue","red"]]){
+  const ctx=goalReviewContext("Maintain a modest food reserve",0.8,carried,events,false);
+  assert.match(ctx.evidence.join(" "),/inventory alone does not prove a usable food reserve/);
+  assert.doesNotMatch(ctx.evidence.join(" "),/A usable fruit reserve exists/);
+  assert.equal(ctx.evidence.some(e=>e.includes("Carried fruit types: "+carried.join(", "))),true);
+ }
 });
