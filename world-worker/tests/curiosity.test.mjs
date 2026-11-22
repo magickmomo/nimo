@@ -153,7 +153,7 @@ test("verified milestones reduce curiosity without changing tool categories",()=
  const next=noveltyAssessment(evidence,[]);
  const progress=curiosityStep(0.7,previous,"harvest_crop",{novelty:next.novelty});
  const routine=curiosityStep(0.7,previous,"harvest_crop",{novelty:"none"});
- assert.equal(routine.value-progress.value,0.06);
+ assert.ok(Math.abs(routine.value-progress.value-0.06)<1e-9);
  assert.deepEqual(progress.history,routine.history);
  const art=curiosityStep(0.7,["drawing"],"finish_sketch",{novelty:"progress"});
  assert.ok(art.value<0.7);
