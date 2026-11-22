@@ -1567,3 +1567,30 @@ main:has(> .world-dashboard){
     gap:8px;
   }
 }
+
+/* Header controls must contrast with the white site header on desktop. */
+@media (min-width:1250px){
+  .world-dashboard>.world-topbar .world-messages-link,
+  .world-dashboard>.world-topbar a.world-messages-link{
+    color:#fff;
+    background:#365f4b;
+    border:1px solid #365f4b;
+  }
+  .world-dashboard>.world-topbar .world-messages-link:hover,
+  .world-dashboard>.world-topbar a.world-messages-link:hover{
+    color:#fff;
+    background:#264b39;
+    border-color:#264b39;
+  }
+  .world-dashboard>.world-topbar .world-messages-link:focus-visible,
+  .world-dashboard>.world-topbar a.world-messages-link:focus-visible{
+    outline:2px solid #194c3a;
+    outline-offset:3px;
+  }
+  .world-dashboard>.world-topbar .world-oracle-quota{
+    color:#244a37;
+    background:#e4f0e6;
+    border:1px solid #9fbea9;
+    font-weight:700;
+  }
+}
