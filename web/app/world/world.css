@@ -1257,3 +1257,340 @@ main:has(> .world-dashboard){
   max-height:none;
   overflow:visible;
 }
+
+
+/* Owner desktop layout: reclaim the second navigation row for the world.
+   Keep smaller viewports on the existing scrollable toolbar layout. */
+@media (min-width:1250px){
+  body:has(.world-dashboard) .site-header{
+    height:70px;
+    padding:0 24px;
+  }
+  body:has(.world-dashboard) .site-header .brand{
+    flex:none;
+  }
+  body:has(.world-dashboard) .site-header .site-owner-link{
+    margin-left:auto;
+  }
+  main:has(> .world-dashboard){
+    height:calc(100dvh - 70px);
+  }
+  .world-dashboard>.world-topbar{
+    position:fixed;
+    top:0;
+    left:132px;
+    right:160px;
+    z-index:50;
+    height:70px;
+    min-height:0;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:7px;
+    padding:0 4px;
+    margin:0;
+    border:0;
+    background:transparent;
+    overflow-x:auto;
+    scrollbar-width:thin;
+  }
+  .world-dashboard>.world-topbar .world-messages-link{
+    font-size:12px;
+    padding:9px 11px;
+    border-radius:9px;
+  }
+  .world-dashboard>.world-layout,
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    height:100%;
+  }
+}
+
+/* The journal is a docked interface panel, flush with the map heading,
+   right edge and footer rather than a detached floating card. */
+@media (min-width:851px){
+  .world-dashboard .world-sidebar{
+    top:36px;
+    right:0;
+    bottom:34px;
+    padding:12px 15px;
+    border:0;
+    border-left:1px solid rgba(160,206,180,.23);
+    border-radius:0;
+    box-shadow:none;
+    backdrop-filter:none;
+    background:rgba(12,35,29,.94);
+  }
+  .world-dashboard .nimo-coin-counter{
+    right:calc(clamp(290px,25vw,370px) + 12px);
+  }
+}
+@media (min-width:851px) and (max-width:1150px){
+  .world-dashboard .world-sidebar{
+    top:36px;
+    right:0;
+    bottom:34px;
+  }
+  .world-dashboard .nimo-coin-counter{right:312px}
+}
+
+/* A smaller, quieter fullness/curiosity overlay leaves more map visible. */
+@media (min-width:851px){
+  .world-dashboard>.world-layout>.world-floating-meters,
+  .world-dashboard>.world-layout:not(.is-sidebar-collapsed)>.world-floating-meters,
+  .world-dashboard>.world-layout.is-sidebar-collapsed>.world-floating-meters{
+    top:54px;
+    width:min(420px,calc(100% - clamp(290px,25vw,370px) - 100px));
+    padding:6px 10px;
+    gap:12px;
+    border-radius:11px;
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed>.world-floating-meters{
+    width:min(420px,calc(100% - 110px));
+  }
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-head{
+    font-size:12px;
+    gap:6px;
+    margin-bottom:3px;
+  }
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-percent{
+    font-size:11px;
+  }
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-dot{
+    width:12px;
+    height:12px;
+  }
+  .world-dashboard>.world-layout>.world-floating-meters .world-status-bar{
+    height:8px;
+  }
+}
+@media (min-width:851px) and (max-width:1150px){
+  .world-dashboard>.world-layout:not(.is-sidebar-collapsed)>.world-floating-meters{
+    width:min(310px,calc(100% - 400px));
+  }
+}
+
+/* Keep every navigation action reachable even when the owner buttons appear.
+   Centering an overflowing flex row clips its leading actions; start-alignment
+   lets the full row be scrolled instead. */
+@media (min-width:1250px){
+  .world-dashboard>.world-topbar{
+    justify-content:flex-start;
+    overscroll-behavior-x:contain;
+  }
+  .world-dashboard>.world-topbar>.world-messages-link{
+    flex-shrink:0;
+  }
+}
+
+/* Dock the journal precisely between the map heading divider and the footer.
+   The footer includes the discoveries strip, so reserve its full height. */
+@media (min-width:851px){
+  .world-dashboard .world-sidebar{
+    top:29px;
+    bottom:62px;
+  }
+}
+
+
+/* Structural desktop world shell. The world and the journal are real grid
+   columns, never intersecting absolute-position layers. The scene and its
+   overlays are positioned relative to the world column only. */
+@media (min-width:851px){
+  .world-dashboard>.world-layout,
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) clamp(290px,25vw,370px);
+    grid-template-rows:minmax(0,1fr);
+    gap:0;
+    align-items:stretch;
+    height:100%;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .world-dashboard>.world-layout>.world-main{
+    position:relative;
+    inset:auto;
+    grid-column:1;
+    grid-row:1;
+    display:flex;
+    min-width:0;
+    min-height:0;
+    height:100%;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-main>.nimo-game-stage{
+    position:relative;
+    flex:1 1 auto;
+    height:100%;
+    width:100%;
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-main .nimo-map{
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-sidebar{
+    position:relative;
+    inset:auto;
+    top:auto;
+    right:auto;
+    bottom:auto;
+    left:auto;
+    z-index:1;
+    grid-column:2;
+    grid-row:1;
+    width:auto;
+    min-width:0;
+    height:100%;
+    min-height:0;
+    margin:0;
+    padding:12px 15px;
+    border:0;
+    border-left:1px solid rgba(160,206,180,.23);
+    border-radius:0;
+    background:rgba(12,35,29,.94);
+    box-shadow:none;
+    backdrop-filter:none;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed>.world-sidebar{
+    display:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    position:absolute;
+    z-index:9;
+    top:54px;
+    left:50%;
+    right:auto;
+    bottom:auto;
+    transform:translateX(-50%);
+    width:min(420px,calc(100% - 110px));
+    min-width:0;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px;
+    padding:6px 10px;
+    margin:0;
+    border:1px solid rgba(179,219,189,.26);
+    border-radius:11px;
+    background:rgba(12,40,30,.76);
+    color:#e6f2e6;
+    box-shadow:0 6px 22px rgba(0,0,0,.2);
+    backdrop-filter:blur(8px);
+    pointer-events:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-item{
+    padding:0;
+    min-width:0;
+    border:0;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-head{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin:0 0 3px;
+    color:#e3f0e6;
+    font-size:12px;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-percent{
+    font-size:11px;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-dot{
+    width:12px;
+    height:12px;
+    border:1px solid #b3d9b8;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-dot:before{display:none}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-bar{
+    height:8px;
+    background:#254638;
+    border:1px solid #7ca78c;
+  }
+  .world-dashboard .nimo-coin-counter{
+    right:14px;
+    top:54px;
+  }
+  .world-dashboard>.world-layout>.world-main .world-detail-drawer{
+    top:60px;
+  }
+  .world-dashboard>.world-layout>.world-sidebar .world-journal{
+    min-height:0;
+    overflow-y:auto;
+  }
+}
+@media (min-width:851px) and (max-width:1150px){
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    width:min(310px,calc(100% - 100px));
+  }
+}
+/* On small screens the journal remains the existing on-demand overlay,
+   while the meters continue to belong to the world view. */
+@media (max-width:850px){
+  .world-dashboard>.world-layout>.world-main{
+    position:absolute;
+    inset:0;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    position:absolute;
+    z-index:9;
+    top:65px;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(420px,calc(100% - 28px));
+    min-width:0;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin:0;
+    padding:7px 9px;
+    border:1px solid rgba(179,219,189,.26);
+    border-radius:11px;
+    background:rgba(12,40,30,.76);
+    color:#e6f2e6;
+    pointer-events:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-item{min-width:0;padding:0;border:0}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-head{display:none}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-bar{height:12px;border:1px solid #7ca78c;background:#254638}
+}
+@media (max-width:600px){
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    top:57px;
+    width:min(260px,calc(100% - 72px));
+    padding:6px 8px;
+    gap:8px;
+  }
+}
+
+/* Header controls must contrast with the white site header on desktop. */
+@media (min-width:1250px){
+  .world-dashboard>.world-topbar .world-messages-link,
+  .world-dashboard>.world-topbar a.world-messages-link{
+    color:#fff;
+    background:#365f4b;
+    border:1px solid #365f4b;
+  }
+  .world-dashboard>.world-topbar .world-messages-link:hover,
+  .world-dashboard>.world-topbar a.world-messages-link:hover{
+    color:#fff;
+    background:#264b39;
+    border-color:#264b39;
+  }
+  .world-dashboard>.world-topbar .world-messages-link:focus-visible,
+  .world-dashboard>.world-topbar a.world-messages-link:focus-visible{
+    outline:2px solid #194c3a;
+    outline-offset:3px;
+  }
+  .world-dashboard>.world-topbar .world-oracle-quota{
+    color:#244a37;
+    background:#e4f0e6;
+    border:1px solid #9fbea9;
+    font-weight:700;
+  }
+}
