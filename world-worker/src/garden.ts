@@ -1,4 +1,5 @@
 import { WORLD_OBJECTS, type Point } from "../../web/lib/world-map";
+import {itemDefinition,isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
 export const GARDEN_GROW_MS = 5 * 60 * 1000;
 export const INVENTORY_CAPACITY = 9;
@@ -108,20 +109,24 @@ export async function harvestCrop(db:D1Database,pos:Point,plotId:string,key:stri
  ]);
  return "Harvested one turnip from "+plotId;
 }
-export type SaleItem="crop"|"amber"|"blue"|"red";
+export type SaleItem=SaleableItem;
 export async function sellItem(db:D1Database,pos:Point,item:SaleItem,key:string){
  if(!nearObject(pos,"store_001"))throw Error("Stand next to the general store");
- const price=item==="crop"?3:1;
- const source=item==="crop"?"garden_inventory":"world_food_inventory";
- const selected=item==="crop"
-  ?await db.prepare("SELECT id FROM garden_inventory WHERE kind='crop' ORDER BY id LIMIT 1").first<{id:number}>()
-  :await db.prepare("SELECT id FROM world_food_inventory WHERE fruit=? ORDER BY id LIMIT 1").bind(item).first<{id:number}>();
+ if(!isSaleableItem(item))throw Error("Item is not saleable");
+ const definition=itemDefinition(item);
+ const price=definition.saleValue;
+ if(price===null)throw Error("Item is not saleable");
+ // Source table and column are fixed allowlisted values from the registry,
+ // never constructed from model-supplied strings.
+ const {source,sourceField}=definition;
+ const selected=await db.prepare("SELECT id FROM "+source+" WHERE "+sourceField+"=? ORDER BY id LIMIT 1")
+  .bind(item).first<{id:number}>();
  if(!selected)throw Error("Item not held");
  await db.batch([
   guard(db,key,"sell_item",item,
-   "EXISTS(SELECT 1 FROM "+source+" WHERE id=? AND "+(item==="crop"?"kind='crop'":"fruit=?")+") AND EXISTS(SELECT 1 FROM vending_state WHERE id=1)",
-   item==="crop"?[selected.id]:[selected.id,item]),
-  db.prepare("DELETE FROM "+source+" WHERE id=?").bind(selected.id),
+   "EXISTS(SELECT 1 FROM "+source+" WHERE id=? AND "+sourceField+"=?) AND EXISTS(SELECT 1 FROM vending_state WHERE id=1)",
+   [selected.id,item]),
+  db.prepare("DELETE FROM "+source+" WHERE id=? AND "+sourceField+"=?").bind(selected.id,item),
   db.prepare("UPDATE vending_state SET coins=coins+? WHERE id=1").bind(price)
  ]);
  return "Sold "+item+" for "+price+" coin(s)";
