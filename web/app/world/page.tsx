@@ -41,6 +41,7 @@ type Snapshot = {
   hungerRate?:number;
   vending?:{machineId:string;coins:number;inspected:boolean;items:{id:string;label:string;price:number;available:boolean;description:string}[]};
   garden?:{coins:number;inventoryUsed:number;capacity:number;inventory:{id:number;kind:string;water_units:number}[];plots:{id:string;x:number;y:number;stage:string;ready:boolean}[]};
+  wildflowers?:{patches:{id:string;x:number;y:number;blooms:number}[];inventory:{id:number;kind:"wildflower"|"flower_seed"}[]};
   food?:{trees:{id:string;seen_fruit:string|null;last_seen_stock:number|null;last_inspected_at:string|null}[];inventory:{id:number;fruit:"amber"|"blue"|"red"}[];capacity:number;knowledge:{fruit:string;count:number;mean:number|null;minimum_relief:number}[]};
   position?: { x: number; y: number };
   journey?: JourneyView;
@@ -290,7 +291,8 @@ export default function World() {
   const state = data?.world.state;
   const fruitItems=data?.food?.inventory??[];
   const supplyItems=data?.garden?.inventory??[];
-  const totalInventory=fruitItems.length+supplyItems.length;
+  const flowerItems=data?.wildflowers?.inventory??[];
+  const totalInventory=fruitItems.length+supplyItems.length+flowerItems.length;
   const inventoryCapacity=data?.garden?.capacity??data?.food?.capacity??9;
   const coins=data?.garden?.coins??data?.vending?.coins;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
@@ -370,8 +372,8 @@ export default function World() {
           <span className="nimo-coin-amount">{coins===undefined?"—":coins.toLocaleString()}</span>
           <span className="nimo-coin-label">coins</span>
         </div>
-        <WorldInventory fruits={fruitItems} supplies={supplyItems} capacity={inventoryCapacity}/>
-        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} sleeping={data?.autonomousEnabled===false}
+        <WorldInventory fruits={fruitItems} supplies={supplyItems} flowers={flowerItems} capacity={inventoryCapacity}/>
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} flowers={data?.wildflowers?.patches} sleeping={data?.autonomousEnabled===false}
           actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={id=>{setSelectedObjectId(id);setDetailsOpen(true);}} />
       </div>
       {detailsOpen && <aside className="world-detail-drawer" aria-label="World details">
