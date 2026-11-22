@@ -109,8 +109,8 @@ test("nutrition has priority and curiosity is bounded",()=>{
 
 test("Worker only grants meaningful novelty on verified first or changed inspections",()=>{
  const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
- assert.match(worker,/verifiedExperience\\?\\.type==="inspection"/);
- assert.match(worker,/verifiedExperience\\.comparison!=="unchanged"/);
- assert.match(worker,/toolFailed \\? null/);
- assert.match(worker,/curiosityStep\\(state\\.emotions\\.curiosity/);
+ assert.ok(worker.includes('verifiedExperience?.type==="inspection"'));
+ assert.ok(worker.includes('verifiedExperience.comparison!=="unchanged"'));
+ assert.ok(worker.includes('d.action==="REPLY" || toolFailed ? null'));
+ assert.ok(worker.includes('curiosityStep(state.emotions.curiosity'));
 });
