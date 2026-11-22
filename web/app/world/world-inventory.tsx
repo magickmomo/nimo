@@ -1,9 +1,11 @@
 "use client";
 
+import {itemDefinition,type ItemKind,inventorySlotsUsed} from "../../lib/item-registry";
+
 type Fruit = {id:number;fruit:"amber"|"blue"|"red"};
 type Supply = {id:number;kind:string;water_units:number};
 type FlowerItem = {id:number;kind:"wildflower"|"flower_seed"};
-type Item = {key:string;name:string;kind:string;variant?:string;water?:number};
+type Item = {key:string;name:string;kind:string;registryKind:ItemKind;variant?:string;water?:number};
 
 function ItemIcon({item}:{item:Item}) {
   if(item.kind==="fruit")return <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
@@ -36,21 +38,22 @@ function ItemIcon({item}:{item:Item}) {
 
 export default function WorldInventory({fruits,supplies,flowers=[],capacity}:{fruits:Fruit[];supplies:Supply[];flowers?:FlowerItem[];capacity:number}) {
   const items:Item[]=[
-    ...fruits.map(f=>({key:"fruit-"+f.id,kind:"fruit",variant:f.fruit,name:f.fruit+" fruit"})),
-    ...flowers.map(f=>({key:"flower-"+f.id,kind:f.kind,name:f.kind==="flower_seed"?"Wildflower seed":"Picked wildflower"})),
-    ...supplies.map(s=>({key:"supply-"+s.id,kind:s.kind,water:s.water_units,
-      name:s.kind==="watering_can"?"Watering can ("+s.water_units+"/3 water)":s.kind==="seed_packet"?"Seed packet":s.kind==="crop"?"Harvested crop":s.kind.replaceAll("_"," ")}))
+    ...fruits.map(f=>({key:"fruit-"+f.id,kind:"fruit",registryKind:f.fruit,variant:f.fruit,name:itemDefinition(f.fruit).label})),
+    ...flowers.map(f=>({key:"flower-"+f.id,kind:f.kind,registryKind:f.kind,name:itemDefinition(f.kind).label})),
+    ...supplies.map(s=>({key:"supply-"+s.id,kind:s.kind,registryKind:s.kind as ItemKind,water:s.water_units,
+      name:itemDefinition(s.kind as ItemKind).label+(s.kind==="watering_can"?" ("+s.water_units+"/3 water)":"")}))
   ];
+  const used=inventorySlotsUsed(items.map(item=>({kind:item.registryKind})));
   const slots=Array.from({length:Math.max(capacity,items.length)},(_,index)=>items[index]??null);
-  return <aside className="nimo-inventory-rail" aria-label={"Inventory: "+items.length+" of "+capacity+" slots occupied"}>
-    <div className="nimo-inventory-heading">Bag <span>{items.length}/{capacity}</span></div>
+  return <aside className="nimo-inventory-rail" aria-label={"Inventory: "+used+" of "+capacity+" slots occupied"}>
+    <div className="nimo-inventory-heading">Bag <span>{used}/{capacity}</span></div>
     <div className="nimo-inventory-slots">
       {slots.map((item,index)=><div key={item?.key??"empty-"+index}
         className={"nimo-inventory-slot"+(item?" is-filled":"")}
         tabIndex={item?0:undefined}
         aria-label={item?("Slot "+(index+1)+": "+item.name):("Slot "+(index+1)+": empty")}
         >
-        {item&&<><ItemIcon item={item}/><span className="nimo-inventory-tooltip" role="tooltip">{item.name}</span></>}
+        {item&&<><ItemIcon item={item}/><span className="nimo-inventory-tooltip" role="tooltip">{item.name} · {itemDefinition(item.registryKind).slotCost} slot · {itemDefinition(item.registryKind).saleValue===null?"Not saleable":"Sells for "+itemDefinition(item.registryKind).saleValue+" coin(s)"}</span></>}
       </div>)}
     </div>
   </aside>;
