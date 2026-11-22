@@ -5,7 +5,7 @@ import ts from "typescript";
 const compile=s=>ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 const src=readFileSync(new URL("../src/decision-input-audit.ts",import.meta.url),"utf8");
 const mod=await import("data:text/javascript;base64,"+Buffer.from(compile(src)).toString("base64"));
-const {decisionAuditKey,saveDecisionInputAudit,decisionAuditExport}=mod;
+const {decisionAuditKey,saveDecisionInputAudit,decisionAuditExport,decisionAuditLast60m,decisionAuditHourCandidates}=mod;
 const trace=readFileSync(new URL("../src/action-trace.ts",import.meta.url),"utf8");
 const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
 const proxy=readFileSync(new URL("../../web/app/api/world/decision-context/export/route.ts",import.meta.url),"utf8");
@@ -22,7 +22,9 @@ function fakeBucket(){
      lists++;
      const all=[...saved.keys()].filter(k=>k.startsWith(prefix)).sort();
      const offset=cursor===undefined?0:Number(cursor);
-     const objects=all.slice(offset,offset+limit).map(key=>({key}));
+     const objects=all.slice(offset,offset+limit).map(key=>({
+       key,uploaded:new Date(JSON.parse(saved.get(key)).capturedAt)
+     }));
      const truncated=offset+limit<all.length;
      return {objects,truncated,cursor:truncated?String(offset+limit):undefined};
    }
@@ -117,4 +119,64 @@ test("an R2-selected decision remains selected if the subsequent trace update fa
  const archived=await bucket.get(key);
  assert.equal(JSON.parse(await archived.text()).outcome.status,"selected");
  assert.equal(bucket.counts.puts,1,"never overwrite an already-archived selection with failure");
+});
+
+test("last60m includes exactly the UTC capture-time window, without clipping at midnight",async()=>{
+ const bucket=fakeBucket();
+ const now=new Date("2026-11-23T00:30:00.000Z");
+ const put=async(id,at)=>{
+   const row={...sample(id,at.slice(0,10)),capturedAt:at};
+   await saveDecisionInputAudit(bucket,row);
+ };
+ await put(1,"2026-11-22T23:29:59.999Z"); // outside window
+ await put(2,"2026-11-22T23:30:00.000Z"); // inclusive start
+ await put(3,"2026-11-22T23:59:00.000Z");
+ await put(4,"2026-11-23T00:05:00.000Z");
+ await put(5,"2026-11-23T00:30:00.000Z"); // exclusive end
+ const exportData=JSON.parse(await new Response(await decisionAuditLast60m(bucket,now)).text());
+ assert.deepEqual(exportData.records.map(r=>r.traceId),[2,3,4]);
+ assert.deepEqual(exportData.window,{start:"2026-11-22T23:30:00.000Z",end:"2026-11-23T00:30:00.000Z",timezone:"UTC",inclusiveStart:true,exclusiveEnd:true});
+ assert.equal(exportData.truncated,false);
+ assert.equal(exportData.nextCursor,null);
+ assert.equal(bucket.counts.gets,3,"out-of-range snapshots must not require R2 GET");
+});
+test("last60m collects more than 50 records in one download without pagination",async()=>{
+ const bucket=fakeBucket();
+ for(let i=1;i<=75;i++){
+   const at=new Date(Date.parse("2026-11-22T12:00:00.000Z")+i*30000).toISOString();
+   await saveDecisionInputAudit(bucket,{...sample(i),capturedAt:at});
+ }
+ const out=JSON.parse(await new Response(await decisionAuditLast60m(bucket,new Date("2026-11-22T13:00:00.000Z"))).text());
+ assert.equal(out.records.length,75);
+ assert.equal(new Set(out.records.map(r=>r.traceId)).size,75);
+ assert.equal(out.records[0].traceId,1);
+ assert.equal(out.records[74].traceId,75);
+});
+test("last60m follows R2 listing cursors instead of silently ignoring objects",async()=>{
+ const bucket=fakeBucket();
+ // A day can have over 1,000 historical decisions; only the last hour is read.
+ for(let i=1;i<=1004;i++){
+   const at=i<=1000?"2026-11-22T10:00:00.000Z":"2026-11-22T12:30:00.000Z";
+   await saveDecisionInputAudit(bucket,{...sample(i),capturedAt:at});
+ }
+ const out=JSON.parse(await new Response(await decisionAuditLast60m(bucket,new Date("2026-11-22T13:00:00.000Z"))).text());
+ assert.deepEqual(out.records.map(r=>r.traceId),[1001,1002,1003,1004]);
+ assert.ok(bucket.counts.lists>=2);
+ assert.equal(bucket.counts.gets,4);
+});
+test("a missing R2 decision aborts the hourly response instead of returning misleading JSON",async()=>{
+ const bucket=fakeBucket();
+ await saveDecisionInputAudit(bucket,sample());
+ const original=bucket.get;
+ bucket.get=async()=>null;
+ await assert.rejects(()=>new Response(await decisionAuditLast60m(bucket,new Date("2026-11-22T12:00:00.000Z"))).text(),/Decision audit object missing/);
+ bucket.get=original;
+});
+test("Worker and authenticated Next.js proxy expose last60m without any D1 reads",()=>{
+ assert.match(worker,/decisionAuditLast60m\(env\.ARCHIVES\)/);
+ assert.match(worker,/new Response\(stream,/);
+ assert.match(proxy,/window==="last60m"/);
+ assert.match(proxy,/hasOwnerSession\(req\)/);
+ assert.match(proxy,/new NextResponse\(upstream\.body/);
+ assert.doesNotMatch(src,/\.prepare\(|D1Database/);
 });
