@@ -9,11 +9,14 @@ import ts from "typescript";
 const compile = source => ts.transpileModule(source,{
  compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}
 }).outputText;
+const itemRegistryCode=compile(readFileSync(new URL("../../web/lib/item-registry.ts",import.meta.url),"utf8"));
+const itemRegistryUrl="data:text/javascript;base64,"+Buffer.from(itemRegistryCode).toString("base64");
 const map=compile(readFileSync(new URL("../../web/lib/world-map.ts",import.meta.url),"utf8"));
 const mapUrl="data:text/javascript;base64,"+Buffer.from(map).toString("base64");
 const source=readFileSync(new URL("../src/garden.ts",import.meta.url),"utf8")
  .replace('import { WORLD_OBJECTS, type Point } from "../../web/lib/world-map";',
-   'import { WORLD_OBJECTS } from "'+mapUrl+'";');
+   'import { WORLD_OBJECTS } from "'+mapUrl+'";')
+ .replace('from "../../web/lib/item-registry";','from "'+itemRegistryUrl+'";');
 const garden=await import("data:text/javascript;base64,"+Buffer.from(compile(source)).toString("base64"));
 test("the new garden is reachable but distant from the starting position",async()=>{
  const world=await import(mapUrl);
@@ -130,9 +133,18 @@ test("garden economy applies each action exactly once despite audit triggers and
   assert.equal((await h.sql("SELECT COUNT(*) AS n FROM garden_inventory WHERE kind='crop'"))[0].n,1);
   await garden.sellItem(h.db,store,"crop","sell-1");
   assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,21);
+  await h.sql("INSERT INTO wildflower_inventory(kind) VALUES('wildflower')");
+  await garden.sellItem(h.db,store,"wildflower","sell-flower-1");
+  assert.equal((await h.sql("SELECT COUNT(*) AS n FROM wildflower_inventory WHERE kind='wildflower'"))[0].n,0);
+  assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,22);
+  await assert.rejects(()=>garden.sellItem(h.db,store,"wildflower","sell-flower-1"));
+  assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,22);
+  await h.sql("INSERT INTO wildflower_inventory(kind) VALUES('flower_seed')");
+  await assert.rejects(()=>garden.sellItem(h.db,store,"flower_seed","sell-seed"));
+  assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,22);
   await assert.rejects(()=>garden.sellItem(h.db,store,"crop","sell-1"));
-  assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,21);
-  assert.equal((await h.sql("SELECT COUNT(*) AS n FROM garden_transactions"))[0].n,7);
+  assert.equal((await h.sql("SELECT coins FROM vending_state WHERE id=1"))[0].coins,22);
+  assert.equal((await h.sql("SELECT COUNT(*) AS n FROM garden_transactions"))[0].n,8);
  }finally{h.close();}
 });
 test("garden guard rolls back the full batch when a precondition becomes stale",async()=>{
