@@ -66,3 +66,56 @@ test("does not offer unavailable physical tools and remains safely idle-capable"
  record.request.input[1].content=JSON.stringify(context);
  assert.deepEqual(buildChoices(context).map(x=>x.id),["idle","observe","reflect","request_capability"]);
 });
+
+test("wildflower context preserves adjacent patch and garden plots",()=>{
+ const record=archived();
+ const data=JSON.parse(record.request.input[1].content);
+ data.state.currentGoal="Take a brief walk near wildflowers at (9,13).";
+ data.perception.wildflowers=[{id:"wildflowers_003",x:9,y:13,blooms:3,directlyAdjacent:true,description:"Low wildflowers"}];
+ data.garden.plots=[{id:"plot_001",x:11,y:11,stage:"empty",ready:false}];
+ data.experience.recentEvents=[
+  {kind:"thought",action:"THINK",when:"2026-11-22T12:34:12Z",content:"The walk is enough for now; I will pause."},
+  {kind:"tool",action:"TRAVEL_OK",when:"2026-11-22T12:32:08Z",content:"TRAVEL OK: arrived at (9, 12) after 2 steps"}
+ ];
+ record.request.input[1].content=JSON.stringify(data);
+ const context=buildDecisionFrame(record).context;
+ assert.deepEqual(context.present.wildflowers[0].position,{x:9,y:13});
+ assert.equal(context.present.wildflowers[0].blooms,3);
+ assert.equal(context.present.wildflowers[0].directlyAdjacent,true);
+ assert.equal(context.present.plots[0].stage,"empty");
+ assert.equal(context.self.currentIntention.directive,false);
+ assert.equal(context.self.currentIntention.status,"unverified");
+ assert.equal(context.self.currentIntention.possibleCompletion.source,"latest_reflection");
+ assert.equal(context.continuity.lastReflection.content,"The walk is enough for now; I will pause.");
+ assert.equal(context.continuity.lastVerifiedOutcome.action,"TRAVEL_OK");
+ assert.equal(context.continuity.lastVerifiedOutcome.source,"recorded_tool_event");
+});
+test("memory statements stay complete and selection includes non-goal memories",()=>{
+ const record=archived();
+ const data=JSON.parse(record.request.input[1].content);
+ data.state.currentGoal="Visit the wildflowers";
+ data.consolidatedMemories=[
+  {subject:"wildflowers:seeds",statement:"Wildflower patches vary in seed yield. Collecting seeds requires two free inventory slots."},
+  {subject:"wildflowers:planting",statement:"Seeds can be planted in open grass."},
+  {subject:"wildflowers:painting",statement:"Flowers can prompt drawing."},
+  {subject:"art:sketches",statement:"The paper kite was drawn yesterday."},
+  {subject:"food:fruit",statement:"Amber fruit offers hunger relief."},
+  {subject:"terrain:boundaries",statement:"The grassland was explored."}
+ ];
+ record.request.input[1].content=JSON.stringify(data);
+ const memories=buildDecisionFrame(record).context.continuity.memories;
+ assert.ok(memories.some(x=>x.statement==="Wildflower patches vary in seed yield. Collecting seeds requires two free inventory slots."));
+ assert.ok(memories.some(x=>x.subject==="food:fruit"));
+ assert.ok(memories.some(x=>x.subject==="art:sketches"));
+ assert.equal(memories.length,5);
+});
+test("general capability does not imply currently executable tool",()=>{
+ const record=archived();
+ const data=JSON.parse(record.request.input[1].content);
+ data.capabilityCatalogue=[{action:"ask_oracle",availableNow:false},{action:"eat_fruit",availableNow:true}];
+ record.request.input[1].content=JSON.stringify(data);
+ const frame=buildDecisionFrame(record);
+ assert.deepEqual(frame.context.continuity.capabilities,[{name:"ask_oracle",availableNow:false},{name:"eat_fruit",availableNow:true}]);
+ assert.ok(!frame.choices.some(x=>x.id==="ask_oracle"));
+ assert.ok(frame.choices.some(x=>x.id==="eat_fruit:red"));
+});
