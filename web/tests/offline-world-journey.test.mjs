@@ -8,11 +8,11 @@ const map = readFileSync(new URL("../app/world/isometric-world.tsx", import.meta
 test("offline snapshots freeze movement at the cached authoritative position", () => {
   assert.match(page, /<IsometricWorld position=\{data\?\.position \?\? null\}/);
   assert.match(page, /journey=\{data\?\.offline \? undefined : data\?\.journey\}/);
-  assert.match(map, /const moving = !!\(journey && journey\.status !== "idle"/);
-  assert.match(map, /: authoritative;/);
+  assert.match(map, /const frame=movementFrame\(/);
+  assert.match(map, /const current=frame\.position/);
 });
 
 test("live snapshots still pass the journey for normal interpolation", () => {
   assert.match(page, /journey=\{data\?\.offline \? undefined : data\?\.journey\}/);
-  assert.match(map, /journey\.startedAt && journey\.stepMs > 0/);
+  assert.match(map, /const frame=movementFrame\(\{position:authoritative,journey/);
 });
