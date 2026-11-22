@@ -169,7 +169,7 @@ test("a missing R2 decision aborts the hourly response instead of returning misl
  await saveDecisionInputAudit(bucket,sample());
  const original=bucket.get;
  bucket.get=async()=>null;
- await assert.rejects(()=>new Response(await decisionAuditLast60m(bucket,new Date("2026-11-22T12:00:00.000Z"))).text(),/Decision audit object missing/);
+ await assert.rejects(async()=>new Response(await decisionAuditLast60m(bucket,new Date("2026-11-22T12:00:00.000Z"))).text(),/Decision audit object missing/);
  bucket.get=original;
 });
 test("Worker and authenticated Next.js proxy expose last60m without any D1 reads",()=>{
