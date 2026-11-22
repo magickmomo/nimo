@@ -4,9 +4,11 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 
 const load=path=>readFileSync(new URL(path,import.meta.url),"utf8");
-const moduleSource=load("../src/vending.ts");
+const itemCode=ts.transpileModule(load("../../web/lib/item-registry.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const itemModule="data:text/javascript;base64,"+Buffer.from(itemCode).toString("base64");
+const moduleSource=load("../src/vending.ts").replace('from "../../web/lib/item-registry";',`from "${itemModule}";`);
 const executable=ts.transpileModule(moduleSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-// The only runtime import is type-only; no external dependency is needed.
+// The vending catalogue now shares the item registry runtime values.
 const vending=await import("data:text/javascript;base64,"+Buffer.from(executable).toString("base64"));
 const worldMap=load("../../web/lib/world-map.ts");
 const index=load("../src/index.ts");
