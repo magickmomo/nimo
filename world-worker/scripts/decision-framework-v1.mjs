@@ -44,7 +44,7 @@ function memorySelection(items, state){
 export function buildChoices(data,visitor=null) {
  if(visitor || data.state?.pendingVisitor) return [candidate("reply_to_visitor","Respond to the waiting visitor; generate a natural reply.",null,"reply")];
  const offers=list(data.availableActions);
- const choices=[candidate("idle","Remain still without a new task."),candidate("reflect","Think freely, reconsider an interest or goal, or write a short reflection.",null,"reflect")];
+ const choices=[candidate("idle","Remain still without a new task."),candidate("observe","Observe the surroundings without changing the world."),candidate("reflect","Think freely, reconsider an interest or goal, or write a short reflection.",null,"reflect"),candidate("request_capability","Ask the creator for a capability or clarification if Nimo wishes.",null,"request")];
  const add=(id,description,call,task=null)=>choices.push(candidate(id,description,call,task));
  for(const a of offers){
   const name=a.name;
