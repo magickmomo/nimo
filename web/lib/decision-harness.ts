@@ -95,19 +95,38 @@ export function offerChoices(world:LooseRecord,visitor:string|null):Choice[]{
 
 export function compactContext(w:LooseRecord,visitor:string|null){
  const s=asObject(w.state),p=asObject(w.perception),g=asObject(w.garden),e=asObject(w.experience);
- const currentWords=(String(s.currentGoal??"")+" "+String(s.currentActivity??"")).toLowerCase().match(/[a-z]{5,}/g)??[];
- const ms=arr(w.consolidatedMemories).map((m,i)=>({m,i,score:currentWords.filter(x=>(String(m.subject??"")+" "+String(m.statement??"")).toLowerCase().includes(x)).length}));
- const relevant=ms.filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
- const diverse=ms.filter(x=>x.score===0).slice(0,2);
+ const currentWords=[...new Set((String(s.currentGoal??"")+" "+String(s.currentActivity??"")).toLowerCase().match(/[a-z]{5,}/g)??[])];
+ const ranked=arr(w.consolidatedMemories).map((m,i)=>({m,i,score:currentWords.filter(x=>(String(m.subject??"")+" "+String(m.statement??"")).toLowerCase().includes(x)).length}));
+ const relevant=ranked.filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,2);
+ const others=ranked.filter(x=>!relevant.includes(x));
+ const diverse:typeof ranked=[];const categories=new Set<string>();
+ for(const item of others){
+  const category=String(item.m.subject??"").split(":")[0];
+  if(!categories.has(category)){diverse.push(item);categories.add(category);}
+  if(diverse.length===3)break;
+ }
+ for(const item of others){if(diverse.length===3)break;if(!diverse.includes(item))diverse.push(item);}
+ const recent=arr(e.recentEvents);
+ const thought=recent.find(x=>x.kind==="thought"||x.action==="THINK");
+ const outcome=recent.find(x=>x.kind==="tool");
+ const lastReflection=thought?{when:thought.when??null,content:thought.content}:null;
+ const reportedEnough=/(enough for now|walk is enough|walk end|already (beside|at|reached))/.test(String(thought?.content??"").toLowerCase());
  return {
-  self:{identity:clip(s.identity,500),currentGoal:s.currentGoal??null,currentActivity:s.currentActivity??null,pendingIntent:s.pendingIntent??null,needs:w.needsPercent},
+  self:{identity:s.identity??null,currentIntention:s.currentGoal?{
+   description:s.currentGoal,status:"unverified",directive:false,
+   possibleCompletion:reportedEnough?{source:"latest_reflection",note:"Nimo's last reflection suggests this intention may be satisfied; this is not verified."}:null
+  }:null,currentActivity:s.currentActivity??null,pendingIntent:s.pendingIntent??null,needs:w.needsPercent},
   present:{position:p.position,directions:arr(p.directions).map(d=>({direction:d.direction,canMove:d.canMove,canInspect:d.canInspect,blockedBy:d.blockedBy})),
    visibleObjects:arr(p.visibleObjects).map(o=>({id:o.id,type:o.type,position:o.position,distance:o.distance})),
+   wildflowers:arr(p.wildflowers).map(o=>({id:o.id,type:"wildflower_patch",position:{x:o.x,y:o.y},blooms:o.blooms,directlyAdjacent:o.directlyAdjacent??false,description:o.description??null})),
+   plots:arr(g.plots).map(o=>({id:o.id,position:{x:o.x,y:o.y},stage:o.stage,ready:o.ready})),
    inventory:{fruit:arr(w.food?.inventory).map(x=>x.fruit),other:arr(g.inventory).map(x=>({kind:x.kind,waterUnits:x.water_units})),used:g.inventoryUsed,capacity:g.capacity,coins:g.coins}},
-  continuity:{projects:arr(w.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:clip(x.next_step??x.nextStep,140)})),
-   memories:[...relevant,...diverse].map(({m})=>({subject:m.subject,statement:clip(m.statement,230),confidence:m.confidence,status:m.status})),
-   lastEvent:arr(e.recentEvents)[0]?{action:e.recentEvents[0].action,summary:clip(e.recentEvents[0].content,240)}:null,
-   capabilities:arr(w.capabilityCatalogue).map(c=>c.action),unfinishedSketch:w.sketchbook?.active?{id:w.sketchbook.active.id,title:w.sketchbook.active.title}:null},
+  continuity:{projects:arr(w.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:x.next_step??x.nextStep??null})),
+   memories:[...relevant,...diverse].map(({m})=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status})),
+   lastReflection,lastVerifiedOutcome:outcome?{when:outcome.when??null,action:outcome.action,description:outcome.content,source:"recorded_tool_event"}:null,
+   capabilities:arr(w.capabilityCatalogue).map(c=>({name:c.action,availableNow:c.availableNow??null})),
+   availableActionNames:arr(w.availableActions).map(a=>a.name),
+   unfinishedSketch:w.sketchbook?.active?{id:w.sketchbook.active.id,title:w.sketchbook.active.title}:null},
   ...(visitor?{visitorMessage:visitor}:{})
  };
 }
