@@ -17,7 +17,7 @@ export type LooseRecord = Record<string,any>;
 export type ArchiveRecord = {traceId:number;capturedAt?:string;request:{model?:string;input:{role:string;content:string}[]};outcome?:unknown};
 export type Choice = {id:string;description:string;toolCall:LooseRecord|null;task:string|null};
 export type Stage = {id:string;title:string;status:"done"|"simulated"|"not_run";source:string;input:unknown;output:unknown;note:string};
-export type Report = {traceId:number;source:string;choices:Choice[];context:LooseRecord;request:LooseRecord|null;selection:Choice|null;stages:Stage[];counts:{original:number;proposal:number};timestamp:string};
+export type Report = {traceId:number;source:string;choices:Choice[];context:LooseRecord;request:LooseRecord|null;selection:Choice|null;stages:Stage[];counts:{original:number;proposal:number};timestamp:string;ai?:{latencyMs:number|null;usage:unknown;valid:boolean;response:unknown}};
 
 const arr=(v:unknown):any[]=>Array.isArray(v)?v:[];
 const clip=(v:unknown,n=180):string=>typeof v==="string"?v.slice(0,n):"";
