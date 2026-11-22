@@ -90,7 +90,7 @@ export function buildCapabilityCatalogue(
     ["sell_item","Sell carried saleable items for coins",[
       known.has("store_001") ? "Stand adjacent to store_001" : "Find the general store",
       saleable ? "Carrying a saleable item" : "First collect fruit, harvest a crop or pick a wildflower",
-      "Store prices: "+Object.entries(ITEM_REGISTRY).filter(([kind])=>isSaleableItem(kind)).map(([,item])=>item.label+" "+item.saleValue+" coin(s)").join("; "),
+      "Store prices: "+Object.entries(ITEM_REGISTRY).filter(([kind])=>isSaleableItem(kind)).map(([,item])=>item.label+" "+item.saleValue+" "+(item.saleValue===1?"coin":"coins")).join("; "),
       "Wildflower seeds and gardening supplies are not saleable",
     ]],
   ] as const;
