@@ -194,8 +194,10 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
     const restStarted=lastRestedAt?Date.parse(lastRestedAt):NaN;
     const resting=!sleeping&&Number.isFinite(restStarted)
       &&Date.now()>=restStarted&&Date.now()<restStarted+REST_POSE_MS;
-    if(!travelling&&!replaying&&!resting)return;
+    // Synchronize the rendered frame even when the journey already expired
+    // between polls. Otherwise an old clock can keep the sprite mid-walk.
     setClock(Date.now());
+    if(!travelling&&!replaying&&!resting)return;
     const timer=window.setInterval(()=>{
       const now=Date.now();
       setClock(now);
