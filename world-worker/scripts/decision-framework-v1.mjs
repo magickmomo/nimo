@@ -5,6 +5,7 @@
  */
 import {readFileSync,writeFileSync,mkdirSync} from "node:fs";
 import {resolve,join} from "node:path";
+import {buildFrameworkTrace,writeFrameworkTrace} from "./decision-framework-trace.mjs";
 
 export const IDENTITY = [
   "You are Nimo, an autonomous agent living in a persistent digital world.",
@@ -189,6 +190,8 @@ if(process.argv[1]&&import.meta.url===new URL("file://"+resolve(process.argv[1])
  const out=resolve(value("--out","./harness-output"));mkdirSync(out,{recursive:true});
  const file=join(out,"framework-v1-"+record.traceId+(choose?"-"+choose.replace(/[^a-zA-Z0-9_-]/g,"_"):"")+".json");
  writeFileSync(file,JSON.stringify(result,null,2)+"\n");
- console.log(JSON.stringify({traceId:result.traceId,choices:result.choices.map(c=>c.id),selection:result.selection??null,metrics:result.metrics,file},null,2));
+ const trace=buildFrameworkTrace(record,result);
+ const logs=writeFrameworkTrace(trace,out);
+ console.log(JSON.stringify({traceId:result.traceId,choices:result.choices.map(c=>c.id),selection:result.selection??null,metrics:result.metrics,file,logs},null,2));
  console.log("No network requests or world state changes.");
 }
