@@ -15,6 +15,7 @@ import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
 import { archiveLatestCompletedDay, latestArchiveKeys, selectedDayArchive, shouldArchiveNow } from "./daily-archive";
 import { gardenSnapshot, takeCan, fillCan, plantSeed, waterPlot, harvestCrop, sellItem, buySeeds, adjacent, nearObject, type GardenState } from "./garden";
+import {refreshWildflowers,wildflowerSnapshot,adjacentFlowerPatches,plantableDirections,pickFlowers,plantFlowerSeed,discardWildflower} from "./wildflowers";
 import { inspectAndRemember, saveObjectNote, objectMemory } from "./object-memory";
 import { requestInbox, requestContext, recordCreatorRequest, changeRequestStatus, respondToCreatorRequest } from "./creator-requests";
 import { projectList, createProject, updateProject } from "./projects";
@@ -43,7 +44,7 @@ type EventRow = ExperienceEvent;
 type PendingVisitorMessage = Pick<EventRow, "id" | "created_at" | "content">;
 type WorldRow = { id: number; state: string; next_tick: string };
 // Capabilities belong to the Worker, independently of persisted AI state.
-const AVAILABLE_TOOLS = ["ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","expand_world"];
+const AVAILABLE_TOOLS = ["ask_oracle","write_document", "travel_to", "inspect", "remember_object", "pick_fruit", "pick_flowers", "plant_wildflower_seed", "discard_wildflower", "eat_fruit", "discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","expand_world"];
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const DECISION_INTERVAL_MS = 30_000; // At most two decisions per minute while idle.
@@ -201,7 +202,7 @@ async function exportLedger(db:D1Database, model:string) {
   const result:Record<string,unknown>={
     format:"nimo-world-001-export-v1",exportedAt:new Date().toISOString(),model,
     world,position,journey,autonomousEnabled:control,
-    documents:workspace,environmentMemory:memory,objects,sketchbook:await sketchbookSnapshot(db,true),food:await foodView(db),hungerRate:await hungerRate(db),vending:await vendingSnapshot(db),
+    documents:workspace,environmentMemory:memory,objects,sketchbook:await sketchbookSnapshot(db,true),food:await foodView(db),hungerRate:await hungerRate(db),vending:await vendingSnapshot(db),wildflowers:await wildflowerSnapshot(db),
     truncatedTables:tables.filter(t=>t.truncated).map(t=>t.name),
   };
   for(const table of tables) result[table.name]=table.rows.map(row=>{
@@ -326,6 +327,9 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     name==="inspect"?{name,directions:menu.inspectDirections}:
     name==="remember_object"?{name,objectIds:menu.noteObjectIds}:
     name==="pick_fruit"?{name,treeIds:menu.pickTreeIds}:
+    name==="pick_flowers"?{name,patchIds:menu.flowerPatchIds}:
+    name==="plant_wildflower_seed"?{name,directions:menu.flowerPlantDirections}:
+    name==="discard_wildflower"?{name,kinds:menu.heldFlowerKinds}:
     name==="eat_fruit"||name==="discard_fruit"?{name,fruits:menu.heldFruit}:
     name==="buy_item"?{name,itemIds:menu.vendingItemIds}:
     name==="update_project"?{name,projectIds:menu.projectIds}:
@@ -484,7 +488,14 @@ async function tick(env: Env) {
   ]);
   const position = await getPosition(env.DB);
   await recordSight(env.DB,position);
+  await refreshWildflowers(env.DB,now.getTime());
+  const wildflowers=await wildflowerSnapshot(env.DB);
   const perception = modelPerception(position);
+  const flowerPerception = {...perception,
+    wildflowers:wildflowers.patches
+      .filter(p=>Math.abs(p.x-position.x)<=4&&Math.abs(p.y-position.y)<=4)
+      .map(p=>({id:p.id,x:p.x+1,y:p.y+1,blooms:p.blooms,
+        directlyAdjacent:adjacent(position,p),description:"Low wildflowers in a sparse patch of grass"}))};
   const rate=await hungerRate(env.DB);
   await refreshFood(env.DB,now.getTime());
   const food=await foodView(env.DB);
@@ -538,13 +549,18 @@ async function tick(env: Env) {
     invitation:oracleWithinReach&&!world.state.oracleNearbyLastDecision&&!pendingMessage
       ?oracleInvitation(true,oracleHistory[0]?.status??null):null,
     status:oracleHistory[0]?.status??"no question submitted yet", remainingToday:oracleRemainingToday};
-  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length)},adjacentTreeIds,
+  const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length-wildflowers.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.filter(item=>item.available && (item.id!=="sketchpad"||!sketchbook.owned)).map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
     {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
      {owned:sketchbook.owned,activeId:sketchbook.active?.id??null},
      {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins},
-     vending.coins>=ARTWORK_INSPECTION_COST ? sketchbook.drawings.filter(d=>d.status==="finished"&&!d.inspection).map(d=>d.id) : []);
+     vending.coins>=ARTWORK_INSPECTION_COST ? sketchbook.drawings.filter(d=>d.status==="finished"&&!d.inspection).map(d=>d.id) : [],
+     {pickableIds:garden.capacity-garden.inventoryUsed>=2
+        ? adjacentFlowerPatches(position,wildflowers.patches):[],
+      plantDirections:wildflowers.inventory.some(item=>item.kind==="flower_seed")
+        ? plantableDirections(position,wildflowers.patches):[],
+      carriedKinds:[...new Set(wildflowers.inventory.map(item=>item.kind))]});
   // Only offer novelty among actions the deterministic controller currently permits.
   const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
   // Perception remains factual; execution opportunities are a separate constrained menu.
@@ -559,7 +575,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
+    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
       {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
@@ -645,6 +661,26 @@ async function tick(env: Env) {
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:found.objectId,comparison:found.comparison,inspectionVersion:found.recordedObservations});
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
+      } else if (call.name === "pick_flowers") {
+        if(!menu.flowerPatchIds.includes(call.patchId))throw Error("No pickable flowers adjacent");
+        const picked=await pickFlowers(env.DB,position,call.patchId,decisionKey);
+        toolOutcome=picked.message;
+        await log(env.DB,"tool",toolOutcome,"FLOWERS_PICKED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{
+          subject:picked.patchId,
+          seedFound:picked.seed && !(state.curiosityNoveltyKeys??[]).includes("wildflowers:first_seed"),
+          completed:true
+        });
+      } else if (call.name === "plant_wildflower_seed") {
+        if(!menu.flowerPlantDirections.includes(call.direction))throw Error("Cannot plant there");
+        const planted=await plantFlowerSeed(env.DB,position,call.direction,decisionKey);
+        toolOutcome=planted.message;
+        await log(env.DB,"tool",toolOutcome,"FLOWER_SEED_PLANTED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:planted.id,completed:true});
+      } else if (call.name === "discard_wildflower") {
+        if(!menu.heldFlowerKinds.includes(call.kind))throw Error("Flower item not carried");
+        toolOutcome=await discardWildflower(env.DB,call.kind,decisionKey);
+        await log(env.DB,"tool",toolOutcome,"FLOWER_DISCARDED");
       } else if (call.name === "pick_fruit") {
         if(!menu.pickTreeIds.includes(call.treeId))throw Error("Fruit picking was not available");
         const picked=await traced(env.DB,"inspect",`Pick fruit from ${call.treeId}`,
@@ -945,6 +981,7 @@ async function publicWorldSnapshot(db:D1Database):Promise<Record<string,unknown>
     journey:await journeySnapshot(db),environmentMemory:await environmentMemory(db),
     objects:await objectMemory(db),food:await foodView(db),
     vending:await vendingSnapshot(db),garden:await gardenSnapshot(db),
+    wildflowers:await wildflowerSnapshot(db),
     autonomousEnabled:await autonomousEnabled(db),
     manualAutonomousEnabled:await manualAutonomousEnabled(db),
     scheduledAsleep:scheduledAsleep(new Date()),
@@ -1104,7 +1141,7 @@ export default {
             getWorld(env.DB),getPosition(env.DB),journeySnapshot(env.DB),autonomousEnabled(env.DB),
           ]);
           world.state = { ...world.state, tools: [...AVAILABLE_TOOLS] };
-          return json({world,position,journey,events:await publicEvents(env.DB,24),autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB),offline:false});
+          return json({world,position,journey,events:await publicEvents(env.DB,24),autonomousEnabled:enabled,manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),scheduledAsleep:scheduledAsleep(new Date()),hungerRate:await hungerRate(env.DB),food:await foodView(env.DB),vending:await vendingSnapshot(env.DB),garden:await gardenSnapshot(env.DB),wildflowers:await wildflowerSnapshot(env.DB),offline:false});
         } catch(error) {
           console.error("Live world unavailable; falling back to R2",error);
           return offlineWorldSnapshot(env);

@@ -135,6 +135,37 @@ test("verified novelty is available across activities but not ordinary repeats",
    assert.equal(noveltyAssessment(evidence,first.keys).novelty,"none",action);
  }
 });
+test("flower actions use the shared activity and verified-outcome framework",()=>{
+ assert.equal(activityFor("pick_flowers").name,"flower_gathering");
+ assert.equal(activityFor("pick_flowers").category,"nature");
+ assert.equal(activityFor("plant_wildflower_seed").name,"gardening");
+ assert.equal(activityFor("discard_wildflower").name,"inventory_management");
+ const first=verifiedActivityEvidence("pick_flowers",{subject:"wildflowers_002",seedFound:false,completed:true});
+ assert.deepEqual(first,{key:"wildflowers:first_pick:wildflowers_002",strength:"progress"});
+ const firstNovelty=noveltyAssessment(first,[]);
+ assert.equal(firstNovelty.novelty,"progress");
+ assert.equal(noveltyAssessment(first,firstNovelty.keys).novelty,"none");
+ const foundSeed=verifiedActivityEvidence("pick_flowers",{subject:"wildflowers_002",seedFound:true,completed:true});
+ assert.deepEqual(foundSeed,{key:"wildflowers:first_seed",strength:"meaningful"});
+ const discovery=noveltyAssessment(foundSeed,firstNovelty.keys);
+ assert.equal(discovery.novelty,"meaningful");
+ assert.equal(noveltyAssessment(foundSeed,discovery.keys).novelty,"none");
+ const planted=verifiedActivityEvidence("plant_wildflower_seed",{subject:"wildflowers_5_6",completed:true});
+ assert.deepEqual(planted,{key:"wildflowers:first_plant",strength:"progress"});
+ assert.equal(noveltyAssessment(planted,[]).novelty,"progress");
+ assert.equal(noveltyAssessment(verifiedActivityEvidence("plant_wildflower_seed",{subject:"wildflowers_8_9",completed:true}),["wildflowers:first_plant"]).novelty,"none");
+ assert.equal(verifiedActivityEvidence("discard_wildflower",{subject:"wildflower",completed:true}),null);
+ const routine=curiosityStep(0.8,["flower_gathering","flower_gathering"],"pick_flowers");
+ const discoveryResult=curiosityStep(0.8,["flower_gathering","flower_gathering"],"pick_flowers",{novelty:"meaningful"});
+ assert.ok(discoveryResult.value<routine.value);
+});
+test("Worker grants flower curiosity only on confirmed outcomes",()=>{
+ const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
+ assert.match(worker,/noveltyEvidence=verifiedActivityEvidence\(call\.name,\{/);
+ assert.match(worker,/seedFound:picked\.seed/);
+ assert.match(worker,/subject:planted\.id,completed:true/);
+});
+
 test("routine outcomes do not manufacture discovery",()=>{
  const no=[
   ["inspect",{subject:"tree_001",comparison:"unchanged"}],

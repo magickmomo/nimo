@@ -57,6 +57,7 @@ try:
     CREATE TABLE garden_plots(id TEXT PRIMARY KEY,x INTEGER,y INTEGER,planted_at INTEGER,watered_at INTEGER);
     INSERT INTO garden_plots VALUES('plot_001',10,10,NULL,NULL);
     CREATE TABLE world_food_inventory(id INTEGER PRIMARY KEY AUTOINCREMENT,fruit TEXT);
+    CREATE TABLE wildflower_inventory(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT);
     CREATE TABLE vending_state(id INTEGER PRIMARY KEY,inspected_at TEXT,coins INTEGER);
     INSERT INTO vending_state VALUES(1,'inspected',20);
     CREATE TABLE change_log(id INTEGER PRIMARY KEY AUTOINCREMENT,subject TEXT);
