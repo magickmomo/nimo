@@ -16,6 +16,9 @@ export type ActionMenu = {
   projectIds: number[];
   sketchIds: number[];
   inspectArtworkIds: number[];
+  flowerPatchIds: string[];
+  flowerPlantDirections: Direction[];
+  heldFlowerKinds: ("wildflower"|"flower_seed")[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -35,8 +38,10 @@ export function buildActionMenu(
   sketchbook:{owned:boolean;activeId:number|null}={owned:false,activeId:null},
   oracle:{adjacent:boolean;busy:boolean;coins:number}={adjacent:false,busy:false,coins:0},
   inspectableArtworkIds: readonly number[] = [],
+  flowers:{pickableIds:string[];plantDirections:Direction[];carriedKinds:("wildflower"|"flower_seed")[]}
+   ={pickableIds:[],plantDirections:[],carriedKinds:[]},
 ):ActionMenu {
-  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[],inspectArtworkIds:[]};
+  if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[],inspectArtworkIds:[],flowerPatchIds:[],flowerPlantDirections:[],heldFlowerKinds:[]};
   const inspectDirections = directions
     .filter(d=>d.canInspect && d.objectId && !priority.blockedInspectIds.includes(d.objectId) && dir(d.direction))
     .map(d=>d.direction);
@@ -59,7 +64,10 @@ export function buildActionMenu(
   if(projects.editableIds.length)tools.push("update_project");
   if(sketchbook.owned){if(sketchbook.activeId===null)tools.push("start_sketch");else tools.push("draw_strokes","finish_sketch");}
   if(inspectableArtworkIds.length)tools.push("inspect_artwork");
-  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId],inspectArtworkIds:[...inspectableArtworkIds]};
+  if(flowers.pickableIds.length)tools.push("pick_flowers");
+  if(flowers.plantDirections.length&&flowers.carriedKinds.includes("flower_seed"))tools.push("plant_wildflower_seed");
+  if(flowers.carriedKinds.length)tools.push("discard_wildflower");
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId],inspectArtworkIds:[...inspectableArtworkIds],flowerPatchIds:flowers.pickableIds,flowerPlantDirections:flowers.plantDirections,heldFlowerKinds:flowers.carriedKinds};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -88,6 +96,9 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       direction:{type:"string",enum:menu.inspectDirections},
     }));
     if(menu.pickTreeIds.length)variants.push(obj({name:{type:"string",enum:["pick_fruit"]},treeId:{type:"string",enum:menu.pickTreeIds}}));
+    if(menu.flowerPatchIds.length)variants.push(obj({name:{type:"string",enum:["pick_flowers"]},patchId:{type:"string",enum:menu.flowerPatchIds}}));
+    if(menu.tools.includes("plant_wildflower_seed"))variants.push(obj({name:{type:"string",enum:["plant_wildflower_seed"]},direction:{type:"string",enum:menu.flowerPlantDirections}}));
+    if(menu.heldFlowerKinds.length)variants.push(obj({name:{type:"string",enum:["discard_wildflower"]},kind:{type:"string",enum:menu.heldFlowerKinds}}));
     if(menu.heldFruit.length){
       variants.push(obj({name:{type:"string",enum:["eat_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
       variants.push(obj({name:{type:"string",enum:["discard_fruit"]},fruit:{type:"string",enum:menu.heldFruit}}));
