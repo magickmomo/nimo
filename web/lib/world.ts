@@ -11,6 +11,7 @@ export type WorldState = {
   rewardCursor?: number;
   curiosityDiscoveryCursor?: number; // Legacy cursor, retained for backward-compatible state loading.
   curiosityActionHistory?: string[]; // Last ten completed decision choices, newest first.
+  curiosityNoveltyKeys?: string[]; // Bounded one-time verified experience milestones (no schema migration).
   pendingIntent?: PendingIntent | null; // Visitor request Nimo voluntarily agreed to pursue after replying.
   oracleNearbyLastDecision?: boolean; // Tracks entrance and exit to avoid repetitive welcomes.
 };
