@@ -666,11 +666,17 @@ async function tick(env: Env) {
         const picked=await pickFlowers(env.DB,position,call.patchId,decisionKey);
         toolOutcome=picked.message;
         await log(env.DB,"tool",toolOutcome,"FLOWERS_PICKED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{
+          subject:picked.patchId,
+          seedFound:picked.seed && !(state.curiosityNoveltyKeys??[]).includes("wildflowers:first_seed"),
+          completed:true
+        });
       } else if (call.name === "plant_wildflower_seed") {
         if(!menu.flowerPlantDirections.includes(call.direction))throw Error("Cannot plant there");
         const planted=await plantFlowerSeed(env.DB,position,call.direction,decisionKey);
         toolOutcome=planted.message;
         await log(env.DB,"tool",toolOutcome,"FLOWER_SEED_PLANTED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:planted.id,completed:true});
       } else if (call.name === "discard_wildflower") {
         if(!menu.heldFlowerKinds.includes(call.kind))throw Error("Flower item not carried");
         toolOutcome=await discardWildflower(env.DB,call.kind,decisionKey);
