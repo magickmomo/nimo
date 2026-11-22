@@ -91,3 +91,18 @@ Statuses and provenance are explicit:
 The logs are **full-fidelity, not redacted**, and include private historical prompt and memory contents. Keep them local; do not check them into Git, attach them to public issues, or publish the outputs. Do not assume logged content is safe to share.
 
 This is instrumentation of the *offline harness*. It is not wired to live APIs, so there are no actual Decisions or Responses API outputs to log yet.
+
+## Preview UI: Run with AI (owner-only)
+
+The deployed `/decision-harness` feature-branch page now has two actions:
+
+- **Run simulation**: runs in the browser, manual choice, zero model calls.
+- **Run with AI**: makes one real `gpt-6-luna` `POST /v1/decisions` call via `/api/decision-harness/run`, guarded by the same signed owner session used for world settings. Sign in at `/world/settings` on the same preview hostname first. It consumes API tokens and requires `LAB_OPENAI_API_KEY` (or `OPENAI_API_KEY`) configured for the preview project.
+
+The browser sends only the compact decision context and choice value/description pairs after the explicit AI click. The historical archive stays in browser memory. The server verifies same-origin, validates the choice payload, reconstructs the complete request including the fixed identity/instructions, and calls the OpenAI API. The returned raw model response, selected choice, latency, token usage, and estimated cost are shown in the trace. The selected choice is verified against the exact menu that was sent.
+
+**Both modes remain strictly read-only with respect to Nimo's world:** no executor, D1 or R2 calls, no creative Responses API calls, no autonomous ticks. A generative action produces only a *handoff specification*.
+
+The cost displayed in the UI is an estimate based on published Decisions API token rates for a short-context `gpt-6-luna` call ($0.10/M uncached inputs, $0.01/M cached reads, $0.125/M cache writes, zero output cost). Actual charges can differ depending on billing tier, region, rate changes or discounts; consult provider billing for exact cost.
+
+Do not expose the OpenAI key in client code or share downloaded historical traces publicly. The owner session is essential because public callers must not be able to incur API charges.
