@@ -168,28 +168,46 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const [follow, setFollow] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   useEffect(() => {
-    if (!journey || journey.status !== "travelling") return;
-    const timer = window.setInterval(() => setClock(Date.now()), 50);
+    // Refresh immediately when the Worker reports a new rest or journey.
+    // Otherwise the pose can compare a new timestamp to an old, frozen clock.
+    const refresh = () => setClock(Date.now());
+    const startsAt = journey?.startedAt ? Date.parse(journey.startedAt) : NaN;
+    const travelEndsAt = startsAt + Math.max(0, (journey?.path?.length ?? 1)-1) * (journey?.stepMs ?? 0);
+    const restEndsAt = lastRestedAt ? Date.parse(lastRestedAt) + 60_000 : NaN;
+    const travelling = journey?.status === "travelling" && Number.isFinite(travelEndsAt);
+    const resting = !sleeping && Number.isFinite(restEndsAt);
+    if (!travelling && !resting) return;
+    // Travel needs smooth frames; resting needs only a clock tick to expire.
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      refresh();
+      if ((!travelling || now >= travelEndsAt) &&
+          (!resting || now >= restEndsAt)) window.clearInterval(timer);
+    }, travelling ? 50 : 250);
+    // This tick also makes a rest reported while the page is open visible.
+    refresh();
     return () => window.clearInterval(timer);
-  }, [journey?.status]);
+  }, [journey?.status, journey?.startedAt, journey?.stepMs, journey?.path?.length, lastRestedAt, sleeping]);
 
   // Read-only: the Worker controls the authoritative position.
   const authoritative = position ?? { x: 4, y: 4 };
   const route = journey?.path ?? [];
-  const moving = !!(journey && journey.status !== "idle" &&
+  const hasJourney = !!(journey && journey.status !== "idle" &&
     route.length > 1 && journey.startedAt && journey.stepMs > 0);
   // SVG animation is only a visual interpolation of the persisted timed route.
   // D1 remains authoritative; closing the page does not pause Nimo's journey.
   const time = journey?.status === "paused" && journey.pausedAt
     ? Date.parse(journey.pausedAt) : clock;
-  const progress = moving
+  const progress = hasJourney
     ? Math.max(0, Math.min(route.length - 1,
       (time - Date.parse(journey?.startedAt ?? "")) / (journey?.stepMs ?? 1600))) : 0;
+  // Neither a paused journey nor a journey already at its final waypoint is walking.
+  const moving = journey?.status === "travelling" && hasJourney && progress < route.length - 1;
   const waypoint = Math.min(route.length - 1, Math.floor(progress));
   const portion = progress - waypoint;
   const from = route[waypoint] ?? authoritative;
   const to = route[Math.min(route.length - 1, waypoint + 1)] ?? from;
-  const current = moving ? {
+  const current = hasJourney ? {
     x: from.x + (to.x-from.x)*portion,
     y: from.y + (to.y-from.y)*portion,
   } : authoritative;
