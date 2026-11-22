@@ -4,7 +4,7 @@ import {itemDefinition} from "../../web/lib/item-registry";
 /** Physical vending state, not a suggested quest or prompt reward. */
 export const VENDING_MACHINE_ID="vending_001";
 export const VENDING_ITEMS=[
-  {id:"seed_packet",label:itemDefinition("seed_packet").label,price:itemDefinition("seed_packet").buyPrice,available:true,description:"Plantable seeds; costs 2 coins."},
+  {id:"seed_packet",label:itemDefinition("seed_packet").label,price:itemDefinition("seed_packet").buyPrice,available:true,description:`Plantable seeds; costs ${itemDefinition("seed_packet").buyPrice} coins.`},
   {id:"sketchpad",label:itemDefinition("sketchpad").label,price:itemDefinition("sketchpad").buyPrice,available:true,description:"A reusable sketchbook. After buying it, you can draw with pencil strokes."},
   {id:"mystery_box",label:itemDefinition("mystery_box").label,price:itemDefinition("mystery_box").buyPrice,available:false,description:"Coming soon. Contents are not yet defined; coins cannot be spent on it."},
 ] as const;
