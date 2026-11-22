@@ -139,6 +139,20 @@ export function buildChoices(data,visitor=null) {
  return unique;
 }
 
+function actionRegistry(data){
+ const known=new Map();
+ for(const c of list(data.capabilityCatalogue)){
+  if(typeof c.action!=="string"||!c.action)continue;
+  known.set(c.action,{name:c.action,availableNow:false,offeredByWorld:false,
+    availabilityReason:typeof c.availabilityReason==="string"?c.availabilityReason:
+      typeof c.unavailableReason==="string"?c.unavailableReason:null});
+ }
+ for(const offer of list(data.availableActions)){
+  if(typeof offer.name!=="string"||!offer.name)continue;
+  known.set(offer.name,{...known.get(offer.name),name:offer.name,availableNow:true,offeredByWorld:true,availabilityReason:null});
+ }
+ return [...known.values()];
+}
 function contextFor(data,visitor,feedback=null){
  const s=asObject(data.state),p=asObject(data.perception),ex=asObject(data.experience),g=asObject(data.garden),f=asObject(data.food),sk=asObject(data.sketchbook);
  const experience=experienceContext(ex);
@@ -147,11 +161,11 @@ function contextFor(data,visitor,feedback=null){
  const wildflowers=list(p.wildflowers).map(o=>({id:o.id,type:"wildflower_patch",position:{x:o.x,y:o.y},blooms:o.blooms,directlyAdjacent:o.directlyAdjacent??false,description:o.description??null}));
  const projects=list(data.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:x.next_step??x.nextStep??null}));
  const requests=list(data.creatorRequests).filter(x=>["pending","open","acknowledged","accepted"].includes(x.status)).slice(0,3).map(x=>({id:x.id,status:x.status,description:x.content}));
- const capabilities=list(data.capabilityCatalogue).map(c=>({name:c.action,availableNow:c.availableNow??null}));
+ const capabilities=actionRegistry(data);
  return {
   self:{identity:s.identity??null,currentIntention:goalContext(s,experience),currentActivity:s.currentActivity??null,pendingIntent:s.pendingIntent??null,needs:data.needsPercent},
   present:{position:p.position,directions:list(p.directions).map(d=>({direction:d.direction,canMove:d.canMove,canInspect:d.canInspect,blockedBy:d.blockedBy})),visibleObjects:visible,wildflowers,plots,inventory:{fruit:list(f.inventory).map(x=>x.fruit),other:list(g.inventory).map(x=>({kind:x.kind,waterUnits:x.water_units})),used:g.inventoryUsed,capacity:g.capacity,coins:g.coins}},
-  continuity:{projects,openRequests:requests,unfinishedSketch:sk.active?{id:sk.active.id,title:sk.active.title,intention:sk.active.intention}:null,memories:memorySelection(data.consolidatedMemories,s),...experience,significantEvents:list(ex.meaningfulEvents).slice(0,2).map(e=>({action:e.action,summary:e.content})),capabilities,availableActionNames:list(data.availableActions).map(a=>a.name)},
+  continuity:{projects,openRequests:requests,unfinishedSketch:sk.active?{id:sk.active.id,title:sk.active.title,intention:sk.active.intention}:null,memories:memorySelection(data.consolidatedMemories,s),...experience,significantEvents:list(ex.meaningfulEvents).slice(0,2).map(e=>({action:e.action,summary:e.content})),capabilities,availableActionNames:capabilities.filter(c=>c.offeredByWorld).map(c=>c.name)},
   ...(visitor?{visitorMessage:visitor}:{}),
   ...(feedback?{simulatedLastOutcome:feedback}:{})
  };
