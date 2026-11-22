@@ -18,6 +18,22 @@ test("wildflower patch is anchored at displayed (14,12)",()=>{
  assert.equal(FLOWER_START.x+1,14);
  assert.equal(FLOWER_START.y+1,12);
 });
+test("five seeded patches are well-spaced and avoid solid world objects",async()=>{
+ const sql=readFileSync(new URL("../migrations/033_wildflowers.sql",import.meta.url),"utf8");
+ const matches=[...sql.matchAll(/\('wildflowers_00[1-5]',(\d+),(\d+),([123]),NULL,0\)/g)];
+ assert.equal(matches.length,5,"D1 migration should create five patches");
+ const positions=matches.map(m=>({x:Number(m[1]),y:Number(m[2]),blooms:Number(m[3])}));
+ assert.deepEqual(positions[0],{x:13,y:11,blooms:3});
+ const mapSource=readFileSync(new URL("../../web/lib/world-map.ts",import.meta.url),"utf8");
+ const worldJs=ts.transpileModule(mapSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+ const map=await import("data:text/javascript;base64,"+Buffer.from(worldJs).toString("base64"));
+ for(const p of positions)assert.equal(map.isWalkable(p),true,"Patch must not occupy an existing obstacle");
+ for(let a=0;a<positions.length;a++)for(let b=a+1;b<positions.length;b++)
+  assert.ok(Math.abs(positions[a].x-positions[b].x)+Math.abs(positions[a].y-positions[b].y)>=4,"Patches need breathing room");
+ const ui=readFileSync(new URL("../../web/app/world/isometric-world.tsx",import.meta.url),"utf8");
+ for(let i=0;i<positions.length;i++)
+  assert.ok(ui.includes(`{id:"wildflowers_00${i+1}",x:${positions[i].x},y:${positions[i].y},blooms:${positions[i].blooms}}`),"Preview must match migration");
+});
 test("pick is available only in the four directly adjacent positions with blooms",()=>{
  const patch={id:"wildflowers_001",x:13,y:11,blooms:3};
  assert.deepEqual(adjacentFlowerPatches({x:13,y:10},[patch]),[patch.id]);
