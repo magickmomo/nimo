@@ -339,6 +339,17 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 @keyframes nimo-dream{0%,100%{opacity:.15;transform:translateY(1px)}50%{opacity:.85;transform:translateY(-5px)}}
 @media(prefers-reduced-motion:reduce){.nimo-character-sleeping,.nimo-character-awake .nimo-awake-eyes,.nimo-sleep-z{animation:none}}
 
+/* Journey motion and place-based resting are purely visual; no meter effects. */
+.nimo-character-walking{animation:nimo-walk-bob .36s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:center bottom}
+.nimo-character-walking .nimo-walking-leg-left{animation:nimo-leg-left .4s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:center top}
+.nimo-character-walking .nimo-walking-leg-right{animation:nimo-leg-right .4s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:center top}
+.nimo-character-seated{animation:nimo-sit-breathe 3.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center bottom}
+@keyframes nimo-walk-bob{from{transform:translateY(0)}to{transform:translateY(-3px)}}
+@keyframes nimo-leg-left{from{transform:rotate(-16deg)}to{transform:rotate(16deg)}}
+@keyframes nimo-leg-right{from{transform:rotate(16deg)}to{transform:rotate(-16deg)}}
+@keyframes nimo-sit-breathe{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(1px) scaleY(.98)}}
+@media(prefers-reduced-motion:reduce){.nimo-character-walking,.nimo-character-walking .nimo-walking-leg-left,.nimo-character-walking .nimo-walking-leg-right,.nimo-character-seated{animation:none}}
+
 /* Top-left world-overlay action toasts. Newest stays at bottom of the stack;
    older actions move up with a clear 12px gap and progressively fade. */
 .nimo-map-viewport{position:relative}
