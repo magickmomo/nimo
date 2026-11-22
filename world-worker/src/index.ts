@@ -493,8 +493,15 @@ async function tick(env: Env) {
   let emotions = updateEmotions(world.state.emotions, elapsed, now.getUTCHours(), false, rate);
   const actionHistory=recentChoices(world.state.curiosityActionHistory);
   const earlierRewards = await pendingRewards(env.DB, world.state.rewardCursor ?? 0);
-  // Rewards are stored for later but do not affect currently paused drives.
   const lastRewardId = earlierRewards.at(-1)?.id ?? (world.state.rewardCursor ?? 0);
+  // Journey completion and Oracle answers are asynchronous. Their durable,
+  // verified rewards become curiosity signals on the next decision. Multiple
+  // new tiles from one journey satisfy curiosity once, not once per tile.
+  const foundNewPlace=earlierRewards.some(r=>r.action==="explore_tile"&&r.points>0);
+  const researchCompleted=earlierRewards.some(r=>r.action==="oracle_answered");
+  const asyncNovelty=(foundNewPlace?0.16:0)+(researchCompleted?0.16:0);
+  emotions={...emotions,curiosity:Math.max(0,Math.min(1,(emotions.curiosity??0.35)-asyncNovelty))};
+  // The old happiness/boredom reward policy is still paused.
   const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId,
@@ -764,10 +771,10 @@ async function tick(env: Env) {
   const i = d.identityUpdate;
   const identity = i && typeof i.text === "string" && typeof i.evidence === "string" &&
     i.text.trim() && i.evidence.trim() ? i.text.slice(0, 500) : state.identity;
-  // Existing reward records remain available for later research, but do not alter paused needs.
-  const newRewards = await pendingRewards(env.DB, state.rewardCursor ?? 0);
-  // Rewards remain persisted, but are not currently applied.
-  state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
+  // Only acknowledge the reward batch observed before this decision.
+  // An Oracle answer or journey that completes during the model call must
+  // remain pending so its curiosity relief is not silently discarded.
+  state.rewardCursor = lastRewardId;
   const chosen=choiceName(d.action,d.toolCall?.name);
   // Only verified outcomes can create novelty. Persist the exact milestone
   // keys so repeating a sale, note, drawing or garden step cannot farm relief.
