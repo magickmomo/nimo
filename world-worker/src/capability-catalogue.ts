@@ -1,5 +1,6 @@
 import type { ActionMenu } from "./action-menu";
 import type { GardenState } from "./garden";
+import {ITEM_REGISTRY,isSaleableItem} from "../../web/lib/item-registry";
 
 /** Stable world mechanics, separate from the location-specific executable menu.
  * These are prerequisites and observations, NOT a plan or permission to call tools.
@@ -25,7 +26,7 @@ export function buildCapabilityCatalogue(
   const hasCan = supplies.find(item=>item.kind === "watering_can");
   const knownPlot = ["plot_001","plot_002","plot_003"].some(id=>known.has(id));
   const hasFruit = food.inventory.length > 0;
-  const saleable = carries("crop") || hasFruit;
+  const saleable = carries("crop") || hasFruit || menu.heldFlowerKinds?.includes("wildflower")===true;
   const room = garden.inventoryUsed < garden.capacity;
   const coins = vending.coins;
   const seedCost = vending.items.find(item=>item.id==="seed_packet")?.price;
@@ -86,10 +87,11 @@ export function buildCapabilityCatalogue(
       room ? "Inventory has room" : "Free an inventory slot",
       "Crop must have finished growing",
     ]],
-    ["sell_item","Sell carried fruit or harvested crops for coins",[
+    ["sell_item","Sell carried saleable items for coins",[
       known.has("store_001") ? "Stand adjacent to store_001" : "Find the general store",
-      saleable ? "Carrying saleable produce" : "First collect fruit or harvest a crop",
-      "The store buys fruit for 1 coin and harvested crops for 3 coins",
+      saleable ? "Carrying a saleable item" : "First collect fruit, harvest a crop or pick a wildflower",
+      "Store prices: "+Object.entries(ITEM_REGISTRY).filter(([kind])=>isSaleableItem(kind)).map(([,item])=>item.label+" "+item.saleValue+" "+(item.saleValue===1?"coin":"coins")).join("; "),
+      "Wildflower seeds and gardening supplies are not saleable",
     ]],
   ] as const;
   return items.map(([action,purpose,requirements])=>({

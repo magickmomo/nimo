@@ -1,4 +1,5 @@
 import { WORLD_OBJECTS, type Point } from "../../web/lib/world-map";
+import {itemDefinition,isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
 export const GARDEN_GROW_MS = 5 * 60 * 1000;
 export const INVENTORY_CAPACITY = 9;
@@ -108,20 +109,24 @@ export async function harvestCrop(db:D1Database,pos:Point,plotId:string,key:stri
  ]);
  return "Harvested one turnip from "+plotId;
 }
-export type SaleItem="crop"|"amber"|"blue"|"red";
+export type SaleItem=SaleableItem;
 export async function sellItem(db:D1Database,pos:Point,item:SaleItem,key:string){
  if(!nearObject(pos,"store_001"))throw Error("Stand next to the general store");
- const price=item==="crop"?3:1;
- const source=item==="crop"?"garden_inventory":"world_food_inventory";
- const selected=item==="crop"
-  ?await db.prepare("SELECT id FROM garden_inventory WHERE kind='crop' ORDER BY id LIMIT 1").first<{id:number}>()
-  :await db.prepare("SELECT id FROM world_food_inventory WHERE fruit=? ORDER BY id LIMIT 1").bind(item).first<{id:number}>();
+ if(!isSaleableItem(item))throw Error("Item is not saleable");
+ const definition=itemDefinition(item);
+ const price=definition.saleValue;
+ if(price===null)throw Error("Item is not saleable");
+ // Source table and column are fixed allowlisted values from the registry,
+ // never constructed from model-supplied strings.
+ const {source,sourceField}=definition;
+ const selected=await db.prepare("SELECT id FROM "+source+" WHERE "+sourceField+"=? ORDER BY id LIMIT 1")
+  .bind(item).first<{id:number}>();
  if(!selected)throw Error("Item not held");
  await db.batch([
   guard(db,key,"sell_item",item,
-   "EXISTS(SELECT 1 FROM "+source+" WHERE id=? AND "+(item==="crop"?"kind='crop'":"fruit=?")+") AND EXISTS(SELECT 1 FROM vending_state WHERE id=1)",
-   item==="crop"?[selected.id]:[selected.id,item]),
-  db.prepare("DELETE FROM "+source+" WHERE id=?").bind(selected.id),
+   "EXISTS(SELECT 1 FROM "+source+" WHERE id=? AND "+sourceField+"=?) AND EXISTS(SELECT 1 FROM vending_state WHERE id=1)",
+   [selected.id,item]),
+  db.prepare("DELETE FROM "+source+" WHERE id=? AND "+sourceField+"=?").bind(selected.id,item),
   db.prepare("UPDATE vending_state SET coins=coins+? WHERE id=1").bind(price)
  ]);
  return "Sold "+item+" for "+price+" coin(s)";
@@ -130,13 +135,14 @@ export async function buySeeds(db:D1Database,pos:Point,key:string){
  if(!nearObject(pos,"vending_001"))throw Error("Stand next to vending machine");
  const vending=await db.prepare("SELECT inspected_at,coins FROM vending_state WHERE id=1").first<{inspected_at:string|null;coins:number}>();
  if(!vending?.inspected_at)throw Error("Inspect the vending machine first");
- if(vending.coins<2)throw Error("Seed packet costs 2 coins");
+ const price=itemDefinition("seed_packet").buyPrice;
+ if(vending.coins<price)throw Error("Seed packet costs "+price+" coins");
  const s=await gardenSnapshot(db);if(s.inventoryUsed>=INVENTORY_CAPACITY)throw Error("Inventory full");
  await db.batch([
-  guard(db,key,"buy_seeds","Seed packet for 2 coins",
-   "EXISTS(SELECT 1 FROM vending_state WHERE id=1 AND inspected_at IS NOT NULL AND coins>=2) AND "+inventoryRoom),
-  db.prepare("UPDATE vending_state SET coins=coins-2 WHERE id=1 AND coins>=2"),
+  guard(db,key,"buy_seeds","Seed packet for "+price+" coins",
+   "EXISTS(SELECT 1 FROM vending_state WHERE id=1 AND inspected_at IS NOT NULL AND coins>=?) AND "+inventoryRoom,[price]),
+  db.prepare("UPDATE vending_state SET coins=coins-? WHERE id=1 AND coins>=?").bind(price,price),
   db.prepare("INSERT INTO garden_inventory(kind) VALUES('seed_packet')")
  ]);
- return "Bought one seed packet for 2 coins";
+ return "Bought one seed packet for "+price+" coins";
 }

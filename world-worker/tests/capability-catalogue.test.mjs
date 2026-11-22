@@ -5,7 +5,9 @@ import ts from "typescript";
 
 // This module deliberately depends only on type imports, so it can run in
 // isolation without a database or a Cloudflare Worker.
-const source = readFileSync(new URL("../src/capability-catalogue.ts", import.meta.url), "utf8");
+const itemCode=ts.transpileModule(readFileSync(new URL("../../web/lib/item-registry.ts",import.meta.url),"utf8"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const itemModule="data:text/javascript;base64,"+Buffer.from(itemCode).toString("base64");
+const source = readFileSync(new URL("../src/capability-catalogue.ts", import.meta.url), "utf8").replace('from "../../web/lib/item-registry";',`from "${itemModule}";`);
 const js = ts.transpileModule(source, {compilerOptions: {module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 const {buildCapabilityCatalogue} = await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
 
@@ -26,7 +28,7 @@ test("separate unavailable actions remain explainable without becoming executabl
   assert.equal(planting.availableNow,false);
   assert.ok(planting.requirements.some(r=>r.includes("Obtain a seed packet")));
   assert.equal(selling.availableNow,false);
-  assert.ok(selling.requirements.some(r=>r.includes("Carrying saleable produce")));
+  assert.ok(selling.requirements.some(r=>r.includes("Carrying a saleable item")));
   assert.ok(selling.requirements.some(r=>r.includes("3 coins")));
   assert.ok(buying.requirements.some(r=>r.includes("2 coins")));
   assert.ok(buying.requirements.some(r=>r.includes("balance is 0")));

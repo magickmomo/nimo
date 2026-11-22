@@ -2,6 +2,7 @@
 // Only narrow, unambiguous compatibility repairs are allowed.
 import {validateStrokes} from "./sketchbook";
 import { WORLD_SIZE } from "../../web/lib/world-map";
+import {isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
 export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
 export type DecisionTool =
@@ -27,7 +28,7 @@ export type DecisionTool =
   | { name: "update_project"; projectId:number; nextStep:string; progressNote:string; status:"active"|"paused"|"completed"|"abandoned" }
   | { name:"take_can"|"fill_can" }
   | { name:"plant_seed"|"water_plot"|"harvest_crop"; plotId:string }
-  | { name:"sell_item"; item:"crop"|"amber"|"blue"|"red" };
+  | { name:"sell_item"; item:SaleableItem };
 export type Decision = {
   action: DecisionAction;
   monologue: string;
@@ -164,8 +165,8 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
       if(!string(tool.plotId,20)||!/^plot_00[1-3]$/.test(tool.plotId))fail("Unknown garden plot");
       toolCall={name:tool.name,plotId:tool.plotId};
     } else if (tool.name === "sell_item") {
-      if(!["crop","amber","blue","red"].includes(String(tool.item)))fail("Unknown sale item");
-      toolCall={name:"sell_item",item:tool.item as "crop"|"amber"|"blue"|"red"};
+      if(typeof tool.item!=="string"||!isSaleableItem(tool.item))fail("Unknown sale item");
+      toolCall={name:"sell_item",item:tool.item as SaleableItem};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
           (tool.x as number) < 1 || (tool.x as number) > WORLD_SIZE ||

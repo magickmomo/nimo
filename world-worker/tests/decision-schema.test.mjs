@@ -9,9 +9,12 @@ const mapModule = "data:text/javascript;base64,"+Buffer.from(compiledMap).toStri
 const sketchSource=readFileSync(new URL("../src/sketchbook.ts",import.meta.url),"utf8");
 const sketchJs=ts.transpileModule(sketchSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 const sketchModule="data:text/javascript;base64,"+Buffer.from(sketchJs).toString("base64");
+const itemCode=ts.transpileModule(readFileSync(new URL("../../web/lib/item-registry.ts",import.meta.url),"utf8"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const itemModule="data:text/javascript;base64,"+Buffer.from(itemCode).toString("base64");
 const source = readFileSync(new URL("../src/decision-schema.ts",import.meta.url),"utf8")
   .replace('from "../../web/lib/world-map";',`from "${mapModule}";`)
-  .replace('from "./sketchbook";',`from "${sketchModule}";`);
+  .replace('from "./sketchbook";',`from "${sketchModule}";`)
+  .replace('from "../../web/lib/item-registry";',`from "${itemModule}";`);
 const js = ts.transpileModule(source,{
   compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022},
 }).outputText;

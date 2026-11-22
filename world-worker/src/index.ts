@@ -5,6 +5,7 @@ import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards,
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildCapabilityCatalogue } from "./capability-catalogue";
+import {saleableCarriedItems,type ItemKind} from "../../web/lib/item-registry";
 import { buildExperienceContext, type ExperienceEvent } from "./experience-context";
 import { nextVisitorIntent } from "./visitor-intent";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
@@ -537,8 +538,11 @@ async function tick(env: Env) {
   if(adjacentPlots.some(id=>garden.plots.some(p=>p.id===id&&p.stage==="dry"))&&wateredCan)gardenTools.push("water_plot");
   if(adjacentPlots.some(id=>garden.plots.some(p=>p.id===id&&p.ready))&&room)gardenTools.push("harvest_crop");
   if(nearObject(position,"store_001")){
-    if(garden.inventory.some(i=>i.kind==="crop"))saleItems.push("crop");
-    for(const kind of ["amber","blue","red"] as const)if(food.inventory.some(i=>i.fruit===kind))saleItems.push(kind);
+    saleItems.push(...saleableCarriedItems([
+      ...garden.inventory.map(i=>i.kind),
+      ...food.inventory.map(i=>i.fruit),
+      ...wildflowers.inventory.map(i=>i.kind)
+    ] as ItemKind[]));
     if(saleItems.length)gardenTools.push("sell_item");
   }
   const oracleWithinReach=adjacentToOracle(position);
