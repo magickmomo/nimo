@@ -95,8 +95,8 @@ export default function DecisionHarnessPage(){
      </nav>
      {stage&&<section className="dh-stage-view dh-panel">
       <div className="dh-stage-head"><div><div className="dh-eyebrow">Stage {result.stages.indexOf(stage)+1} / {result.stages.length}</div><h3>{stage.title}</h3><p>{stage.note}</p></div><span className="dh-pill dh-status">{stage.status.replaceAll("_"," ")}</span></div>
-      <div className="dh-code-block"><div className="dh-code-head"><strong>Input</strong><button type="button" onClick={()=>navigator.clipboard.writeText(nice(stage.input))}>Copy JSON</button></div><pre>{nice(stage.input)}</pre></div>
-      <div className="dh-code-block"><div className="dh-code-head"><strong>Output</strong><button type="button" onClick={()=>navigator.clipboard.writeText(nice(stage.output))}>Copy JSON</button></div><pre>{nice(stage.output)}</pre></div>
+      <div className="dh-code-block"><div className="dh-code-head"><strong>{stage.id==="context"?"Original world context":"Input"}</strong><button type="button" onClick={()=>navigator.clipboard.writeText(nice(stage.input))}>Copy JSON</button></div><pre>{nice(stage.input)}</pre></div>
+      <div className="dh-code-block"><div className="dh-code-head"><strong>{stage.id==="context"?"New compact decision context":"Output"}</strong><button type="button" onClick={()=>navigator.clipboard.writeText(nice(stage.output))}>Copy JSON</button></div><pre>{nice(stage.output)}</pre></div>
      </section>}
     </div>
    </div>:<section className="dh-empty dh-panel">
