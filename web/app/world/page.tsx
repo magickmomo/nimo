@@ -158,10 +158,23 @@ export default function World() {
         if(body.authenticated)void refreshRequestCount();
       }).catch(() => setIsOwner(false))
       .finally(() => { void refresh(); });
-    const refreshOnVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+    const refreshOwnerSession = () => {
+      void fetch("/api/world/session", { cache: "no-store" })
+        .then(async response => {
+          const body = await response.json() as { authenticated?: boolean };
+          setIsOwner(Boolean(body.authenticated));
+          if (body.authenticated) void refreshRequestCount();
+        }).catch(() => setIsOwner(false));
     };
+    const refreshOnVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshOwnerSession();
+        void refresh();
+      }
+    };
+    const refreshOnFocus = () => refreshOwnerSession();
     document.addEventListener("visibilitychange", refreshOnVisible);
+    window.addEventListener("focus", refreshOnFocus);
     const liveInterval = window.setInterval(() => { void refreshLive(); }, 10000);
     const requestInterval=window.setInterval(()=>{
       if(document.visibilityState==="visible")void refreshRequestCount();
@@ -173,6 +186,7 @@ export default function World() {
     const clockInterval = window.setInterval(() => setClock(Date.now()), 1000);
     return () => {
       document.removeEventListener("visibilitychange", refreshOnVisible);
+      window.removeEventListener("focus", refreshOnFocus);
       window.clearInterval(liveInterval);
       window.clearInterval(fullInterval);
       window.clearInterval(requestInterval);
