@@ -60,3 +60,34 @@ Important:
 - New `identity` prompt exists in the harness only. No production prompt or architecture is altered.
 - API choice questions require 2–255 options. The simulator checks overflow; pending visitor replies use a direct handoff.
 - This first version prioritises faithful options and continuity over ideal token budgets. Measure input tokens and validate memory coverage before live integration.
+
+## Step-by-step logging (Framework V1)
+
+Every `framework:simulate` run writes three audit views alongside its normal output:
+
+- `framework-trace-<traceId>.json`: complete structured record, including every stage's unmodified input/output values and provenance.
+- `framework-trace-<traceId>.jsonl`: one JSON object per stage for filtering and comparing runs.
+- `framework-trace-<traceId>.md`: human-readable sections, each with its input, output, status and notes.
+
+Example:
+
+```bash
+cd world-worker
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8558 --out ./harness-output
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8558 --choose start_sketch --out ./harness-output
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8558 --choose start_sketch --outcome success --out ./harness-output
+```
+
+**Logged stages:** `archive` → `context` → `choices` → `decisions_request` → `decisions_response` → `route` → `generation` → `world_execution` → `feedback`.
+
+Statuses and provenance are explicit:
+
+- `archived_request`: historical request copied from the export, not a new request.
+- `offline_simulation`: pure context/choice/routing transformations.
+- `manual_test_choice`: option passed through `--choose`; **not** a Decisions API response.
+- `not_run` or `skipped`: no model call or executor call occurred.
+- `simulated_feedback`: synthetic test outcome, **not** world-verified success.
+
+The logs are **full-fidelity, not redacted**, and include private historical prompt and memory contents. Keep them local; do not check them into Git, attach them to public issues, or publish the outputs. Do not assume logged content is safe to share.
+
+This is instrumentation of the *offline harness*. It is not wired to live APIs, so there are no actual Decisions or Responses API outputs to log yet.
