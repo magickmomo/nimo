@@ -16,6 +16,9 @@ export type DecisionTool =
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
   | { name: "remember_object"; objectId: string; label: string; note: string }
   | { name: "pick_fruit"; treeId: string }
+  | { name: "pick_flowers"; patchId:string }
+  | { name: "plant_wildflower_seed"; direction:"north"|"south"|"east"|"west" }
+  | { name: "discard_wildflower"; kind:"wildflower"|"flower_seed" }
   | { name: "eat_fruit"; fruit: "amber"|"blue"|"red" }
   | { name: "discard_fruit"; fruit: "amber"|"blue"|"red" }
   | { name: "buy_item"; itemId: "seed_packet"|"sketchpad"|"mystery_box" }
@@ -36,7 +39,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -112,6 +115,16 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "pick_fruit") {
       if (!string(tool.treeId,40) || !/^tree_\d{3}$/.test(tool.treeId))fail("Invalid fruit tree ID");
       toolCall={name:"pick_fruit",treeId:tool.treeId};
+    } else if (tool.name === "pick_flowers") {
+      if(!string(tool.patchId,40)||!/^wildflowers_[a-z0-9_]+$/.test(tool.patchId))
+        fail("Invalid wildflower patch ID");
+      toolCall={name:"pick_flowers",patchId:tool.patchId};
+    } else if (tool.name === "plant_wildflower_seed") {
+      if(!DIRECTIONS.includes(String(tool.direction)))fail("Planting requires a cardinal direction");
+      toolCall={name:"plant_wildflower_seed",direction:tool.direction as "north"|"south"|"east"|"west"};
+    } else if (tool.name === "discard_wildflower") {
+      if(!["wildflower","flower_seed"].includes(String(tool.kind)))fail("Invalid flower item");
+      toolCall={name:"discard_wildflower",kind:tool.kind as "wildflower"|"flower_seed"};
     } else if (tool.name === "eat_fruit" || tool.name === "discard_fruit") {
       if (!["amber","blue","red"].includes(String(tool.fruit)))fail("Invalid fruit type");
       toolCall={name:tool.name,fruit:tool.fruit as "amber"|"blue"|"red"};
