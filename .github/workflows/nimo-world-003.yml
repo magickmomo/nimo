@@ -131,3 +131,5 @@ jobs:
         run: npm run test --prefix world-worker
       - name: Website TypeScript
         run: npm run typecheck --prefix web
+      - name: Website tests
+        run: npm run test --prefix web
