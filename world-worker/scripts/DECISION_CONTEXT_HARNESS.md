@@ -36,3 +36,27 @@ This is an exploratory prototype, **not a production-ready token budgeter**.
 6. The script has no access to the live database. Source context is a snapshot from a supplied export.
 
 **No integration with production `decide()` is performed in this branch.**
+
+## Framework V1: action selection and generation handoff
+
+The new `decision-framework-v1.mjs` rehearses the new philosophy using exact archived snapshots.
+
+```bash
+cd world-worker
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8557
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8557 --choose start_sketch
+npm run framework:simulate -- --input /path/to/nimo-decision-context-last60m.json --trace 8557 --choose eat_fruit:red --outcome success
+node --test tests/decision-framework-v1.test.mjs
+```
+
+The output contains `context`, a candidate `POST /v1/decisions` request (using a `choice` question), `choices` with executable mappings, and (when a manual `--choose` is supplied) either a direct `toolCall`, or a `/v1/responses` task context.
+
+Important:
+- **There is no live Decisions call.** Selection is supplied manually via `--choose`; it is not a model prediction.
+- **There is no world mutation, live execution or persistent state update.** Optional outcome feedback is tagged simulated.
+- Visitor replies bypass the single-choice selection and go to the generation handoff.
+- Travel choices are currently limited to immediately adjacent, explicitly walkable destinations. Extending to meaningful distant reachable destinations needs a verified pathfinder and careful option bounds.
+- Generative handoffs are **specifications**, not production-ready requests: tool-specific schemas and actual world execution remain in the existing `decide()` implementation.
+- New `identity` prompt exists in the harness only. No production prompt or architecture is altered.
+- API choice questions require 2–255 options. The simulator checks overflow; pending visitor replies use a direct handoff.
+- This first version prioritises faithful options and continuity over ideal token budgets. Measure input tokens and validate memory coverage before live integration.
