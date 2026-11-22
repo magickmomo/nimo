@@ -7,17 +7,19 @@ const source=readFileSync(new URL("../../web/lib/item-registry.ts",import.meta.u
 const registry=await import("data:text/javascript;base64,"+Buffer.from(compile(source)).toString("base64"));
 const {ITEM_REGISTRY,SALEABLE_ITEMS,itemDefinition,isSaleableItem,inventorySlotsUsed,saleableCarriedItems}=registry;
 test("all carried items share the same property contract",()=>{
- assert.equal(Object.keys(ITEM_REGISTRY).length,8);
+ assert.equal(Object.keys(ITEM_REGISTRY).length,10);
  const schema=Object.keys(ITEM_REGISTRY.amber).sort();
  for(const [kind,item] of Object.entries(ITEM_REGISTRY)){
    assert.deepEqual(Object.keys(item).sort(),schema,kind+" has inconsistent properties");
    assert.equal(typeof item.label,"string");
    assert.equal(typeof item.category,"string");
-   assert.ok(Number.isInteger(item.slotCost)&&item.slotCost>0);
+   assert.ok(Number.isInteger(item.slotCost)&&item.slotCost>=0);
    assert.ok(item.saleValue===null||(Number.isInteger(item.saleValue)&&item.saleValue>=0));
-   assert.ok(["garden_inventory","world_food_inventory","wildflower_inventory"].includes(item.source));
-   assert.ok(["kind","fruit"].includes(item.sourceField));
-   assert.ok(Array.isArray(item.actions)&&item.actions.length>0);
+   assert.ok(item.source===null||["garden_inventory","world_food_inventory","wildflower_inventory"].includes(item.source));
+   assert.ok(item.sourceField===null||["kind","fruit"].includes(item.sourceField));
+   assert.equal(item.source===null,item.sourceField===null);
+   assert.ok(item.buyPrice===null||(Number.isInteger(item.buyPrice)&&item.buyPrice>=0));
+   assert.ok(Array.isArray(item.actions));
    assert.equal(item.actions.includes("sell_item"),item.saleValue!==null,kind+" sale capabilities disagree");
  }
 });
@@ -26,6 +28,10 @@ test("flower sales are valued at one coin; seeds remain plantable and unsaleable
  assert.equal(itemDefinition("crop").saleValue,3);
  for(const kind of ["amber","blue","red"])assert.equal(itemDefinition(kind).saleValue,1);
  assert.equal(itemDefinition("flower_seed").saleValue,null);
+ assert.equal(itemDefinition("seed_packet").buyPrice,2);
+ assert.equal(itemDefinition("sketchpad").buyPrice,3);
+ assert.equal(itemDefinition("mystery_box").buyPrice,5);
+ assert.equal(itemDefinition("sketchpad").slotCost,0);
  assert.deepEqual(ITEM_REGISTRY.flower_seed.actions,["plant_wildflower_seed","discard_wildflower"]);
  assert.equal(isSaleableItem("wildflower"),true);
  assert.equal(isSaleableItem("flower_seed"),false);
@@ -46,4 +52,6 @@ test("worker action gating and UI are backed by the same registry",()=>{
  assert.match(garden,/db\.prepare\("DELETE FROM "\+source/);
  assert.match(schema,/isSaleableItem\(tool\.item\)/);
  assert.match(ui,/itemDefinition\(item\.registryKind\)\.saleValue/);
+ const vending=readFileSync(new URL("../src/vending.ts",import.meta.url),"utf8");
+ assert.match(vending,/itemDefinition\("seed_packet"\)\.buyPrice/);
 });
