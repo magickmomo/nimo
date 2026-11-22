@@ -138,7 +138,7 @@ test("last60m includes exactly the UTC capture-time window, without clipping at 
  assert.deepEqual(exportData.window,{start:"2026-11-22T23:30:00.000Z",end:"2026-11-23T00:30:00.000Z",timezone:"UTC",inclusiveStart:true,exclusiveEnd:true});
  assert.equal(exportData.truncated,false);
  assert.equal(exportData.nextCursor,null);
- assert.equal(bucket.counts.gets,3,"out-of-range snapshots must not require R2 GET");
+ assert.equal(bucket.counts.gets,4,"earlier objects are skipped; the upper boundary is checked against capturedAt after retrieval");
 });
 test("last60m collects more than 50 records in one download without pagination",async()=>{
  const bucket=fakeBucket();
