@@ -16,6 +16,7 @@ export type DecisionTool =
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
   | { name: "remember_object"; objectId: string; label: string; note: string }
   | { name: "pick_fruit"; treeId: string }
+  | { name: "rest" }
   | { name: "pick_flowers"; patchId:string }
   | { name: "plant_wildflower_seed"; direction:"north"|"south"|"east"|"west" }
   | { name: "discard_wildflower"; kind:"wildflower"|"flower_seed" }
@@ -39,7 +40,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
+const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -115,6 +116,8 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "pick_fruit") {
       if (!string(tool.treeId,40) || !/^tree_\d{3}$/.test(tool.treeId))fail("Invalid fruit tree ID");
       toolCall={name:"pick_fruit",treeId:tool.treeId};
+    } else if (tool.name === "rest") {
+      toolCall={name:"rest"};
     } else if (tool.name === "pick_flowers") {
       if(!string(tool.patchId,40)||!/^wildflowers_[a-z0-9_]+$/.test(tool.patchId))
         fail("Invalid wildflower patch ID");
