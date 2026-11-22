@@ -490,7 +490,8 @@ async function tick(env: Env) {
   await recordSight(env.DB,position);
   await refreshWildflowers(env.DB,now.getTime());
   const wildflowers=await wildflowerSnapshot(env.DB);
-  const perception = {...modelPerception(position),
+  const perception = modelPerception(position);
+  const flowerPerception = {...perception,
     wildflowers:wildflowers.patches
       .filter(p=>Math.abs(p.x-position.x)<=4&&Math.abs(p.y-position.y)<=4)
       .map(p=>({id:p.id,x:p.x+1,y:p.y+1,blooms:p.blooms,
@@ -574,7 +575,7 @@ async function tick(env: Env) {
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   try {
-    d=await decide(env,state,history,landmarks,workspace,perception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
+    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
       {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
