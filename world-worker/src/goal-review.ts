@@ -28,7 +28,7 @@ export type GoalReview={
 export function goalReviewContext(
   goal:string|null,
   fullness:number,
-  carriedFruitCount:number,
+  carriedFruits:readonly string[],
   recentEvents:readonly DecisionEvent[],
   hasPendingVisitor:boolean,
 ):GoalReview{
@@ -36,10 +36,12 @@ export function goalReviewContext(
   const evidence:string[]=[];
   if(goal && /\b(food|fullness|forag\w*|fruit|reserv\w*|eat\w*)\b/i.test(goal)){
     evidence.push("Current fullness: "+Math.round(fullness*100)+"%.");
-    evidence.push("Fruit currently carried: "+carriedFruitCount+".");
-    // A food reserve is not proof that any arbitrary goal has been met.
-    if(fullness>=0.6&&carriedFruitCount>0)
-      evidence.push("A usable fruit reserve exists while fullness is comfortable; consider whether any immediate food-related step remains.");
+    evidence.push("Fruit currently carried: "+carriedFruits.length+".");
+    evidence.push("Carried fruit types: "+(carriedFruits.join(", ")||"none")+".");
+    // Presence is factual, but it does not establish that this fruit
+    // improves fullness. Nimo must use his verified memories to assess that.
+    if(fullness>=0.6&&carriedFruits.length>0)
+      evidence.push("Fullness is currently comfortable and fruit is carried, but inventory alone does not prove a usable food reserve. Evaluate known effects before deciding whether this goal is satisfied.");
   }
   if(goal && passiveDecisionStreak>=3 && !hasPendingVisitor)
     evidence.push("The last "+passiveDecisionStreak+" autonomous decisions were passive, without a new verified tool action.");
