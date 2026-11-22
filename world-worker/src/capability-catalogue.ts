@@ -37,6 +37,19 @@ export function buildCapabilityCatalogue(
     ["inspect","Examine an adjacent object",["Stand next to an inspectable object; repeated inspection may be restricted"]],
     ["remember_object","Record a label or note for a known object",["Object must be known and eligible for a note"]],
     ["pick_fruit","Collect fruit from a tree",["Stand next to a stocked fruit tree","Have a free inventory slot"]],
+    ["pick_flowers","Pick one wildflower from a blooming patch; each pick has a one-in-five chance to yield a seed",[
+      "Stand on a cardinally adjacent grass tile (north, south, east, or west), not on the flower tile or diagonally",
+      "The patch must have at least one bloom",
+      garden.capacity-garden.inventoryUsed>=2?"Two inventory slots free for the flower and possible seed":"Free two inventory slots before picking"
+    ]],
+    ["plant_wildflower_seed","Plant a gathered flower seed in open grass",[
+      "Carry a flower seed",
+      "Choose an empty cardinally adjacent grass tile, away from buildings and planted patches"
+    ]],
+    ["rest","Sit quietly at the garden nook bench; currently has no effect on meters",[
+      known.has("garden_nook_001")?"Stand directly adjacent to garden_nook_001 at (6,13)":"Find the garden nook near (6,13)",
+      "This is an optional pause, not a cure for hunger or curiosity"
+    ]],
     ["eat_fruit","Eat carried fruit",["Carry the fruit being eaten"]],
     ["discard_fruit","Discard carried fruit",["Carry the fruit being discarded"]],
     ["buy_item","Buy something from the vending machine",[
