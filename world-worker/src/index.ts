@@ -602,18 +602,31 @@ async function tick(env: Env) {
   };
   try {
     d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();});
-    const auditKey=await archiveDecision({status:"selected",decision:d});
+  }catch(error) {
+    // Only an actual model/validation failure belongs in this handler.
+    // A later trace-persistence error must never overwrite a selected R2
+    // decision with a spurious model failure.
+    const message=error instanceof Error ? error.message : String(error);
+    const auditKey=await archiveDecision({status:"failed",error:message.slice(0,1600)});
+    try {
+      await finishTrace(env.DB,modelTrace,"failed",message,
+        {model:env.OPENAI_MODEL || "gpt-6-luna",usage,...(auditKey?{decisionAuditKey:auditKey}:{})});
+    }catch(traceError){
+      console.error("Failed to persist model-error trace",traceError);
+    }
+    await log(env.DB, "system", `Decision failed: ${message}`, "ERROR");
+    await releaseDecisionSlot();
+    return { status: "model_error" };
+  }
+  // Model selection is now final. Archive it once; a failed D1 trace update
+  // cannot change the archived outcome or prevent the chosen action running.
+  const auditKey=await archiveDecision({status:"selected",decision:d});
+  try {
     await finishTrace(env.DB,modelTrace,"completed",
       `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
       {model:env.OPENAI_MODEL || "gpt-6-luna",usage,...(auditKey?{decisionAuditKey:auditKey}:{})});
-  }catch(error) {
-    const message=error instanceof Error ? error.message : String(error);
-    const auditKey=await archiveDecision({status:"failed",error:message.slice(0,1600)});
-    await finishTrace(env.DB,modelTrace,"failed",message,
-      {model:env.OPENAI_MODEL || "gpt-6-luna",usage,...(auditKey?{decisionAuditKey:auditKey}:{})});
-    await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
-    await releaseDecisionSlot();
-    return { status: "model_error" };
+  }catch(traceError){
+    console.error("Failed to persist selected-decision trace",traceError);
   }
   // Enforce priority outside the LLM, so a prohibited repetitive action cannot execute.
   // Invalid proposals remain visible rather than being silently rewritten into other actions.
