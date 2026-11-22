@@ -34,12 +34,42 @@ function snapshot(record) {
  return {data:JSON.parse(user.content),visitor:input.find(m=>m.role==="user"&&m!==user)?.content??null};
 }
 
-function memorySelection(items, state){
+function memorySelection(items,state){
  const words=sortedUniq(((str(state.currentGoal,250)+" "+str(state.currentActivity,120)).toLowerCase().match(/[a-z]{5,}/g)??[]));
- const scored=list(items).map((m,i)=>({m,i,score:words.filter(w=>(str(m.subject,300)+" "+str(m.statement,800)).toLowerCase().includes(w)).length}));
- const relevant=scored.filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,3);
- const diverse=scored.filter(x=>x.score===0).slice(0,2);
- return [...relevant,...diverse].map(({m})=>({subject:m.subject,statement:str(m.statement,230),confidence:m.confidence,status:m.status}));
+ const scored=list(items).map((m,i)=>({m,i,score:words.filter(w=>(String(m.subject??"")+" "+String(m.statement??"")).toLowerCase().includes(w)).length}));
+ const relevant=scored.filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,2);
+ const other=scored.filter(x=>!relevant.includes(x));
+ const diverse=[];const seen=new Set();
+ for(const x of other){
+  const category=String(x.m.subject??"").split(":")[0];
+  if(!seen.has(category)){diverse.push(x);seen.add(category);}
+  if(diverse.length===3)break;
+ }
+ for(const x of other){if(diverse.length===3)break;if(!diverse.includes(x))diverse.push(x);}
+ return [...relevant,...diverse].map(({m})=>({
+  subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status
+ }));
+}
+
+function experienceContext(ex){
+ const events=list(ex.recentEvents);
+ const reflection=events.find(e=>e.kind==="thought"||e.action==="THINK");
+ const outcome=events.find(e=>e.kind==="tool");
+ return {
+  lastReflection:reflection?{when:reflection.when??null,content:reflection.content}:null,
+  lastVerifiedOutcome:outcome?{when:outcome.when??null,action:outcome.action,description:outcome.content,source:"recorded_tool_event"}:null
+ };
+}
+
+function goalContext(s,experience){
+ const reflection=String(experience.lastReflection?.content??"").toLowerCase();
+ const reportsEnough=/(enough for now|walk is enough|walk end|already (beside|at|reached))/.test(reflection);
+ return s.currentGoal?{
+  description:s.currentGoal,
+  status:"unverified",
+  possibleCompletion:reportsEnough?{source:"latest_reflection",note:"Nimo's last reflection suggests this intention may already be satisfied; this is not a verified completion."}:null,
+  directive:false
+ }:null;
 }
 
 export function buildChoices(data,visitor=null) {
@@ -111,18 +141,17 @@ export function buildChoices(data,visitor=null) {
 
 function contextFor(data,visitor,feedback=null){
  const s=asObject(data.state),p=asObject(data.perception),ex=asObject(data.experience),g=asObject(data.garden),f=asObject(data.food),sk=asObject(data.sketchbook);
+ const experience=experienceContext(ex);
  const visible=list(p.visibleObjects).map(o=>({id:o.id,type:o.type,position:o.position,distance:o.distance}));
- const plots=list(g.plots).map(o=>({id:o.id,stage:o.stage,ready:o.ready}));
- const nearbyFlowers=list(p.wildflowers).map(o=>({id:o.id,x:o.x,y:o.y,blooms:o.blooms}));
- const activeProjects=list(data.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:str(x.next_step??x.nextStep,140)}));
- const openRequests=list(data.creatorRequests).filter(x=>["pending","open","acknowledged","accepted"].includes(x.status)).slice(0,3).map(x=>({id:x.id,status:x.status,description:str(x.content,160)}));
- const lastEvent=list(ex.recentEvents)[0]??null;
- const recentMeaningful=list(ex.meaningfulEvents).slice(0,2).map(e=>({action:e.action,summary:str(e.content,170)}));
- const overview=list(data.capabilityCatalogue).map(c=>c.action);
+ const plots=list(g.plots).map(o=>({id:o.id,position:{x:o.x,y:o.y},stage:o.stage,ready:o.ready}));
+ const wildflowers=list(p.wildflowers).map(o=>({id:o.id,type:"wildflower_patch",position:{x:o.x,y:o.y},blooms:o.blooms,directlyAdjacent:o.directlyAdjacent??false,description:o.description??null}));
+ const projects=list(data.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:x.next_step??x.nextStep??null}));
+ const requests=list(data.creatorRequests).filter(x=>["pending","open","acknowledged","accepted"].includes(x.status)).slice(0,3).map(x=>({id:x.id,status:x.status,description:x.content}));
+ const capabilities=list(data.capabilityCatalogue).map(c=>({name:c.action,availableNow:c.availableNow??null}));
  return {
-  self:{identity:str(s.identity,500),currentGoal:s.currentGoal??null,currentActivity:s.currentActivity??null,pendingIntent:s.pendingIntent??null,needs:data.needsPercent},
-  present:{position:p.position,directions:list(p.directions).map(d=>({direction:d.direction,canMove:d.canMove,canInspect:d.canInspect,blockedBy:d.blockedBy})),visibleObjects:visible,flowers:nearbyFlowers,plots,inventory:{fruit:list(f.inventory).map(x=>x.fruit),other:list(g.inventory).map(x=>({kind:x.kind,waterUnits:x.water_units})),used:g.inventoryUsed,capacity:g.capacity,coins:g.coins}},
-  continuity:{projects:activeProjects,openRequests,unfinishedSketch:sk.active?{id:sk.active.id,title:sk.active.title,intention:str(sk.active.intention,140)}:null,memories:memorySelection(data.consolidatedMemories,s),lastEvent:lastEvent?{action:lastEvent.action,summary:str(lastEvent.content,240)}:null,significantEvents:recentMeaningful,capabilities:overview},
+  self:{identity:s.identity??null,currentIntention:goalContext(s,experience),currentActivity:s.currentActivity??null,pendingIntent:s.pendingIntent??null,needs:data.needsPercent},
+  present:{position:p.position,directions:list(p.directions).map(d=>({direction:d.direction,canMove:d.canMove,canInspect:d.canInspect,blockedBy:d.blockedBy})),visibleObjects:visible,wildflowers,plots,inventory:{fruit:list(f.inventory).map(x=>x.fruit),other:list(g.inventory).map(x=>({kind:x.kind,waterUnits:x.water_units})),used:g.inventoryUsed,capacity:g.capacity,coins:g.coins}},
+  continuity:{projects,openRequests:requests,unfinishedSketch:sk.active?{id:sk.active.id,title:sk.active.title,intention:sk.active.intention}:null,memories:memorySelection(data.consolidatedMemories,s),...experience,significantEvents:list(ex.meaningfulEvents).slice(0,2).map(e=>({action:e.action,summary:e.content})),capabilities,availableActionNames:list(data.availableActions).map(a=>a.name)},
   ...(visitor?{visitorMessage:visitor}:{}),
   ...(feedback?{simulatedLastOutcome:feedback}:{})
  };
