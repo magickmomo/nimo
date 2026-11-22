@@ -125,7 +125,10 @@ export async function advanceJourney(db: D1Database, now = new Date()):
     // Commit completion and its verified journal event together, exactly once.
     const completed = await db.batch([
       db.prepare(`UPDATE world_journey
-        SET status='idle', started_at=NULL, paused_at=NULL
+        SET status='idle', paused_at=NULL
+        -- Preserve started_at and the route briefly for the dashboard to
+        -- replay missed short walks after a ten-second snapshot poll.
+        -- beginJourney replaces both when the next trip begins.
         WHERE id=1 AND status='travelling' AND step_index=?`)
         .bind(currentIndex),
       db.prepare(`INSERT INTO events(kind,content,action)
