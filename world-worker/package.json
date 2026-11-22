@@ -8,7 +8,8 @@
     "types": "wrangler types",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "context:harness": "node scripts/decision-context-harness.mjs"
+    "context:harness": "node scripts/decision-context-harness.mjs",
+    "framework:simulate": "node scripts/decision-framework-v1.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0",
