@@ -48,7 +48,7 @@ export function choiceName(action:string,toolName?:string|null):string {
 }
 export function curiosityStep(
  current:number,history:readonly string[],chosen:string,
- options:{novelty?:"none"|"meaningful"}={}
+ options:{novelty?:"none"|"progress"|"meaningful"}={}
 ):{value:number;history:string[];repeatCount:number;delta:number;activity:string;category:string;counted:boolean}{
  const previous=recentChoices(history);
  const kind=activityFor(chosen);
@@ -56,7 +56,9 @@ export function curiosityStep(
  // A drawing consists of several tool calls. Only its start is a new
  // episode; strokes and finishing must not independently increase curiosity.
  if(kind.phase==="continue")return {
-   value:clamp01(current),history:previous,repeatCount:same,delta:0,
+   value:clamp01(current-(options.novelty==="meaningful"?0.16:options.novelty==="progress"?0.06:0)),
+   history:previous,repeatCount:same,
+   delta:options.novelty==="meaningful"?-0.16:options.novelty==="progress"?-0.06:0,
    activity:kind.name,category:kind.category,counted:false};
  // Thinking/observing are valid pauses, but cannot masquerade as novelty.
  if(kind.phase==="passive")return {
@@ -72,9 +74,61 @@ export function curiosityStep(
  if(switchedCategory)delta-=0.08;
  else if(switchedActivity)delta-=0.035;
  if(options.novelty==="meaningful")delta-=0.16;
+ else if(options.novelty==="progress")delta-=0.06;
  const value=clamp01((Number.isFinite(current)?current:0.35)+delta);
  return {value,history:[kind.name,...previous].slice(0,CURIOSITY_WINDOW),
    repeatCount:same,delta,activity:kind.name,category:kind.category,counted:true};
+}
+// Evidence must come from a verified tool result, never from the model's
+// intentions or a changed tool name. A one-time milestone is less satisfying
+// than discovering new information. Keys are kept in the persisted world state
+// so repeating a successful transaction doesn't repeatedly lower curiosity.
+export type NoveltyEvidence={key:string;strength:"progress"|"meaningful"}|null;
+export function noveltyAssessment(evidence:NoveltyEvidence,seen:readonly string[]):
+ {novelty:"none"|"progress"|"meaningful";keys:string[]} {
+ const keys=Array.isArray(seen)?seen.filter(x=>typeof x==="string"&&x.length<=100).slice(-128):[];
+ if(!evidence||!evidence.key||keys.includes(evidence.key))
+   return {novelty:"none",keys};
+ return {novelty:evidence.strength,keys:[...keys,evidence.key].slice(-128)};
+}
+export function verifiedActivityEvidence(action:string,detail:{
+  subject?:string; comparison?:"first"|"changed"|"unchanged";
+  revision?:number; first?:boolean; informativeTrials?:number;
+  censored?:boolean; difference?:number; completed?:boolean;
+  inspectionVersion?:number;
+}={}):NoveltyEvidence {
+ const subject=(detail.subject??"").slice(0,64);
+ switch(action) {
+  case "inspect":
+   if(!subject||detail.comparison==="unchanged"||!detail.comparison)return null;
+   return {key:"inspect:"+subject+":"+(detail.comparison==="changed"?"change:"+(detail.inspectionVersion??"unknown"):"first"),
+     strength:"meaningful"};
+  case "eat_fruit":
+   return subject&&detail.informativeTrials===0&&!detail.censored&&
+     Number.isFinite(detail.difference)&&Math.abs(detail.difference!)>=0.02
+     ? {key:"food:effect:"+subject,strength:"meaningful"}:null;
+  case "write_document":
+   return subject&&detail.revision===1?{key:"writing:first:"+subject,strength:"progress"}:null;
+  case "remember_object":
+   return subject&&detail.first?{key:"object:note:"+subject,strength:"progress"}:null;
+  case "pick_fruit":
+   return subject?{key:"foraging:first:"+subject,strength:"progress"}:null;
+  case "finish_sketch":
+   return detail.completed?{key:"drawing:first_completed",strength:"progress"}:null;
+  case "inspect_artwork":
+   return detail.completed&&subject?{key:"art:feedback:"+subject,strength:"meaningful"}:null;
+  case "take_can": case "fill_can":
+   return detail.completed?{key:"garden:first:"+action,strength:"progress"}:null;
+  case "plant_seed": case "water_plot": case "harvest_crop":
+   return detail.completed&&subject?{key:"garden:"+action+":"+subject,strength:"progress"}:null;
+  case "sell_item":case "buy_item":
+   return detail.completed&&subject?{key:"economy:"+action+":"+subject,strength:"progress"}:null;
+  case "create_project":case "update_project":
+   return detail.completed?{key:"project:first:"+action,strength:"progress"}:null;
+  // Queued Oracle questions, travel starts, and proposed expansions are NOT
+  // discoveries. Their asynchronous results require separate confirmation.
+  default:return null;
+ }
 }
 export function curiosityGuidance(fullness:number,curiosity:number,history:readonly string[],available:readonly string[]):string {
  const recent=recentChoices(history);
@@ -91,5 +145,5 @@ export function curiosityGuidance(fullness:number,curiosity:number,history:reado
      ? "Curiosity is high. Reconsider whether your CURRENT GOAL or activity still produces new learning, progress, or observations. Multiple drawings are still drawing, regardless of the tools used. If repetition is no longer revealing anything, consider a different available activity or setting. Do not treat changing tool names alone as discovery. Walking and thinking are valid if purposeful or restorative; repeating the same justification indefinitely is not satisfying curiosity. You decide what to do; no action is mandatory. "
      : "Continuing a meaningful routine is always valid. ")+
    (fullness<=0.6?"Prioritise food when needed; curiosity must not override essential needs. ":"")+
-   "Novelty requires a meaningful result; switching actions or visiting known places is not automatically discovery. Do not invent tools or repeatedly attempt unavailable actions.";
+   "Only confirmed new information or a first verified milestone can satisfy curiosity. Routine work, repeated sales, starting a journey, or asking a question is not a discovery. Do not invent tools or repeatedly attempt unavailable actions.";
 }
