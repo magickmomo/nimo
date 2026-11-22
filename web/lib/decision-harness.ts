@@ -30,16 +30,16 @@ export const SAMPLE:ArchiveRecord={
  request:{model:"gpt-6-luna",input:[
   {role:"system",content:"Archived production instructions (synthetic fixture)."},
   {role:"user",content:JSON.stringify({
-   state:{identity:"Nimo",currentGoal:null,currentActivity:"quietly considering what to do",tickCount:5191},
+   state:{identity:"Nimo",currentGoal:"Take a brief walk near the wildflowers at (9,13).",currentActivity:"pausing near the wildflowers",tickCount:5191},
    needsPercent:{fullness:57,curiosity:98,energy:80,happiness:50,boredom:0},
-   perception:{position:{x:9,y:12},directions:[{direction:"north",canMove:true,destination:{x:9,y:11}},{direction:"south",canMove:true,destination:{x:9,y:13}},{direction:"east",canMove:true,destination:{x:10,y:12}},{direction:"west",canMove:true,destination:{x:8,y:12}}],visibleObjects:[{id:"garden_nook_001",type:"bench",position:{x:6,y:13},distance:3}]},
+   perception:{position:{x:9,y:12},directions:[{direction:"north",canMove:true,destination:{x:9,y:11}},{direction:"south",canMove:true,destination:{x:9,y:13}},{direction:"east",canMove:true,destination:{x:10,y:12}},{direction:"west",canMove:true,destination:{x:8,y:12}}],visibleObjects:[{id:"garden_nook_001",type:"bench",position:{x:6,y:13},distance:3}],wildflowers:[{id:"wildflowers_003",x:9,y:13,blooms:3,directlyAdjacent:true,description:"Low wildflowers in grass"}]},
    availableActions:[{name:"travel_to"},{name:"eat_fruit",fruits:["red"]},{name:"write_document"},{name:"start_sketch"},{name:"create_project"}],
    food:{inventory:[{fruit:"red"}]},garden:{inventory:[{kind:"watering_can",water_units:0}],inventoryUsed:2,capacity:9,coins:0},
    projects:[{id:2,title:"Revisit the mystery box",status:"paused",next_step:"Wait for new information"}],
    consolidatedMemories:[{subject:"fruit:amber",statement:"Amber fruit can improve fullness.",confidence:0.8},{subject:"experience:art",statement:"Sketches have been an enjoyable way to examine shapes.",confidence:0.7}],
-   experience:{recentEvents:[{action:"THINK",content:"A brief pause near the wildflowers felt sufficient."}],meaningfulEvents:[]},
+   experience:{recentEvents:[{kind:"thought",action:"THINK",content:"I am already beside the wildflowers, and the walk is enough for now."},{kind:"tool",action:"TRAVEL_OK",content:"TRAVEL OK: arrived at (9,12) after two steps"}],meaningfulEvents:[]},
    workspace:[],sketchbook:{owned:true,active:null},oracleHistory:[],creatorRequests:[],
-   capabilityCatalogue:[{action:"ask_oracle"},{action:"write_document"},{action:"start_sketch"},{action:"travel_to"}]
+   capabilityCatalogue:[{action:"ask_oracle",availableNow:false},{action:"write_document",availableNow:true},{action:"start_sketch",availableNow:true},{action:"travel_to",availableNow:true}]
   })}
  ]},
  outcome:{status:"selected",decision:{action:"ACT",toolCall:{name:"start_sketch",title:"A Paper Kite",intention:"Sketch a kite."}}}
