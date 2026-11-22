@@ -3,7 +3,7 @@
 export const WORLD_SIZE = 16;
 export type Point = { x: number; y: number };
 export type Direction = "north" | "south" | "east" | "west";
-export type SceneryKind = "tree" | "rock" | "shrub" | "machine" | "well" | "store" | "plot" | "oracle";
+export type SceneryKind = "tree" | "rock" | "shrub" | "machine" | "well" | "store" | "plot" | "oracle" | "garden_nook";
 export type WorldObject = Point & { id: string; kind: SceneryKind };
 export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"tree_001",x:1,y:1,kind:"tree"},{id:"tree_002",x:6,y:1,kind:"tree"},{id:"tree_003",x:7,y:6,kind:"tree"},
@@ -15,6 +15,7 @@ export const WORLD_OBJECTS: readonly WorldObject[] = [
   {id:"plot_001",x:10,y:10,kind:"plot"},
   {id:"plot_002",x:11,y:10,kind:"plot"},
   {id:"plot_003",x:12,y:10,kind:"plot"},
+  {id:"garden_nook_001",x:5,y:12,kind:"garden_nook"}, // displayed (6,13); bench and light planting
   // Monument is visually anchored here and occupies four collision tiles.
   {id:"oracle_001",x:1,y:13,kind:"oracle"},
 ];
@@ -114,6 +115,7 @@ export function inspectedDescription(kind: SceneryKind): string {
     well: "A stone well with fresh water; a watering can is stored here. It blocks walking.",
     store: "A general store with a produce-buying counter. It buys fruit and harvested crops for coins.",
     plot: "A small allotment soil plot where seeds can be planted and watered. Check its current growing state.",
+    garden_nook: "A quiet garden nook with a simple wooden bench and a few low plants, surrounded by open grass. Nimo can rest beside it.",
     oracle: "An enormous ancient stone-and-metal monument, carved with luminous blue symbols. An inscription invites questions about things beyond this world. It answers questions but does not command you. It occupies a 2 by 2 area.",
   };
   return descriptions[kind];

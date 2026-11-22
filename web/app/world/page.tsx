@@ -373,7 +373,7 @@ export default function World() {
           <span className="nimo-coin-label">coins</span>
         </div>
         <WorldInventory fruits={fruitItems} supplies={supplyItems} flowers={flowerItems} capacity={inventoryCapacity}/>
-        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} flowers={data?.wildflowers?.patches} sleeping={data?.autonomousEnabled===false}
+        <IsometricWorld position={data?.position ?? null} visited={data?.environmentMemory?.visited} seenTiles={data?.environmentMemory?.seen} inspected={data?.environmentMemory?.inspected} journey={data?.offline ? undefined : data?.journey} plots={data?.garden?.plots} flowers={data?.wildflowers?.patches} lastRestedAt={data?.world?.state?.lastRestedAt} sleeping={data?.autonomousEnabled===false}
           actionTrace={isOwner ? recentActionToasts : []} showActionToasts={isOwner} selectedObjectId={selectedObjectId} onSelectObject={id=>{setSelectedObjectId(id);setDetailsOpen(true);}} />
       </div>
       {detailsOpen && <aside className="world-detail-drawer" aria-label="World details">

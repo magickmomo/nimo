@@ -5,6 +5,7 @@ export type WorldState = {
   emotions: { energy: number; happiness: number; boredom: number; curiosity?: number; hunger: number };
   currentGoal: string | null;
   currentActivity: string;
+  lastRestedAt?: string | null; // Successful nook rest; presentation only, no need changes.
   tools: string[];
   tickCount: number;
   lastTick: string | null;

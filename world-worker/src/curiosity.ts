@@ -29,6 +29,7 @@ const ACTIONS:Record<string,Activity> = {
   create_project:{name:"planning",category:"planning",phase:"instant"},
   update_project:{name:"planning",category:"planning",phase:"instant"},
   expand_world:{name:"world_design",category:"planning",phase:"instant"},
+  rest:{name:"resting",category:"recovery",phase:"passive"}, // No meter change or novelty from resting.
   think:{name:"reflecting",category:"internal",phase:"passive"},
   observe:{name:"observing",category:"internal",phase:"passive"},
   remember:{name:"reflecting",category:"internal",phase:"passive"},
