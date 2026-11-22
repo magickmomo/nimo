@@ -115,7 +115,23 @@ test("general capability does not imply currently executable tool",()=>{
  data.capabilityCatalogue=[{action:"ask_oracle",availableNow:false},{action:"eat_fruit",availableNow:true}];
  record.request.input[1].content=JSON.stringify(data);
  const frame=buildDecisionFrame(record);
- assert.deepEqual(frame.context.continuity.capabilities,[{name:"ask_oracle",availableNow:false},{name:"eat_fruit",availableNow:true}]);
+ assert.deepEqual(frame.context.continuity.capabilities.slice(0,2),[
+  {name:"ask_oracle",availableNow:false,offeredByWorld:false,availabilityReason:null},
+  {name:"eat_fruit",availableNow:true,offeredByWorld:true,availabilityReason:null}
+ ]);
+ assert.ok(frame.context.continuity.capabilities.some(c=>c.name==="start_sketch"&&c.offeredByWorld));
+ assert.ok(frame.context.continuity.availableActionNames.includes("start_sketch"));
  assert.ok(!frame.choices.some(x=>x.id==="ask_oracle"));
  assert.ok(frame.choices.some(x=>x.id==="eat_fruit:red"));
+});
+
+test("registry adds offered actions absent from the descriptive catalogue",()=>{
+ const record=archived();
+ const frame=buildDecisionFrame(record);
+ const registry=frame.context.continuity.capabilities;
+ assert.equal(registry.find(x=>x.name==="write_document").availableNow,true);
+ assert.equal(registry.find(x=>x.name==="update_project").availableNow,true);
+ assert.equal(registry.find(x=>x.name==="ask_oracle").availableNow,false);
+ assert.ok(frame.choices.some(c=>c.id==="write_document"));
+ assert.ok(!frame.choices.some(c=>c.id==="ask_oracle"));
 });
