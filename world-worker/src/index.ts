@@ -10,7 +10,7 @@ import { nextVisitorIntent } from "./visitor-intent";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
-import { curiosityStep, curiosityGuidance, choiceName, recentChoices } from "./curiosity";
+import { curiosityStep, curiosityGuidance, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
 import { archiveLatestCompletedDay, latestArchiveKeys, selectedDayArchive, shouldArchiveNow } from "./daily-archive";
@@ -582,6 +582,7 @@ async function tick(env: Env) {
   // Tool execution is authoritative; journal records verified results, never claims.
   let toolOutcome: string | null = null;
   let verifiedExperience:VerifiedOutcome|null=null;
+  let noveltyEvidence:NoveltyEvidence=null;
   // Unsuccessful attempts remain in the journal, but do not satisfy curiosity.
   let toolFailed=false;
   const decisionKey = `decision:${state.tickCount+1}`;
@@ -599,6 +600,7 @@ async function tick(env: Env) {
         toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
         await log(env.DB, "tool", toolOutcome, "WRITE_OK");
         verifiedExperience={type:"writing",subject:saved.path,revision:saved.revision};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:saved.path,revision:saved.revision});
         await recordReward(env.DB,decisionKey,"write_document",
           saved.revision===1?REWARD_POINTS.firstDocument:REWARD_POINTS.revisedDocument,
           `${saved.path} revision ${saved.revision}`);
@@ -633,6 +635,7 @@ async function tick(env: Env) {
           (machine ? ` Display: ${machine.items.map(item=>`${item.label} (${item.price} coins; ${item.available?"available":"not for sale"}) — ${item.description}`).join("; ")}. Coins: ${machine.coins}.` : "") + oracleStatus;
         await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
         verifiedExperience={type:"inspection",subject:found.objectId,comparison:found.comparison,fruitRevealed:fruit!==null};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:found.objectId,comparison:found.comparison,inspectionVersion:found.recordedObservations});
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
           `${found.objectId}: ${found.comparison}`);
       } else if (call.name === "pick_fruit") {
@@ -642,6 +645,7 @@ async function tick(env: Env) {
         toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 9).`;
         await log(env.DB,"tool",toolOutcome,"PICK_OK");
         verifiedExperience={type:"picking",subject:picked.treeId,fruit:picked.fruit,inventoryBefore:food.inventory.length,inventoryAfter:food.inventory.length+1};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:picked.treeId});
       } else if (call.name === "eat_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
         const eaten=await traced(env.DB,"inspect",`Eat ${call.fruit} fruit`,
@@ -653,6 +657,7 @@ async function tick(env: Env) {
         // Food outcomes enter the same hourly consolidation as every other experience.
         await log(env.DB,"tool",toolOutcome,"EAT_OK");
         verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:eaten.fruit,informativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,censored:eaten.censored,difference:eaten.after-eaten.before});
       } else if (call.name === "discard_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
         await discardFruit(env.DB,call.fruit);
@@ -673,6 +678,7 @@ async function tick(env: Env) {
         },v=>v);
         toolOutcome=`${call.name.toUpperCase()} OK: ${result}`;
         await log(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:"plotId" in call?call.plotId:"item" in call?call.item:undefined,completed:true});
       } else if (call.name === "start_sketch") {
         if(!menu.tools.includes("start_sketch"))throw Error("Sketchbook unavailable or page already open");
         toolOutcome=await beginSketch(env.DB,call.title,call.intention);
@@ -685,6 +691,7 @@ async function tick(env: Env) {
         if(!menu.sketchIds.includes(call.sketchId))throw Error("Sketch unavailable");
         toolOutcome=await closeSketch(env.DB,call.sketchId,call.status);
         await log(env.DB,"tool",toolOutcome,"SKETCH_FINISHED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{completed:call.status==="finished"});
       } else if (call.name === "expand_world") {
         if(!menu.tools.includes("expand_world"))throw Error("World expansion proposals unavailable");
         const description = `WORLD EXPANSION (${call.changeType}): ${call.title}\nTarget: ${call.target}\nProposal: ${call.description}\nReason: ${call.reason}`;
@@ -696,14 +703,17 @@ async function tick(env: Env) {
         if(!menu.inspectArtworkIds.includes(call.sketchId))throw Error("Artwork unavailable for paid inspection");
         toolOutcome=await inspectArtwork(env,call.sketchId);
         await log(env.DB,"tool",toolOutcome,"ARTWORK_INSPECTED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:String(call.sketchId),completed:true});
       } else if (call.name === "create_project") {
         if(!menu.tools.includes("create_project"))throw Error("Project limit reached");
         toolOutcome=await createProject(env.DB,call.title,call.objective,call.nextStep);
         await log(env.DB,"tool",toolOutcome,"PROJECT_CREATED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{completed:true});
       } else if (call.name === "update_project") {
         if(!menu.projectIds.includes(call.projectId))throw Error("Project not editable");
         toolOutcome=await updateProject(env.DB,call.projectId,call.nextStep,call.progressNote,call.status);
         await log(env.DB,"tool",toolOutcome,"PROJECT_UPDATED");
+        noveltyEvidence=verifiedActivityEvidence(call.name,{completed:true});
       } else if (call.name === "buy_item") {
         if(!menu.vendingItemIds.includes(call.itemId))throw Error("Purchase not available at this position");
         const purchase=await traced(env.DB,"vending",`Attempt to buy ${call.itemId}`,
@@ -712,6 +722,7 @@ async function tick(env: Env) {
         toolOutcome=purchase.message;
         if(!purchase.success)toolFailed=true;
         await log(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
+        if(purchase.success)noveltyEvidence=verifiedActivityEvidence(call.name,{subject:call.itemId,completed:true});
         if(!purchase.success)verifiedExperience={type:"purchase_blocked",subject:purchase.item.id,
           price:purchase.item.price,coins:purchase.coins,firstAttempt:purchase.firstAttempt};
       } else if (call.name === "remember_object") {
@@ -723,6 +734,7 @@ async function tick(env: Env) {
         toolOutcome = `OBJECT NOTE OK: ${saved.objectId}. Label: ${saved.label}. Note: ${saved.note}`;
         await log(env.DB,"tool",toolOutcome,"OBJECT_NOTE_OK");
         verifiedExperience={type:"object_note",subject:saved.objectId,first:!beforeNote};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:saved.objectId,first:!beforeNote});
         await recordReward(env.DB,decisionKey,"remember_object",
           beforeNote?REWARD_POINTS.revisedObjectNote:REWARD_POINTS.firstObjectNote,
           `${saved.objectId}: ${beforeNote?"revised":"first"} note`);
@@ -757,19 +769,21 @@ async function tick(env: Env) {
   // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const chosen=choiceName(d.action,d.toolCall?.name);
-  // Novelty requires a verified result, not a new tool name, drawing title, or
-  // familiar journey. Only first/changed inspections count in this first pass.
-  const meaningfulNovelty=verifiedExperience?.type==="inspection" &&
-    verifiedExperience.comparison!=="unchanged";
-  // Replies to visitors are mandatory turns; failed actions cannot count as
-  // successful variety or novelty.
+  // Only verified outcomes can create novelty. Persist the exact milestone
+  // keys so repeating a sale, note, drawing or garden step cannot farm relief.
+  // Queued research and travel starts never count as discoveries.
+  const novelty=d.action==="REPLY" || toolFailed
+    ? {novelty:"none" as const,keys:state.curiosityNoveltyKeys??[]}
+    : noveltyAssessment(noveltyEvidence,state.curiosityNoveltyKeys??[]);
+  // Replies and failed actions cannot satisfy curiosity.
   const curiosity=d.action==="REPLY" || toolFailed ? null :
     curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen,
-      {novelty:meaningfulNovelty?"meaningful":"none"});
+      {novelty:novelty.novelty});
   const next: WorldState = {
     ...state, identity,
     emotions:curiosity?{...state.emotions,curiosity:curiosity.value}:state.emotions,
     curiosityActionHistory:curiosity?.history??actionHistory,
+    curiosityNoveltyKeys:novelty.keys,
     currentGoal: pendingMessage ? state.currentGoal : d.goal,
     currentActivity: pendingMessage ? state.currentActivity : d.activity,
     oracleNearbyLastDecision:pendingMessage?state.oracleNearbyLastDecision:oracleWithinReach,
