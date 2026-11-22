@@ -94,7 +94,27 @@ test("existing trace writes remain unchanged; no new D1 read, write or migration
  assert.match(worker,/decisionAuditKey:auditKey/);
  assert.match(worker,/saveDecisionInputAudit\(env\.ARCHIVES/);
  assert.match(worker,/status:"failed",error:message/);
+ // The model-failure catch ends before a successful selection is archived
+ // and before the successful trace UPDATE. A D1 failure must not rewrite R2.
+ const modelFailure=worker.indexOf('const auditKey=await archiveDecision({status:"failed",error:message');
+ const modelSelected=worker.indexOf('const auditKey=await archiveDecision({status:"selected",decision:d})');
+ const successTrace=worker.indexOf('await finishTrace(env.DB,modelTrace,"completed"');
+ const catchTrace=worker.indexOf('console.error("Failed to persist selected-decision trace"');
+ assert.ok(modelFailure>=0 && modelSelected>modelFailure && successTrace>modelSelected && catchTrace>successTrace);
+ assert.match(worker,/Only an actual model\/validation failure belongs in this handler/);
  assert.match(worker,/if\(!env\.ARCHIVES\)return json\(/);
  assert.match(proxy,/hasOwnerSession\(req\)/);
  assert.match(proxy,/cache:"no-store"/);
+});
+
+test("an R2-selected decision remains selected if the subsequent trace update fails",async()=>{
+ const bucket=fakeBucket();
+ const decision=sample(58);
+ const key=await saveDecisionInputAudit(bucket,decision);
+ const failedTraceUpdate=async()=>{throw Error("D1 quota exhausted");};
+ // Simulate the selected outcome being persisted before the D1 trace UPDATE.
+ await assert.rejects(failedTraceUpdate(),/D1 quota exhausted/);
+ const archived=await bucket.get(key);
+ assert.equal(JSON.parse(await archived.text()).outcome.status,"selected");
+ assert.equal(bucket.counts.puts,1,"never overwrite an already-archived selection with failure");
 });
