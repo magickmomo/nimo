@@ -9,6 +9,7 @@ type Draft={status:Status;message:string};
 export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void;onUpdated:()=>void}){
  const root=useRef<HTMLElement>(null);
  const [items,setItems]=useState<Request[]>([]);
+ const [tab,setTab]=useState<"active"|"implemented">("active");
  const [drafts,setDrafts]=useState<Record<number,Draft>>({});
  // Keep the same key if a network error occurs after the Worker committed.
  // A retry must not deliver the same explanation twice to Nimo.
@@ -64,6 +65,9 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
   finally{setBusy(null);}
  }
  const pending=items.filter(x=>x.status==="pending").length;
+ const implemented=items.filter(x=>x.status==="implemented").length;
+ const active=items.length-implemented;
+ const visibleItems=items.filter(item=>tab==="implemented"?item.status==="implemented":item.status!=="implemented");
  return <div className="world-message-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
   <section ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Nimo's requests" className="world-card world-messages-panel world-requests-panel">
    <div className="world-journal-head"><h2>Requests {pending>0&&<span className="nimo-unread-count">{pending}</span>}</h2>
@@ -76,9 +80,24 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
    <p className="meta">Review requests, then tell Nimo what you decided. Changing a status does not grant new tools.</p>
    {error&&<p className="world-warning" role="alert">{error}</p>}
    {notice&&<p className="nimo-request-notice" role="status">{notice}</p>}
-   <div className="world-message-thread">
+   <div className="nimo-request-tabs" role="tablist" aria-label="Request status groups">
+    <button type="button" role="tab" id="nimo-requests-active-tab"
+     aria-selected={tab==="active"} aria-controls="nimo-requests-list"
+     className={tab==="active"?"is-active":""} onClick={()=>setTab("active")}>
+     Active <span className="nimo-request-tab-count">{active}</span>
+    </button>
+    <button type="button" role="tab" id="nimo-requests-implemented-tab"
+     aria-selected={tab==="implemented"} aria-controls="nimo-requests-list"
+     className={tab==="implemented"?"is-active":""} onClick={()=>setTab("implemented")}>
+     Implemented <span className="nimo-request-tab-count">{implemented}</span>
+    </button>
+   </div>
+   <div id="nimo-requests-list" role="tabpanel"
+    aria-labelledby={tab==="active"?"nimo-requests-active-tab":"nimo-requests-implemented-tab"}
+    className="world-message-thread">
     {loading?<p className="meta">Loading requests…</p>:!items.length?<p className="meta">Nimo hasn't requested anything yet.</p>:
-     items.map(item=>{
+     !visibleItems.length?<p className="meta">{tab==="implemented"?"No implemented requests yet.":"No active requests."}</p>:
+     visibleItems.map(item=>{
       const draft=drafts[item.id]??{status:item.status,message:""};
       const hasReply=Boolean(draft.message.trim());
       return <article className="nimo-request-entry" key={item.id}>

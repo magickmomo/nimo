@@ -293,6 +293,16 @@ main:has(> .world-dashboard){max-width:none;width:100%;margin:24px auto;padding-
 .nimo-request-actions select{min-width:145px;background:#fff;color:#233e32;border:1px solid #bdd0c4;border-radius:8px;padding:7px}
 .world-requests-panel .world-message-thread,.world-projects-panel .world-message-thread{display:flex;flex-direction:column;gap:12px}
 
+/* Request inbox: keep completed requests available without crowding active work. */
+.nimo-request-tabs{display:flex;gap:6px;align-items:center;flex:none;border-bottom:1px solid #d8e3dc;padding:0 2px 8px}
+.nimo-request-tabs button{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;border:1px solid transparent;border-radius:8px;background:transparent;color:#435c50;font:inherit;font-size:13px;font-weight:650;cursor:pointer}
+.nimo-request-tabs button:hover{background:#eef5f0}
+.nimo-request-tabs button.is-active{background:#e8f2eb;border-color:#b8d1c0;color:#204d38}
+.nimo-request-tabs button:focus-visible{outline:2px solid #68957e;outline-offset:2px}
+.nimo-request-tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;padding:2px 6px;border-radius:999px;background:#e1eae4;color:#294440;font-size:12px;font-variant-numeric:tabular-nums}
+.nimo-request-tabs button.is-active .nimo-request-tab-count{background:#cce3d4}
+@media(max-width:600px){.nimo-request-tabs button{padding:9px 10px;font-size:12px}}
+
 /* Request-specific creator replies with durable history. */
 .nimo-request-reply-label{display:block;margin-top:12px;margin-bottom:6px;font-size:13px;font-weight:700;color:#294440}
 .nimo-request-entry textarea{display:block;width:100%;box-sizing:border-box;min-height:82px;padding:10px 12px;border:1px solid #bdcec3;border-radius:8px;background:#fff;color:#294440;font:inherit;font-size:13px;line-height:1.5;resize:vertical}
