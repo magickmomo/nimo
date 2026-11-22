@@ -83,6 +83,28 @@ function Scenery({ kind, stage, oracleActive=false }: { kind: ObjectKind; stage?
   );
 }
 
+function Wildflowers({blooms}:{blooms:number}) {
+ // Small natural ground cover; sparse blooms leave grass visible around it.
+ const stems=[{x:-13,y:-4,c:"#f5d3b6"},{x:2,y:-10,c:"#d6b4e4"},{x:14,y:-2,c:"#f5e6a6"}];
+ return <g aria-label={"Wildflower patch with "+blooms+" blooms"}>
+  <ellipse cx="0" cy="3" rx="22" ry="8" fill="#305839" opacity=".15"/>
+  <path d="M-21 3 l-4 -6 M-8 7 l-2 -8 M9 6 l5 -7 M19 5 l2 -6"
+   fill="none" stroke="#608e53" strokeWidth="1.6" strokeLinecap="round"/>
+  {stems.slice(0,blooms).map((stem,i)=><g key={i}>
+   <path d={`M${stem.x} 2 Q${stem.x-3} -4 ${stem.x} ${stem.y}`}
+    stroke="#477b4a" strokeWidth="1.7" fill="none" strokeLinecap="round"/>
+   <path d={`M${stem.x} -1 q-6 -5 -7 0 M${stem.x} -4 q5 -5 6 -1`}
+    fill="#77a86d" stroke="#56824f" strokeWidth=".7"/>
+   {Array.from({length:5},(_,j)=><ellipse key={j}
+    cx={stem.x+Math.cos(j*Math.PI*2/5)*4}
+    cy={stem.y+Math.sin(j*Math.PI*2/5)*4}
+    rx="2.3" ry="3" transform={`rotate(${j*72} ${stem.x+Math.cos(j*Math.PI*2/5)*4} ${stem.y+Math.sin(j*Math.PI*2/5)*4})`}
+    fill={stem.c} stroke="#987b8a" strokeWidth=".35"/>)}
+   <circle cx={stem.x} cy={stem.y} r="1.8" fill="#e5b75e"/>
+  </g>)}
+ </g>;
+}
+
 function Character({sleeping=false,oracleActive=false}: {sleeping?:boolean;oracleActive?:boolean}) {
   return (
     <g className={sleeping?"nimo-character-sleeping":"nimo-character-awake"}>
@@ -112,9 +134,9 @@ export type JourneyView = {
   startedAt: string | null;
   pausedAt: string | null;
 };
-export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
+export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], flowers, sleeping=false, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
-  journey?: JourneyView; plots?:{id:string;stage:string}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
+  journey?: JourneyView; plots?:{id:string;stage:string}[]; flowers?:{id:string;x:number;y:number;blooms:number}[]; sleeping?:boolean; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   const [zoom, setZoom] = useState(1.3);
@@ -158,7 +180,8 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
   // Owner view: show every world object. Nimo still receives only Worker perception
   // and his own remembered discoveries; this display does not mutate either.
-  const sprites = [...objects.map(o => ({ ...o })),
+  const flowerSprites=(flowers??[{id:"wildflowers_001",x:13,y:11,blooms:3}]).map(f=>({...f,kind:"wildflowers" as const}));
+  const sprites = [...objects.map(o => ({ ...o })), ...flowerSprites,
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
 
@@ -223,12 +246,12 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
             role={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : "button"}
             tabIndex={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : 0}
             aria-label={sprite.kind === "nimo" ? undefined : `${remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`) ? "View Nimo’s memory of" : "Undiscovered"} ${sprite.kind} at (${Math.round(sprite.x)+1},${Math.round(sprite.y)+1})`}
-            onClick={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : ()=>onSelectObject?.(sprite.id)}
-            onKeyDown={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : event=>{
+            onClick={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : ()=>onSelectObject?.(sprite.id)}
+            onKeyDown={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : event=>{
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
-            style={sprite.kind === "nimo" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive}/> : <>
+            style={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
