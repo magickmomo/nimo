@@ -28,7 +28,7 @@ test("separate unavailable actions remain explainable without becoming executabl
   assert.equal(planting.availableNow,false);
   assert.ok(planting.requirements.some(r=>r.includes("Obtain a seed packet")));
   assert.equal(selling.availableNow,false);
-  assert.ok(selling.requirements.some(r=>r.includes("Carrying saleable produce")));
+  assert.ok(selling.requirements.some(r=>r.includes("Carrying a saleable item")));
   assert.ok(selling.requirements.some(r=>r.includes("3 coins")));
   assert.ok(buying.requirements.some(r=>r.includes("2 coins")));
   assert.ok(buying.requirements.some(r=>r.includes("balance is 0")));
