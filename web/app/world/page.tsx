@@ -358,6 +358,7 @@ export default function World() {
         <strong>Loading Nimo’s current world…</strong>
         <p className="meta">Fetching his latest position and state.</p>
       </section> : !data ? <section className="world-card" role="status">Unable to load Nimo’s world. <button type="button" onClick={()=>{setInitialLoading(true);void refresh();}}>Retry</button></section> : <div className={`world-layout${sidebarVisible?"":" is-sidebar-collapsed"}`}>
+        <div className="world-main">
         {state && <section className="world-status-strip world-floating-meters" aria-label="Nimo's internal state">
               {meters.map((item) => {
                 const value = Math.max(0, Math.min(1, Number.isFinite(item.value) ? item.value : 0));
@@ -378,8 +379,6 @@ export default function World() {
                 );
               })}
         </section>}
-
-        <div className="world-main">
       <div className="nimo-game-stage">
         <div className="nimo-coin-counter" role="status" aria-label={coins===undefined?"Coin balance unavailable":`Nimo has ${coins} coins`}>
           <span className="nimo-coin-symbol" aria-hidden="true" />
