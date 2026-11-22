@@ -175,3 +175,16 @@ test("Worker only grants novelty after verified action results",()=>{
  assert.ok(worker.includes('d.action==="REPLY" || toolFailed ? null'));
  assert.ok(worker.includes('curiosityStep(state.emotions.curiosity'));
 });
+
+test("async discoveries count only after verified completion",()=>{
+ const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
+ const oracle=readFileSync(new URL("../src/oracle.ts",import.meta.url),"utf8");
+ const journeys=readFileSync(new URL("../src/journeys.ts",import.meta.url),"utf8");
+ assert.ok(worker.includes('r.action==="explore_tile"&&r.points>0'));
+ assert.ok(worker.includes('r.action==="oracle_answered"'));
+ assert.ok(worker.includes('state.rewardCursor = lastRewardId;'));
+ assert.ok(oracle.includes("await markOracle(env.DB,row.id,status,null,answer,sources,row.response_id)"));
+ assert.ok(oracle.includes("'oracle_answered',0"));
+ assert.ok(journeys.includes("visit_count=1"));
+ assert.ok(journeys.includes("'explore_tile',10"));
+});
