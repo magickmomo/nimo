@@ -120,6 +120,19 @@ export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:s
      const status=sources.length?"answered" as const:"unsourced" as const;
      // Save the result before optional journal/memory indexing.
      await markOracle(env.DB,row.id,status,null,answer,sources,row.response_id);
+     // An answer is a completed research outcome; submitting a question is not.
+     // Only the first answered instance of an identical question gets a
+     // curiosity discovery signal. A zero-point reward serves as durable,
+     // idempotent evidence for the next autonomous decision.
+     try {
+       const prior=await env.DB.prepare(`SELECT id FROM oracle_queries
+         WHERE id<? AND lower(trim(question))=lower(trim(?))
+         AND status IN ('answered','unsourced') LIMIT 1`)
+         .bind(row.id,row.question).first();
+       if(!prior)await env.DB.prepare(`INSERT OR IGNORE INTO world_rewards
+         (source_key,action,points,detail) VALUES(?,'oracle_answered',0,?)`)
+         .bind("oracle:answered:"+row.id,"Oracle returned a result for question #"+row.id).run();
+     }catch(noveltyError){console.error("Oracle curiosity evidence unavailable",noveltyError);}
      try {
        const event=await env.DB.prepare("INSERT INTO events(kind,content,action) VALUES('tool',?,'ORACLE_ANSWER') RETURNING id")
          .bind("ORACLE #"+row.id+": Q: "+row.question+" A: "+answer.slice(0,950)+" Sources: "+sources.map(s=>s.url).join(", ").slice(0,550))
