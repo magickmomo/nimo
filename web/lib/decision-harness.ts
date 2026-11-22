@@ -93,6 +93,47 @@ export function offerChoices(world:LooseRecord,visitor:string|null):Choice[]{
  return unique;
 }
 
+/**
+ * Single source of truth for what Nimo knows versus what the archived world
+ * actually offered. The executable menu is authoritative; the catalogue is
+ * only a description of capabilities, not an executable action registry.
+ */
+export function actionRegistry(w:LooseRecord){
+ const known=new Map<string,LooseRecord>();
+ for(const c of arr(w.capabilityCatalogue)){
+  if(typeof c.action!=="string"||!c.action)continue;
+  known.set(c.action,{
+   name:c.action, availableNow:false, offeredByWorld:false,
+   availabilityReason:typeof c.availabilityReason==="string"?c.availabilityReason:
+     typeof c.unavailableReason==="string"?c.unavailableReason:null
+  });
+ }
+ for(const offer of arr(w.availableActions)){
+  if(typeof offer.name!=="string"||!offer.name)continue;
+  known.set(offer.name,{
+   ...(known.get(offer.name)??{name:offer.name}),
+   availableNow:true,offeredByWorld:true,availabilityReason:null
+  });
+ }
+ return [...known.values()];
+}
+
+export const DECISION_INSTRUCTIONS="Choose one next action Nimo wants to take. The current intention is not a command, and a recent reflection is not a verified outcome. Consider his needs, interests, circumstances and valid choices. You may rest, explore, reflect or change goals. Choose only a supplied option.";
+
+export function makeDecisionRequest(context:LooseRecord,choices:Choice[]){
+ return {
+  model:"gpt-6-luna",
+  input:[
+   {role:"developer",content:[{type:"input_text",text:IDENTITY}]},
+   {role:"user",content:[{type:"input_json",data:context}]}
+  ],
+  questions:[{
+   type:"choice",name:"next_action",instructions:DECISION_INSTRUCTIONS,
+   choices:choices.map(c=>({value:c.id,description:c.description}))
+  }]
+ };
+}
+
 export function compactContext(w:LooseRecord,visitor:string|null){
  const s=asObject(w.state),p=asObject(w.perception),g=asObject(w.garden),e=asObject(w.experience);
  const currentWords=[...new Set((String(s.currentGoal??"")+" "+String(s.currentActivity??"")).toLowerCase().match(/[a-z]{5,}/g)??[])];
@@ -124,8 +165,8 @@ export function compactContext(w:LooseRecord,visitor:string|null){
   continuity:{projects:arr(w.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:x.next_step??x.nextStep??null})),
    memories:[...relevant,...diverse].map(({m})=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status})),
    lastReflection,lastVerifiedOutcome:outcome?{when:outcome.when??null,action:outcome.action,description:outcome.content,source:"recorded_tool_event"}:null,
-   capabilities:arr(w.capabilityCatalogue).map(c=>({name:c.action,availableNow:c.availableNow??null})),
-   availableActionNames:arr(w.availableActions).map(a=>a.name),
+   capabilities:actionRegistry(w),
+   availableActionNames:actionRegistry(w).filter(a=>a.offeredByWorld).map(a=>a.name),
    unfinishedSketch:w.sketchbook?.active?{id:w.sketchbook.active.id,title:w.sketchbook.active.title}:null},
   ...(visitor?{visitorMessage:visitor}:{})
  };
@@ -134,8 +175,7 @@ export function compactContext(w:LooseRecord,visitor:string|null){
 export function runPreview(record:ArchiveRecord,choiceId:string|null):Report{
  const {world,visitor}=contextOf(record);
  const choices=offerChoices(world,visitor),context=compactContext(world,visitor);
- const request=visitor?null:{model:"gpt-6-luna",input:[{role:"developer",content:[{type:"input_text",text:IDENTITY}]},{role:"user",content:[{type:"input_json",data:context}]}],
-  questions:[{type:"choice",name:"next_action",instructions:"Select Nimo's next desired action. Existing goals are optional; remaining idle and reflecting are allowed.",choices:choices.map(c=>({value:c.id,description:c.description}))}]};
+ const request=visitor?null:makeDecisionRequest(context,choices);
  const selection=choiceId===null?null:choices.find(c=>c.id===choiceId)??null;
  if(choiceId!==null&&!selection)throw Error("Selected action is unavailable for this snapshot");
  const generation=selection?.task?{endpoint:"/v1/responses",task:selection.task,taskContext:{
