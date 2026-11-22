@@ -1381,3 +1381,12 @@ main:has(> .world-dashboard){
     flex-shrink:0;
   }
 }
+
+/* Dock the journal precisely between the map heading divider and the footer.
+   The footer includes the discoveries strip, so reserve its full height. */
+@media (min-width:851px){
+  .world-dashboard .world-sidebar{
+    top:29px;
+    bottom:62px;
+  }
+}
