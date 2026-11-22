@@ -5,6 +5,17 @@ import {ArchiveRecord, Report, SAMPLE, runPreview, contextOf, offerChoices} from
 import "./harness.css";
 
 const nice=(v:unknown)=>JSON.stringify(v,null,2);
+function estimatedDecisionCost(usage:unknown):string|null{
+ if(!usage||typeof usage!=="object")return null;
+ const u=usage as {input_tokens?:number;input_tokens_details?:{cached_tokens?:number;cache_write_tokens?:number}};
+ if(typeof u.input_tokens!=="number")return null;
+ const total=u.input_tokens;
+ const cached=Math.max(0,Math.min(total,u.input_tokens_details?.cached_tokens??0));
+ const writes=Math.max(0,Math.min(total-cached,u.input_tokens_details?.cache_write_tokens??0));
+ const uncached=Math.max(0,total-cached-writes);
+ const usd=(uncached*.10+cached*.01+writes*.125)/1000000;
+ return "$"+usd.toFixed(7);
+}
 function download(name:string,value:unknown){
  const blob=new Blob([nice(value)],{type:"application/json;charset=utf-8"});
  const url=URL.createObjectURL(blob),anchor=document.createElement("a");
@@ -127,7 +138,7 @@ export default function DecisionHarnessPage(){
    {result?<div className="dh-results">
     <div className="dh-summary dh-panel">
      <div><div className="dh-eyebrow">{result.ai?"Actual Decisions API selection":"Offline simulation result"}</div><h2>Decision #{result.traceId}</h2><p>Selected: <strong>{result.selection?.description??"No validated selection"}</strong></p>
-      {result.ai&&<p className="dh-ai-usage">Latency: {result.ai.latencyMs??"unknown"} ms · Tokens: {String((result.ai.usage as {input_tokens?:number}|null)?.input_tokens??"unavailable")} · World actions: 0</p>}
+      {result.ai&&<p className="dh-ai-usage">Latency: {result.ai.latencyMs??"unknown"} ms · Tokens: {String((result.ai.usage as {input_tokens?:number}|null)?.input_tokens??"unavailable")} · Est. cost: {estimatedDecisionCost(result.ai.usage)??"unavailable"} · World actions: 0</p>}
      </div>
      <div className="dh-stats"><div><span>Available choices</span><strong>{result.choices.length}</strong></div><div><span>Original payload</span><strong>{(result.counts.original/1000).toFixed(1)}k</strong></div><div><span>Proposed payload</span><strong>{(result.counts.proposal/1000).toFixed(1)}k</strong></div></div>
      <button type="button" className="dh-download" onClick={()=>download("nimo-harness-trace-"+result.traceId+".json",result)}>Download full trace</button>
