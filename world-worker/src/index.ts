@@ -757,8 +757,15 @@ async function tick(env: Env) {
   // Rewards remain persisted, but are not currently applied.
   state.rewardCursor = newRewards.at(-1)?.id ?? state.rewardCursor;
   const chosen=choiceName(d.action,d.toolCall?.name);
-  // Replies to visitors are mandatory conversation turns, not voluntary choices.
-  const curiosity=d.action==="REPLY" || toolFailed ? null : curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen);
+  // Novelty requires a verified result, not a new tool name, drawing title, or
+  // familiar journey. Only first/changed inspections count in this first pass.
+  const meaningfulNovelty=verifiedExperience?.type==="inspection" &&
+    verifiedExperience.comparison!=="unchanged";
+  // Replies to visitors are mandatory turns; failed actions cannot count as
+  // successful variety or novelty.
+  const curiosity=d.action==="REPLY" || toolFailed ? null :
+    curiosityStep(state.emotions.curiosity??0.35,actionHistory,chosen,
+      {novelty:meaningfulNovelty?"meaningful":"none"});
   const next: WorldState = {
     ...state, identity,
     emotions:curiosity?{...state.emotions,curiosity:curiosity.value}:state.emotions,
