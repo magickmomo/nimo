@@ -15,14 +15,15 @@ export const plotStage = (plot:GardenPlot,now:number):"empty"|"dry"|"growing"|"r
  plot.planted_at===null?"empty":plot.watered_at===null?"dry":now-plot.watered_at>=GARDEN_GROW_MS?"ready":"growing";
 const started = (plot:GardenPlot,now:number)=>plotStage(plot,now)==="ready";
 export async function gardenSnapshot(db:D1Database,now=Date.now()):Promise<GardenState>{
- const [items,plots,fruit,coins]=await Promise.all([
+ const [items,plots,fruit,flowers,coins]=await Promise.all([
    db.prepare("SELECT id,kind,water_units FROM garden_inventory ORDER BY id").all<GardenItem>(),
    db.prepare("SELECT id,x,y,planted_at,watered_at FROM garden_plots ORDER BY id").all<GardenPlot>(),
    db.prepare("SELECT count(*) AS n FROM world_food_inventory").first<{n:number}>(),
+   db.prepare("SELECT count(*) AS n FROM wildflower_inventory").first<{n:number}>(),
    db.prepare("SELECT coins FROM vending_state WHERE id=1").first<{coins:number}>()
  ]);
  return {inventory:items.results,plots:plots.results.map(p=>({...p,ready:started(p,now),stage:plotStage(p,now)})),
-   coins:coins?.coins??0,capacity:INVENTORY_CAPACITY,inventoryUsed:items.results.length+(fruit?.n??0)};
+   coins:coins?.coins??0,capacity:INVENTORY_CAPACITY,inventoryUsed:items.results.length+(fruit?.n??0)+(flowers?.n??0)};
 }
 
 /**
@@ -38,7 +39,7 @@ export function transactionGuardSql(predicate:string){
 function guard(db:D1Database,key:string,action:string,detail:string,predicate:string,params:(string|number)[]=[]){
  return db.prepare(transactionGuardSql(predicate)).bind(key,...params,action,detail);
 }
-const inventoryRoom="((SELECT COUNT(*) FROM garden_inventory)+(SELECT COUNT(*) FROM world_food_inventory)) < "+INVENTORY_CAPACITY;
+const inventoryRoom="((SELECT COUNT(*) FROM garden_inventory)+(SELECT COUNT(*) FROM world_food_inventory)+(SELECT COUNT(*) FROM wildflower_inventory)) < "+INVENTORY_CAPACITY;
 
 export async function takeCan(db:D1Database,pos:Point,key:string){
  if(!nearObject(pos,"well_001"))throw Error("Stand next to the well");
