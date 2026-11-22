@@ -161,6 +161,14 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const [zoom, setZoom] = useState(1.3);
   const [follow, setFollow] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
+  const [reducedMotion,setReducedMotion]=useState(false);
+  useEffect(()=>{
+    const query=window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update=()=>setReducedMotion(query.matches);
+    update();
+    query.addEventListener("change",update);
+    return ()=>query.removeEventListener("change",update);
+  },[]);
   const [replay,setReplay]=useState<JourneyReplay|null>(null);
   const seenJourneyStarts=useRef<Set<string>>(new Set());
   const journeyStart=journey?.startedAt??null;
@@ -294,7 +302,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive} walking={moving} legSwing={frame.legSwing} bodyBob={frame.bodyBob}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive} walking={moving} legSwing={reducedMotion?0:frame.legSwing} bodyBob={reducedMotion?0:frame.bodyBob}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <>{sprite.kind==="garden_nook" ? <GardenNook withNimo={seated}/> : <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>}</>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
