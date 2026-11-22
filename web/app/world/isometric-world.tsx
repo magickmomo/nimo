@@ -180,7 +180,13 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const inSight = new Set(visibleTiles({x:Math.round(current.x),y:Math.round(current.y)}).map(p=>`${p.x}:${p.y}`));
   // Owner view: show every world object. Nimo still receives only Worker perception
   // and his own remembered discoveries; this display does not mutate either.
-  const flowerSprites=(flowers??[{id:"wildflowers_001",x:13,y:11,blooms:3}]).map(f=>({...f,kind:"wildflowers" as const}));
+  const flowerSprites=(flowers??[
+    {id:"wildflowers_001",x:13,y:11,blooms:3},
+    {id:"wildflowers_002",x:2,y:8,blooms:2},
+    {id:"wildflowers_003",x:8,y:12,blooms:3},
+    {id:"wildflowers_004",x:13,y:5,blooms:2},
+    {id:"wildflowers_005",x:5,y:14,blooms:2},
+  ]).map(f=>({...f,kind:"wildflowers" as const}));
   const sprites = [...objects.map(o => ({ ...o })), ...flowerSprites,
     { x: current.x, y: current.y, kind: "nimo" as const, id: "nimo" }]
     .sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.x - b.x);
