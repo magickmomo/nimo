@@ -26,6 +26,7 @@ import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
 import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
+import {saveDecisionInputAudit,decisionAuditExport,type DecisionInputAudit} from "./decision-input-audit";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
@@ -272,7 +273,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -384,6 +385,9 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
         text: { format: { ...format.json_schema, type: "json_schema" } },
       }
     : { model, temperature: 0.7, max_tokens: 1100, response_format: format, messages };
+  // Capture the exact payload sent, including historical memory text, action
+  // schemas and preceding experience. Never capture the authorization header.
+  onRequest(payload);
   const res = await fetch("https://api.openai.com/v1/" + (reasoningModel ? "responses" : "chat/completions"), {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -579,17 +583,50 @@ async function tick(env: Env) {
   const modelTrace=await startTrace(env.DB,"decide",
     pendingMessage ? "LLM deciding reply to visitor" : "LLM deciding next action",
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
+  let sentRequest:unknown=null;
+  let requestCapturedAt=now.toISOString();
+  // One R2 write per model attempt, including malformed/failed responses.
+  // The existing action_trace UPDATE retains its original D1 write count.
+  const archiveDecision=async(outcome:DecisionInputAudit["outcome"]):Promise<string|null>=>{
+    if(sentRequest===null)return null;
+    try {
+      return await saveDecisionInputAudit(env.ARCHIVES,{
+        format:"nimo-decision-input-v1",traceId:modelTrace,capturedAt:requestCapturedAt,
+        request:sentRequest,outcome,
+      });
+    }catch(error){
+      // Observability must never block Nimo's decision or distort its outcome.
+      console.error("Decision R2 audit unavailable",error);
+      return null;
+    }
+  };
   try {
-    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;});
-    await finishTrace(env.DB,modelTrace,"completed",
-      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
-      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
+    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();});
   }catch(error) {
-    await finishTrace(env.DB,modelTrace,"failed",error instanceof Error ? error.message : String(error),
-      {model:env.OPENAI_MODEL || "gpt-6-luna",usage});
-    await log(env.DB, "system", `Decision failed: ${error instanceof Error ? error.message : "unknown"}`, "ERROR");
+    // Only an actual model/validation failure belongs in this handler.
+    // A later trace-persistence error must never overwrite a selected R2
+    // decision with a spurious model failure.
+    const message=error instanceof Error ? error.message : String(error);
+    const auditKey=await archiveDecision({status:"failed",error:message.slice(0,1600)});
+    try {
+      await finishTrace(env.DB,modelTrace,"failed",message,
+        {model:env.OPENAI_MODEL || "gpt-6-luna",usage,...(auditKey?{decisionAuditKey:auditKey}:{})});
+    }catch(traceError){
+      console.error("Failed to persist model-error trace",traceError);
+    }
+    await log(env.DB, "system", `Decision failed: ${message}`, "ERROR");
     await releaseDecisionSlot();
     return { status: "model_error" };
+  }
+  // Model selection is now final. Archive it once; a failed D1 trace update
+  // cannot change the archived outcome or prevent the chosen action running.
+  const auditKey=await archiveDecision({status:"selected",decision:d});
+  try {
+    await finishTrace(env.DB,modelTrace,"completed",
+      `Selected ${d.action}${d.toolCall ? " / "+d.toolCall.name : ""}`,
+      {model:env.OPENAI_MODEL || "gpt-6-luna",usage,...(auditKey?{decisionAuditKey:auditKey}:{})});
+  }catch(traceError){
+    console.error("Failed to persist selected-decision trace",traceError);
   }
   // Enforce priority outside the LLM, so a prohibited repetitive action cannot execute.
   // Invalid proposals remain visible rather than being silently rewritten into other actions.
@@ -1162,6 +1199,16 @@ export default {
       }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
+      }
+      // Separate owner-only R2 export: no D1 scans or new writes. Collect all
+      // cursor pages offline to reconstruct individual decision contexts.
+      if (path === "/decision-context/export" && request.method === "GET") {
+        if(!env.ARCHIVES)return json({error:"R2 archive binding unavailable"},503);
+        const params=new URL(request.url).searchParams;
+        const date=params.get("date")??"";
+        const cursor=params.get("cursor")??undefined;
+        try {return json(await decisionAuditExport(env.ARCHIVES,date,cursor));}
+        catch(error){return json({error:error instanceof Error?error.message:"Decision archive unavailable"},400);}
       }
       if (path === "/archive/day" && request.method === "GET") {
         const day=new URL(request.url).searchParams.get("date")??"";
