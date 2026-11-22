@@ -26,7 +26,7 @@ import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
 import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
-import {saveDecisionInputAudit,decisionAuditExport,type DecisionInputAudit} from "./decision-input-audit";
+import {saveDecisionInputAudit,decisionAuditExport,decisionAuditLast60m,type DecisionInputAudit} from "./decision-input-audit";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
@@ -1205,6 +1205,21 @@ export default {
       if (path === "/decision-context/export" && request.method === "GET") {
         if(!env.ARCHIVES)return json({error:"R2 archive binding unavailable"},503);
         const params=new URL(request.url).searchParams;
+        if(params.get("window")==="last60m"){
+          try {
+            // Stream large original request snapshots, rather than materializing
+            // a multi-megabyte hourly JSON export in Worker memory.
+            const stream=await decisionAuditLast60m(env.ARCHIVES);
+            return new Response(stream,{headers:{
+              "Content-Type":"application/json; charset=utf-8",
+              "Cache-Control":"private, no-store",
+              "X-Content-Type-Options":"nosniff"
+            }});
+          }catch(error){
+            return json({error:error instanceof Error?error.message:"Hourly decision export unavailable"},503);
+          }
+        }
+        if(params.has("window"))return json({error:"Invalid decision export window"},400);
         const date=params.get("date")??"";
         const cursor=params.get("cursor")??undefined;
         try {return json(await decisionAuditExport(env.ARCHIVES,date,cursor));}
