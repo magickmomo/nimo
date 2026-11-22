@@ -135,13 +135,14 @@ export async function buySeeds(db:D1Database,pos:Point,key:string){
  if(!nearObject(pos,"vending_001"))throw Error("Stand next to vending machine");
  const vending=await db.prepare("SELECT inspected_at,coins FROM vending_state WHERE id=1").first<{inspected_at:string|null;coins:number}>();
  if(!vending?.inspected_at)throw Error("Inspect the vending machine first");
- if(vending.coins<2)throw Error("Seed packet costs 2 coins");
+ const price=itemDefinition("seed_packet").buyPrice;
+ if(vending.coins<price)throw Error("Seed packet costs "+price+" coins");
  const s=await gardenSnapshot(db);if(s.inventoryUsed>=INVENTORY_CAPACITY)throw Error("Inventory full");
  await db.batch([
-  guard(db,key,"buy_seeds","Seed packet for 2 coins",
-   "EXISTS(SELECT 1 FROM vending_state WHERE id=1 AND inspected_at IS NOT NULL AND coins>=2) AND "+inventoryRoom),
-  db.prepare("UPDATE vending_state SET coins=coins-2 WHERE id=1 AND coins>=2"),
+  guard(db,key,"buy_seeds","Seed packet for "+price+" coins",
+   "EXISTS(SELECT 1 FROM vending_state WHERE id=1 AND inspected_at IS NOT NULL AND coins>=?) AND "+inventoryRoom,[price]),
+  db.prepare("UPDATE vending_state SET coins=coins-? WHERE id=1 AND coins>=?").bind(price,price),
   db.prepare("INSERT INTO garden_inventory(kind) VALUES('seed_packet')")
  ]);
- return "Bought one seed packet for 2 coins";
+ return "Bought one seed packet for "+price+" coins";
 }
