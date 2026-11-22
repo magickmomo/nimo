@@ -39,23 +39,20 @@ test("rest is passive and does not change curiosity; Worker records no meter adj
  assert.match(worker,/lastRestedAt: !toolFailed&&d\.toolCall\?\.name==="rest"/);
  assert.match(worker,/toolOutcome="RESTED: Sat quietly on the garden nook bench\."/);
 });
-test("map animates journeys and seated pose with reduced-motion support",()=>{
+test("map uses shared position and pose timeline with accessible motion",()=>{
  const map=read("../../web/app/world/isometric-world.tsx");
  const css=read("../../web/app/world/world.css");
+ const timeline=read("../../web/lib/movement-timeline.ts");
  assert.match(map,/function GardenNook/);
  assert.match(map,/function SeatedCharacter/);
+ assert.match(map,/const frame=movementFrame\(/);
+ assert.match(map,/const current=frame\.position/);
  assert.match(map,/walking=\{moving\}/);
- assert.match(map,/const moving = journey\?\.status === "travelling" && hasJourney && progress < route\.length - 1/);
- assert.match(map,/const current = hasJourney \?/);
- assert.match(map,/journey\?\.status === "paused"/);
- assert.match(map,/const seated=!sleeping&&!moving/);
- assert.match(map,/const restEndsAt = lastRestedAt \? Date\.parse\(lastRestedAt\) \+ 60_000/);
- assert.match(map,/const timer = window\.setInterval/);
- assert.match(map,/lastRestedAt, sleeping\]/);
- assert.match(map,/now >= restEndsAt/);
  assert.match(map,/withNimo=\{seated\}/);
- assert.match(map,/lastRestedAt/);
- assert.match(css,/@keyframes nimo-walk-bob/);
+ assert.match(timeline,/REST_POSE_MS=60000/);
+ assert.match(timeline,/const seated=!sleeping&&!walking/);
+ assert.match(timeline,/journey!.status==="paused"/);
  assert.match(css,/@keyframes nimo-sit-breathe/);
+ assert.doesNotMatch(css,/@keyframes nimo-walk-bob/);
  assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
 });

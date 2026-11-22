@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {eligibleJourneyReplay,movementFrame,type TimelineJourney,type JourneyReplay,REST_POSE_MS} from "../../lib/movement-timeline";
 import { WORLD_SIZE as SIZE, WORLD_OBJECTS as objects, visibleTiles, withinOracleInteractionArea, type Point, type SceneryKind as ObjectKind } from "../../lib/world-map";
 
 const HW = 29;
@@ -130,15 +131,15 @@ function SeatedCharacter(){
   <path d="M-7 -10 L-8 -1 M7 -10 L8 -1" stroke="#534762" strokeWidth="3" strokeLinecap="round"/>
  </g>;
 }
-function Character({sleeping=false,oracleActive=false,walking=false}: {sleeping?:boolean;oracleActive?:boolean;walking?:boolean}) {
+function Character({sleeping=false,oracleActive=false,walking=false,legSwing=0,bodyBob=0}: {sleeping?:boolean;oracleActive?:boolean;walking?:boolean;legSwing?:number;bodyBob?:number}) {
   return (
-    <g className={sleeping?"nimo-character-sleeping":walking?"nimo-character-walking":"nimo-character-awake"}>
+    <g className={sleeping?"nimo-character-sleeping":walking?"nimo-character-walking":"nimo-character-awake"} style={walking?{transform:`translateY(${-bodyBob}px)`}:undefined}>
       {oracleActive && <g className="nimo-oracle-character-halo" aria-hidden="true">
         <ellipse cy="4" rx="24" ry="11" fill="#9de9d7" opacity=".24"/>
         <ellipse cy="4" rx="21" ry="9" fill="none" stroke="#a7fff0" strokeWidth="2"/>
       </g>}
       <ellipse cy="6" rx="16" ry="6" fill="#273f36" opacity=".36"/>
-      <g className="nimo-walking-legs"><path className="nimo-walking-leg-left" d="M-9 -10 L-11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/><path className="nimo-walking-leg-right" d="M9 -10 L11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/></g>
+      <g className="nimo-walking-legs"><path className="nimo-walking-leg-left" style={{transform:`rotate(${legSwing}deg)`,transformOrigin:"-9px -10px"}} d="M-9 -10 L-11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/><path className="nimo-walking-leg-right" style={{transform:`rotate(${-legSwing}deg)`,transformOrigin:"9px -10px"}} d="M9 -10 L11 2" stroke="#5b4e70" strokeWidth="5" strokeLinecap="round"/></g>
       <rect x="-13" y="-37" width="26" height="32" rx="10" fill="#f5e8c7" stroke="#534762" strokeWidth="3"/>
       <rect x="-10" y="-31" width="20" height="14" rx="5" fill="#38354e"/>
       {sleeping ? <g className="nimo-sleep-face"><path d="M-7 -24 Q-4 -21 -1 -24 M2 -24 Q5 -21 8 -24" stroke="#f6e5a6" strokeWidth="2" fill="none" strokeLinecap="round"/><text x="16" y="-37" fill="#e7ede4" fontSize="11" className="nimo-sleep-z">z</text></g> : <g className="nimo-awake-eyes"><circle cx="-4" cy="-24" r="2" fill="#f6e5a6"/><circle cx="5" cy="-24" r="2" fill="#f6e5a6"/></g>}
@@ -151,14 +152,7 @@ export type WorldActionToast = {
   id:number;started_at:string;kind:string;status:string;detail:string;result:string|null;
 };
 
-export type JourneyView = {
-  status: "idle" | "travelling" | "paused";
-  path: Point[];
-  stepIndex: number;
-  stepMs: number;
-  startedAt: string | null;
-  pausedAt: string | null;
-};
+export type JourneyView = TimelineJourney;
 export default function IsometricWorld({ position, visited = [], seenTiles = [], inspected = [], journey, plots=[], flowers, sleeping=false, lastRestedAt=null, actionTrace=[], showActionToasts=false, selectedObjectId, onSelectObject }: {
   position: Point | null; visited?: Point[]; seenTiles?: Point[]; inspected?: (Point & { kind: string })[];
   journey?: JourneyView; plots?:{id:string;stage:string}[]; flowers?:{id:string;x:number;y:number;blooms:number}[]; sleeping?:boolean; lastRestedAt?:string|null; actionTrace?:WorldActionToast[]; showActionToasts?:boolean; selectedObjectId?: string | null; onSelectObject?: (id:string)=>void;
@@ -167,53 +161,60 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
   const [zoom, setZoom] = useState(1.3);
   const [follow, setFollow] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  useEffect(() => {
-    // Refresh immediately when the Worker reports a new rest or journey.
-    // Otherwise the pose can compare a new timestamp to an old, frozen clock.
-    const refresh = () => setClock(Date.now());
-    const startsAt = journey?.startedAt ? Date.parse(journey.startedAt) : NaN;
-    const travelEndsAt = startsAt + Math.max(0, (journey?.path?.length ?? 1)-1) * (journey?.stepMs ?? 0);
-    const restEndsAt = lastRestedAt ? Date.parse(lastRestedAt) + 60_000 : NaN;
-    const travelling = journey?.status === "travelling" && Number.isFinite(travelEndsAt);
-    const resting = !sleeping && Number.isFinite(restEndsAt);
-    if (!travelling && !resting) return;
-    // Travel needs smooth frames; resting needs only a clock tick to expire.
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      refresh();
-      if ((!travelling || now >= travelEndsAt) &&
-          (!resting || now >= restEndsAt)) window.clearInterval(timer);
-    }, travelling ? 50 : 250);
-    // This tick also makes a rest reported while the page is open visible.
-    refresh();
-    return () => window.clearInterval(timer);
-  }, [journey?.status, journey?.startedAt, journey?.stepMs, journey?.path?.length, lastRestedAt, sleeping]);
+  const [reducedMotion,setReducedMotion]=useState(false);
+  useEffect(()=>{
+    const query=window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update=()=>setReducedMotion(query.matches);
+    update();
+    query.addEventListener("change",update);
+    return ()=>query.removeEventListener("change",update);
+  },[]);
+  const [replay,setReplay]=useState<JourneyReplay|null>(null);
+  const seenJourneyStarts=useRef<Set<string>>(new Set());
+  const journeyStart=journey?.startedAt??null;
+  useEffect(()=>{
+    if(!journeyStart||!journey)return;
+    if(journey.status==="travelling"||journey.status==="paused"){
+      seenJourneyStarts.current.add(journeyStart);
+      setReplay(null);
+    }else if(eligibleJourneyReplay(journey,Date.now())&&!seenJourneyStarts.current.has(journeyStart)){
+      seenJourneyStarts.current.add(journeyStart);
+      setReplay({journeyStart,playbackStartedAt:Date.now()});
+    }
+  },[journeyStart,journey?.status,journey?.stepMs,journey?.path?.length]);
+  const replayIsCurrent=!!(replay&&replay.journeyStart===journeyStart);
+  const replayDeadline=replayIsCurrent&&journey
+    ? replay.playbackStartedAt+(journey.path.length-1)*journey.stepMs : 0;
+  useEffect(()=>{
+    const startsAt=journey?.startedAt?Date.parse(journey.startedAt):NaN;
+    const travelling=journey?.status==="travelling"&&Number.isFinite(startsAt)
+      &&journey.path.length>1&&journey.stepMs>0
+      &&Date.now()<startsAt+(journey.path.length-1)*journey.stepMs;
+    const replaying=replayDeadline>Date.now();
+    const restStarted=lastRestedAt?Date.parse(lastRestedAt):NaN;
+    const resting=!sleeping&&Number.isFinite(restStarted)
+      &&Date.now()>=restStarted&&Date.now()<restStarted+REST_POSE_MS;
+    // Synchronize the rendered frame even when the journey already expired
+    // between polls. Otherwise an old clock can keep the sprite mid-walk.
+    setClock(Date.now());
+    if(!travelling&&!replaying&&!resting)return;
+    const timer=window.setInterval(()=>{
+      const now=Date.now();
+      setClock(now);
+      const travelActive=travelling&&now<startsAt+(journey!.path.length-1)*journey!.stepMs;
+      if(!travelActive&&now>=replayDeadline&&(!resting||now>=restStarted+REST_POSE_MS))
+        window.clearInterval(timer);
+    },travelling||replaying?50:250);
+    return ()=>window.clearInterval(timer);
+  },[journeyStart,journey?.status,journey?.stepMs,journey?.path?.length,replayDeadline,lastRestedAt,sleeping]);
 
-  // Read-only: the Worker controls the authoritative position.
-  const authoritative = position ?? { x: 4, y: 4 };
-  const route = journey?.path ?? [];
-  const hasJourney = !!(journey && journey.status !== "idle" &&
-    route.length > 1 && journey.startedAt && journey.stepMs > 0);
-  // SVG animation is only a visual interpolation of the persisted timed route.
-  // D1 remains authoritative; closing the page does not pause Nimo's journey.
-  const time = journey?.status === "paused" && journey.pausedAt
-    ? Date.parse(journey.pausedAt) : clock;
-  const progress = hasJourney
-    ? Math.max(0, Math.min(route.length - 1,
-      (time - Date.parse(journey?.startedAt ?? "")) / (journey?.stepMs ?? 1600))) : 0;
-  // Neither a paused journey nor a journey already at its final waypoint is walking.
-  const moving = journey?.status === "travelling" && hasJourney && progress < route.length - 1;
-  const waypoint = Math.min(route.length - 1, Math.floor(progress));
-  const portion = progress - waypoint;
-  const from = route[waypoint] ?? authoritative;
-  const to = route[Math.min(route.length - 1, waypoint + 1)] ?? from;
-  const current = hasJourney ? {
-    x: from.x + (to.x-from.x)*portion,
-    y: from.y + (to.y-from.y)*portion,
-  } : authoritative;
-  const seated=!sleeping&&!moving&&!!lastRestedAt
-    &&clock-Date.parse(lastRestedAt)>=0&&clock-Date.parse(lastRestedAt)<60_000
-    &&Math.abs(authoritative.x-5)+Math.abs(authoritative.y-12)===1;
+  // D1 owns the route and arrival; presentation alone interpolates the shared timeline.
+  const authoritative=position??{x:4,y:4};
+  const frame=movementFrame({position:authoritative,journey,now:clock,sleeping,lastRestedAt,
+    replay:replayIsCurrent?replay:null});
+  const {walking:moving,seated}=frame;
+  const current=frame.position;
+  const route=journey?.path??[];
   const oracleActive = withinOracleInteractionArea(current);
   const focalPoint = project(current);
   const viewWidth = BASE_WIDTH / zoom;
@@ -303,7 +304,7 @@ export default function IsometricWorld({ position, visited = [], seenTiles = [],
               if(event.key==="Enter"||event.key===" "){event.preventDefault();onSelectObject?.(sprite.id);}
             }}
             style={sprite.kind === "nimo" || sprite.kind === "wildflowers" || !(remembered.has(`${sprite.x}:${sprite.y}`) || inSight.has(`${sprite.x}:${sprite.y}`)) ? undefined : {cursor:"pointer"}}>
-            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive} walking={moving}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
+            {sprite.kind === "nimo" ? <Character sleeping={sleeping} oracleActive={oracleActive} walking={moving} legSwing={reducedMotion?0:frame.legSwing} bodyBob={reducedMotion?0:frame.bodyBob}/> : sprite.kind==="wildflowers" ? <><Wildflowers blooms={sprite.blooms}/><title>Wildflowers at ({sprite.x+1},{sprite.y+1}) · {sprite.blooms} blooms</title></> : <>
               {selectedObjectId === sprite.id && <ellipse cx="0" cy="0" rx="26" ry="14" fill="none" stroke="#f1d58b" strokeWidth="3"/>}
               <>{sprite.kind==="garden_nook" ? <GardenNook withNimo={seated}/> : <Scenery kind={sprite.kind} oracleActive={oracleActive} stage={plots.find(p=>p.id===sprite.id)?.stage}/>}</>
               <circle cx="0" cy="-14" r="29" fill="transparent"/>
