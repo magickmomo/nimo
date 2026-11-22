@@ -94,8 +94,10 @@ test("curiosity guidance maps available tools to activities and preserves autono
  const hint=curiosityGuidance(0.85,0.9,["drawing","drawing"],["start_sketch","write_document","travel_to"]);
  assert.match(hint,/unused activities: writing, exploring/);
  assert.match(hint,/Available familiar activities: drawing/);
- assert.match(hint,/Multiple drawings are still drawing/);
- assert.match(hint,/You decide what to do; no action is mandatory/);
+ assert.match(hint,/strong interest in experiencing or learning something different/);
+ assert.match(hint,/You can travel to another location when nothing nearby interests you/);
+ assert.match(hint,/Thinking and resting remain valid choices/);
+ assert.match(hint,/You decide what to do/);
  assert.doesNotMatch(hint,/unused activities: start_sketch/);
 });
 
