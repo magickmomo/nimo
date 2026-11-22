@@ -2,6 +2,7 @@
 
 type Fruit = {id:number;fruit:"amber"|"blue"|"red"};
 type Supply = {id:number;kind:string;water_units:number};
+type FlowerItem = {id:number;kind:"wildflower"|"flower_seed"};
 type Item = {key:string;name:string;kind:string;variant?:string;water?:number};
 
 function ItemIcon({item}:{item:Item}) {
@@ -11,6 +12,8 @@ function ItemIcon({item}:{item:Item}) {
     <path d="M17 7 Q24 2 27 8 Q22 12 17 7Z" fill="#55966e" stroke="#365e47" strokeWidth="1"/>
     <circle cx="12" cy="15" r="2.5" fill="#fff" opacity=".35"/>
   </svg>;
+  if(item.kind==="wildflower")return <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M16 28 V11 M16 20 Q6 18 8 14 Q13 13 16 20 M16 18 Q24 12 26 16 Q23 22 16 18" fill="#8fbd7c" stroke="#4a7d53" strokeWidth="1.5"/>{Array.from({length:5},(_,i)=><ellipse key={i} cx={16+Math.cos(i*2*Math.PI/5)*7} cy={10+Math.sin(i*2*Math.PI/5)*7} rx="4.1" ry="5.2" fill="#ddadd9" stroke="#a67f9d" strokeWidth=".8"/>)}<circle cx="16" cy="10" r="3.5" fill="#f2cb70"/></svg>;
+  if(item.kind==="flower_seed")return <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M8 5 h16 v23 H8Z" fill="#e3c7a1" stroke="#906e4e" strokeWidth="1.7"/><path d="M16 24 v-11 M16 18 q-7 -7 -8 -2 M16 16 q7 -6 8 -2" fill="#77b17a" stroke="#4b7951" strokeWidth="1.4"/><circle cx="16" cy="12" r="2.5" fill="#e5b6df"/></svg>;
   if(item.kind==="watering_can")return <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
     <path d="M7 13 H22 L20 27 H9Z" fill="#75a6b0" stroke="#344f5b" strokeWidth="1.8" strokeLinejoin="round"/>
     <path d="M22 16 L29 12 M24 19 L30 16 M9 13 V9 Q9 3 15 3 Q21 3 21 10" stroke="#344f5b" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
@@ -31,9 +34,10 @@ function ItemIcon({item}:{item:Item}) {
   </svg>;
 }
 
-export default function WorldInventory({fruits,supplies,capacity}:{fruits:Fruit[];supplies:Supply[];capacity:number}) {
+export default function WorldInventory({fruits,supplies,flowers=[],capacity}:{fruits:Fruit[];supplies:Supply[];flowers?:FlowerItem[];capacity:number}) {
   const items:Item[]=[
     ...fruits.map(f=>({key:"fruit-"+f.id,kind:"fruit",variant:f.fruit,name:f.fruit+" fruit"})),
+    ...flowers.map(f=>({key:"flower-"+f.id,kind:f.kind,name:f.kind==="flower_seed"?"Wildflower seed":"Picked wildflower"})),
     ...supplies.map(s=>({key:"supply-"+s.id,kind:s.kind,water:s.water_units,
       name:s.kind==="watering_can"?"Watering can ("+s.water_units+"/3 water)":s.kind==="seed_packet"?"Seed packet":s.kind==="crop"?"Harvested crop":s.kind.replaceAll("_"," ")}))
   ];
