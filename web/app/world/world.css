@@ -1390,3 +1390,180 @@ main:has(> .world-dashboard){
     bottom:62px;
   }
 }
+
+
+/* Structural desktop world shell. The world and the journal are real grid
+   columns, never intersecting absolute-position layers. The scene and its
+   overlays are positioned relative to the world column only. */
+@media (min-width:851px){
+  .world-dashboard>.world-layout,
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) clamp(290px,25vw,370px);
+    grid-template-rows:minmax(0,1fr);
+    gap:0;
+    align-items:stretch;
+    height:100%;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .world-dashboard>.world-layout>.world-main{
+    position:relative;
+    inset:auto;
+    grid-column:1;
+    grid-row:1;
+    display:flex;
+    min-width:0;
+    min-height:0;
+    height:100%;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-main>.nimo-game-stage{
+    position:relative;
+    flex:1 1 auto;
+    height:100%;
+    width:100%;
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-main .nimo-map{
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout>.world-sidebar{
+    position:relative;
+    inset:auto;
+    top:auto;
+    right:auto;
+    bottom:auto;
+    left:auto;
+    z-index:1;
+    grid-column:2;
+    grid-row:1;
+    width:auto;
+    min-width:0;
+    height:100%;
+    min-height:0;
+    margin:0;
+    padding:12px 15px;
+    border:0;
+    border-left:1px solid rgba(160,206,180,.23);
+    border-radius:0;
+    background:rgba(12,35,29,.94);
+    box-shadow:none;
+    backdrop-filter:none;
+    overflow:hidden;
+  }
+  .world-dashboard>.world-layout.is-sidebar-collapsed>.world-sidebar{
+    display:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    position:absolute;
+    z-index:9;
+    top:54px;
+    left:50%;
+    right:auto;
+    bottom:auto;
+    transform:translateX(-50%);
+    width:min(420px,calc(100% - 110px));
+    min-width:0;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px;
+    padding:6px 10px;
+    margin:0;
+    border:1px solid rgba(179,219,189,.26);
+    border-radius:11px;
+    background:rgba(12,40,30,.76);
+    color:#e6f2e6;
+    box-shadow:0 6px 22px rgba(0,0,0,.2);
+    backdrop-filter:blur(8px);
+    pointer-events:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-item{
+    padding:0;
+    min-width:0;
+    border:0;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-head{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin:0 0 3px;
+    color:#e3f0e6;
+    font-size:12px;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-percent{
+    font-size:11px;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-dot{
+    width:12px;
+    height:12px;
+    border:1px solid #b3d9b8;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-dot:before{display:none}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-bar{
+    height:8px;
+    background:#254638;
+    border:1px solid #7ca78c;
+  }
+  .world-dashboard .nimo-coin-counter{
+    right:14px;
+    top:54px;
+  }
+  .world-dashboard>.world-layout>.world-main .world-detail-drawer{
+    top:60px;
+  }
+  .world-dashboard>.world-layout>.world-sidebar .world-journal{
+    min-height:0;
+    overflow-y:auto;
+  }
+}
+@media (min-width:851px) and (max-width:1150px){
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    width:min(310px,calc(100% - 100px));
+  }
+}
+/* On small screens the journal remains the existing on-demand overlay,
+   while the meters continue to belong to the world view. */
+@media (max-width:850px){
+  .world-dashboard>.world-layout>.world-main{
+    position:absolute;
+    inset:0;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    position:absolute;
+    z-index:9;
+    top:65px;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(420px,calc(100% - 28px));
+    min-width:0;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin:0;
+    padding:7px 9px;
+    border:1px solid rgba(179,219,189,.26);
+    border-radius:11px;
+    background:rgba(12,40,30,.76);
+    color:#e6f2e6;
+    pointer-events:none;
+  }
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-item{min-width:0;padding:0;border:0}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-head{display:none}
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters .world-status-bar{height:12px;border:1px solid #7ca78c;background:#254638}
+}
+@media (max-width:600px){
+  .world-dashboard>.world-layout>.world-main>.world-floating-meters{
+    top:57px;
+    width:min(260px,calc(100% - 72px));
+    padding:6px 8px;
+    gap:8px;
+  }
+}
