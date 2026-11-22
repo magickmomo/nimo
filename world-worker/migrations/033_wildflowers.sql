@@ -9,9 +9,16 @@ CREATE TABLE IF NOT EXISTS wildflower_patches (
  planted_at INTEGER NOT NULL,
  UNIQUE(x,y)
 );
--- (14,12) in Nimo's displayed one-based coordinates.
+-- Five scattered, sparse patches (one-based display coordinates).
+-- Original request #12: (14,12). Additional grassland accents:
+-- (3,9), (9,13), (14,6), (6,15); keep roads and existing objects clear.
 INSERT OR IGNORE INTO wildflower_patches(id,x,y,blooms,regrow_at,planted_at)
-VALUES ('wildflowers_001',13,11,3,NULL,0);
+VALUES
+ ('wildflowers_001',13,11,3,NULL,0),
+ ('wildflowers_002',2,8,2,NULL,0),
+ ('wildflowers_003',8,12,3,NULL,0),
+ ('wildflowers_004',13,5,2,NULL,0),
+ ('wildflowers_005',5,14,2,NULL,0);
 
 CREATE TABLE IF NOT EXISTS wildflower_inventory (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
