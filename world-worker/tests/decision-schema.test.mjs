@@ -109,3 +109,14 @@ test("visitor intentions cannot execute during reply, leak into normal decisions
  assert.throws(()=>validateDecision({...base("REPLY"),replyIntent:"   "},true),/replyIntent/);
  assert.throws(()=>validateDecision({...base("REPLY"),replyIntent:"x".repeat(251)},true),/replyIntent/);
 });
+
+test("remember_object accepts the actual garden nook ID seen in the decision audit",()=>{
+ const tool={name:"remember_object",objectId:"garden_nook_001",label:"Quiet garden nook",
+   note:"Observed a wooden bench with low plants."};
+ assert.deepEqual(validateDecision(base("ACT",tool),false).toolCall,tool);
+ assert.deepEqual(validateDecision(base("REMEMBER",tool),false).toolCall,tool);
+});
+test("remember_object rejects plausible-looking IDs absent from the world registry",()=>{
+ assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"garden_nook_999",
+   label:"Invented",note:"Does not exist."}),false),/remember_object/);
+});
