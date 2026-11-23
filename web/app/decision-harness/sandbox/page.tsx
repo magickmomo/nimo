@@ -34,6 +34,7 @@ const describeCost=(cost:number)=>"$"+cost.toFixed(6);
 export default function SandboxPage(){
  const [record,setRecord]=useState<ArchiveRecord>(SAMPLE);
  const [loadingLive,setLoadingLive]=useState(false);
+ const [archiveProgress,setArchiveProgress]=useState("");
  const [captureSource,setCaptureSource]=useState<{type:"live"|"uploaded";capturedAt:string|null;fetchedAt?:string|null}|null>(null);
  const [sandbox,setSandbox]=useState<SandboxState>(()=>createSandbox(contextOf(SAMPLE).world));
  const [manual,setManual]=useState("travel:south");
@@ -77,21 +78,57 @@ export default function SandboxPage(){
  }
  async function loadLatestLiveContext(){
   if(busy||loadingLive||!owner)return;
-  setLoadingLive(true);setError("");
+  setLoadingLive(true);setError("");setArchiveProgress("Checking captured decisions…");
   try{
-   const res=await fetch("/api/decision-harness/live-context",{cache:"no-store"});
-   const data=await res.json() as {error?:string;record?:ArchiveRecord;capturedAt?:string;fetchedAt?:string};
-   if(!res.ok||!data.record)throw Error(data.error??"Could not fetch live context");
-   const latest=data.record;
-   if(!Number.isSafeInteger(latest.traceId)||latest.traceId===SAMPLE.traceId)throw Error("Invalid live decision capture");
-   const snapshot=contextOf(latest);
-   if(snapshot.visitor)throw Error("Latest input was a visitor turn; use a normal autonomous archive");
-   const isolated=createSandbox(snapshot.world);
-   setRecord(latest);setSandbox(isolated);
+   // Each R2 archive page gets a separate, bounded authenticated request.
+   // Avoid a long serverless chain that can time out without diagnostics.
+   let newest:ArchiveRecord|null=null;
+   let pages=0;
+   const now=Date.now();
+   for(let dayOffset=0;dayOffset<3;dayOffset++){
+    const day=new Date(now-dayOffset*86400000).toISOString().slice(0,10);
+    let cursor:string|null=null;
+    const seen=new Set<string>();
+    let complete=false;
+    for(let page=0;page<120;page++){
+     setArchiveProgress("Checking "+day+" · page "+(page+1)+"…");
+     const params=new URLSearchParams({date:day});
+     if(cursor)params.set("cursor",cursor);
+     let response:Response;
+     try{response=await fetch("/api/world/decision-context/export?"+params.toString(),{cache:"no-store"});}
+     catch(e){throw Error("Archive connection failed on "+day+" page "+(page+1)+": "+String(e));}
+     let data:{error?:string;records?:ArchiveRecord[];truncated?:boolean;nextCursor?:string|null};
+     try{data=await response.json();}catch{
+      throw Error("Archive returned non-JSON on "+day+" page "+(page+1)+" (HTTP "+response.status+").");
+     }
+     if(!response.ok)throw Error("Archive failed on "+day+" page "+(page+1)+" (HTTP "+response.status+"): "+(data.error??"Unknown error"));
+     if(!Array.isArray(data.records))throw Error("Invalid archive page for "+day+": records array missing");
+     pages++;
+     for(const candidate of data.records){
+      if(!Number.isSafeInteger(candidate?.traceId)||!Array.isArray(candidate.request?.input))continue;
+      try{
+       const parsed=contextOf(candidate);
+       if(parsed.visitor||!parsed.world.state||!parsed.world.perception||
+        !Array.isArray(parsed.world.availableActions))continue;
+       if(!newest||candidate.traceId>newest.traceId)newest=candidate;
+      }catch{/* Skip invalid captured decision records. */}
+     }
+     if(!data.truncated){complete=true;break;}
+     if(!data.nextCursor||seen.has(data.nextCursor))
+      throw Error("Archive cursor did not advance on "+day+" page "+(page+1));
+     seen.add(data.nextCursor);cursor=data.nextCursor;
+    }
+    if(!complete)throw Error("Archive "+day+" exceeds 120 pages; cannot verify newest input.");
+    if(newest)break;
+   }
+   if(!newest)throw Error("No compatible autonomous decision capture from the last three UTC days.");
+   const isolated=createSandbox(contextOf(newest).world);
+   setRecord(newest);setSandbox(isolated);
    setStepLogs([]);setApiHistory([]);setRunErrors([]);setLast(null);setRunProgress(null);
    setManual("");setMode("ai");setContextTier("E");
-   setCaptureSource({type:"live",capturedAt:latest.capturedAt??data.capturedAt??null,fetchedAt:data.fetchedAt??null});
-  }catch(e){setError(e instanceof Error?e.message:"Unable to load real live input");}
+   setCaptureSource({type:"live",capturedAt:newest.capturedAt??null,fetchedAt:new Date().toISOString()});
+   setArchiveProgress("Loaded decision #"+newest.traceId+" across "+pages+" archive page(s).");
+  }catch(e){setArchiveProgress("");setError(e instanceof Error?e.message:"Archived decision lookup failed");}
   finally{setLoadingLive(false);}
  }
  function reset(){
@@ -312,10 +349,11 @@ export default function SandboxPage(){
    <div className="dh-field">
     <label>Read actual production decision context</label>
     <button type="button" className="dh-run" disabled={busy||loadingLive||!owner} onClick={()=>void loadLatestLiveContext()}>
-     {loadingLive?"Reading private decision archive…":"Load latest archived production decision"}
+     {loadingLive?"Loading archived decisions…":"Load latest archived production decision"}
     </button>
     <small>Reads the latest available decision input in private R2, which may be over a day old. This is NOT a live refresh of Nimo's current state. Reset and reload to check whether newer inputs have been captured.</small>
    </div>
+   {archiveProgress&&<small role="status">{archiveProgress}</small>}
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
    </div>
