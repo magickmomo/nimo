@@ -13,7 +13,7 @@ assert(!!state,"canary enable flag must be true or false");
 const id=config.match(/database_id = "([^"]+)"/)?.[1];
 assert(id!==undefined&&/^[0-9a-f-]{36}$/.test(id),"database UUID must be valid");
 assert(id!=="00000000-0000-0000-0000-000000000000","replace placeholder D1 UUID before deploy");
-const cap=Number(config.match(/^WORLD_004_MAX_DAILY_DECISIONS = "(\d+)"$/m)?.[1]);
+const cap=Number(config.match(/^WORLD_004_MAX_RUN_DECISIONS = "(\d+)"$/m)?.[1]);
 assert(Number.isSafeInteger(cap)&&cap>0&&cap<=1000,"invalid cap");
 const hasCron=/^crons\s*=\s*\["\* \* \* \* \*"\]$/m.test(config);
 if(state==="false")assert(!/^crons\s*=/m.test(config),"no cron before data bootstrap and approval");
