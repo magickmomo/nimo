@@ -19,7 +19,8 @@ OPENAI_MODEL = "gpt-6-luna"
 WORLD_004_MODE = "strategy-e"
 WORLD_004_ENABLED = "false"
 WORLD_004_MAX_DAILY_DECISIONS = "120"
-# Fill an absolute UTC timestamp no more than 24 hours from activation.
+# Fill start and stop UTC timestamps for one 24-hour canary before activation.
+WORLD_004_START_AT = "1970-01-01T00:00:00.000Z"
 WORLD_004_STOP_AT = "1970-01-01T00:00:00.000Z"
 # Hourly memory consolidation stays disabled until clone/migrations are verified.
 MEMORY_CONSOLIDATION_ENABLED = "false"
