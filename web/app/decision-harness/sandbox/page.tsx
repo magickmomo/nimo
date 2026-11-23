@@ -2,13 +2,14 @@
 import {ChangeEvent,useEffect,useMemo,useRef,useState} from "react";
 import {ArchiveRecord,SAMPLE,contextOf,type Choice} from "../../../lib/decision-harness";
 import {createSandbox,sandboxFrame,stepSandbox,supportsSandboxChoice,type SandboxState} from "../../../lib/decision-sandbox";
+import {buildExperimentalContext,type ContextTier} from "../../../lib/decision-context-experiment";
 import "../harness.css";
 
 const json=(v:unknown)=>JSON.stringify(v,null,2);
 type UsageRow={kind:"decisions"|"responses";usage:unknown;latencyMs:number|null};
 type StepLog={
  step:number;startedAt:string;completedAt:string;status:"success"|"failed";
- selectionMode:"manual"|"ai";action:string|null;
+ selectionMode:"manual"|"ai";contextTier:ContextTier;action:string|null;
  context:unknown;offeredChoices:unknown;selectionResponse:unknown;
  generationResponse:unknown;outcome:unknown;usage:UsageRow[];
  error?:string;
@@ -34,7 +35,9 @@ export default function SandboxPage(){
  const [record,setRecord]=useState<ArchiveRecord>(SAMPLE);
  const [sandbox,setSandbox]=useState<SandboxState>(()=>createSandbox(contextOf(SAMPLE).world));
  const [manual,setManual]=useState("travel:south");
- const [mode,setMode]=useState<"manual"|"ai">("manual");
+ const [mode,setMode]=useState<"manual"|"ai">("ai");
+ const [contextTier,setContextTier]=useState<ContextTier>("E");
+ const [batchSize,setBatchSize]=useState<10|20>(20);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
  const [owner,setOwner]=useState(false);
@@ -49,7 +52,7 @@ export default function SandboxPage(){
  useEffect(()=>()=>{stoppedRef.current=true;controllerRef.current?.abort();},[]);
  const halt=()=>{stoppedRef.current=true;controllerRef.current?.abort();setRunProgress(p=>p?{...p,status:"Stopping after the current request…"}:p);};
  useEffect(()=>{void fetch("/api/world/session",{cache:"no-store"}).then(r=>r.json()).then(x=>setOwner(Boolean(x.authenticated))).catch(()=>{});},[]);
- const frame=useMemo(()=>sandboxFrame(sandbox),[sandbox]);
+ const frame=useMemo(()=>{const f=sandboxFrame(sandbox);return {...f,context:buildExperimentalContext(sandbox.world,sandbox.history,contextTier)};},[sandbox,contextTier]);
  const supported=frame.choices.filter(supportsSandboxChoice);
  const selected=supported.some(c=>c.id===manual)?manual:(supported[0]?.id??"");
  const position=sandbox.world.perception?.position??{};
@@ -65,7 +68,7 @@ export default function SandboxPage(){
    const snapshot=contextOf(first);
    if(snapshot.visitor)throw Error("Visitor messages are not yet supported by the isolated replay");
    setRecord(first);setSandbox(createSandbox(snapshot.world));
-   setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("manual");
+   setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("ai");
   }catch(e){setError(e instanceof Error?e.message:"Could not load archive");}
   event.target.value="";
  }
@@ -73,9 +76,10 @@ export default function SandboxPage(){
   setSandbox(createSandbox(contextOf(record).world));setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");
  }
  async function executeOne(current:SandboxState, chosenMode:"manual"|"ai",choiceId:string,signal:AbortSignal):Promise<{next:SandboxState;trace:unknown;api:UsageRow[];log:StepLog}>{
-   const currentFrame=sandboxFrame(current);
+   const f=sandboxFrame(current);
+   const currentFrame={...f,context:buildExperimentalContext(current.world,current.history,contextTier)};
    const log:StepLog={step:current.step+1,startedAt:new Date().toISOString(),completedAt:"",
-     status:"failed",selectionMode:chosenMode,action:null,context:currentFrame.context,
+     status:"failed",selectionMode:chosenMode,contextTier,action:null,context:currentFrame.context,
      offeredChoices:currentFrame.choices,selectionResponse:null,generationResponse:null,outcome:null,usage:[]};
    let choice:Choice|undefined;
    const trace:{selection?:unknown;generation?:unknown;validated?:unknown}={};
@@ -108,6 +112,8 @@ export default function SandboxPage(){
      const task=choice.task,w=current.world;
      const context={
        self:currentFrame.context.self,present:currentFrame.context.present,
+       goalAwareness:currentFrame.context.goalAwareness,recentExperience:currentFrame.context.recentExperience,
+       adaptiveKnowledge:currentFrame.context.adaptiveKnowledge,
        continuity:{memories:currentFrame.context.continuity.memories,
         projects:currentFrame.context.continuity.projects,
         unfinishedSketch:currentFrame.context.continuity.unfinishedSketch},
@@ -167,7 +173,7 @@ export default function SandboxPage(){
  async function runTwenty(){
    if(activeRef.current||!owner||sandbox.step>=30)return;
    activeRef.current=true;stoppedRef.current=false;setBusy(true);setError("");
-   const target=Math.min(20,30-sandbox.step);
+   const target=Math.min(batchSize,30-sandbox.step);
    setRunProgress({completed:0,target,status:"Running"});
    let current=sandbox;
    let completed=0;
@@ -213,6 +219,26 @@ export default function SandboxPage(){
   return {input:a.input+(usage?.input_tokens??0),output:a.output+(usage?.output_tokens??0)};
  },{input:0,output:0});
  const selectionEstimate=apiHistory.filter(x=>x.kind==="decisions").reduce((sum,x)=>sum+decisionCost(x.usage),0);
+ const outcomes=sandbox.history;
+ const moves=outcomes.filter(h=>h.status==="simulated_success"&&h.action.startsWith("travel:"));
+ const movementReversals=moves.reduce((sum,h,i)=>{
+  const prev=moves[i-1],before=prev?.before as {position?:{x?:number;y?:number}}|undefined,after=h.after as {position?:{x?:number;y?:number}};
+  return sum+Number(Boolean(prev&&before?.position?.x===after?.position?.x&&before?.position?.y===after?.position?.y));
+ },0);
+ const repeatedReflections=outcomes.filter((h,i)=>i>0&&h.action==="reflect"&&outcomes[i-1].action==="reflect").length;
+ const goalChanges=outcomes.filter(h=>h.action==="reflect"&&h.status==="simulated_success");
+ const completedGoals=goalChanges.filter(h=>h.legacyDecision?.intentDisposition==="complete").length;
+ const replacedGoals=goalChanges.filter(h=>h.legacyDecision?.intentDisposition==="replace").length;
+ const abandonedGoals=goalChanges.filter(h=>h.legacyDecision?.intentDisposition==="abandon").length;
+ const unchangedStateSteps=outcomes.filter(h=>{
+  const b=h.before as {goal?:unknown;position?:unknown;inventoryUsed?:unknown};
+  const a=h.after as {goal?:unknown;position?:unknown;inventoryUsed?:unknown};
+  return h.status==="simulated_success"&&JSON.stringify([b.goal,b.position,b.inventoryUsed])===JSON.stringify([a.goal,a.position,a.inventoryUsed]);
+ }).length;
+ const actionFrequency=Object.fromEntries([...new Set(outcomes.map(h=>h.action))].map(a=>[a,outcomes.filter(h=>h.action===a).length]));
+ const diagnostics={movementReversals,repeatedReflections,completedGoals,replacedGoals,abandonedGoals,unchangedStateSteps,
+  uniqueActions:Object.keys(actionFrequency).length,actionFrequency,
+  note:"State-change count compares position, inventory count and goal only; writing and creative actions can change other state. All outcomes simulated."};
  function exportFullRun(){
    const decisionCalls=apiHistory.filter(x=>x.kind==="decisions").length;
    const responseCalls=apiHistory.filter(x=>x.kind==="responses").length;
@@ -227,7 +253,7 @@ export default function SandboxPage(){
      note:"Selection cost is estimated, not billed. Responses costs and legacy comparison are not yet calculated."
    };
    saveJson("nimo-sandbox-run-"+new Date().toISOString().replaceAll(":","-")+".json",{
-     format:"nimo-sandbox-run-v1",exportedAt:new Date().toISOString(),
+     format:"nimo-sandbox-run-v2",exportedAt:new Date().toISOString(),contextTier,batchSize,
      branch:"experiment/decision-context-harness",
      sandboxType:"browser-isolated-emulator-not-D1-worker",
      source:{traceId:record.traceId,capturedAt:record.capturedAt??null},
@@ -235,7 +261,7 @@ export default function SandboxPage(){
      initialWorld:contextOf(record).world,
      steps:stepLogs,apiUsage:apiHistory,
      replayOutcomes:sandbox.history,finalWorld:sandbox.world,
-     finalCompactContext:frame.context
+     finalCompactContext:frame.context,longRunDiagnostics:diagnostics
    });
  }
  return <main className="dh-shell">
@@ -244,12 +270,21 @@ export default function SandboxPage(){
    <h1>Decision sandbox</h1>
    <p>Run a selection, generate missing action parameters if necessary, and replay supported outcomes in an isolated copy of a historical world snapshot.</p>
   </div><span className="dh-pill">Local state only</span></div>
-  <div className="dh-notice"><a href="/decision-harness/context-experiment"><strong>Compare four context strategies on historical snapshots</strong></a> with 1–5 AI decisions per strategy and a downloadable comparison report.</div>\n  <div className="dh-notice"><strong>Not the live Cloudflare D1 executor.</strong> This is an in-browser replay of a limited set of actions using Nimo's shared map and pathfinding rules. It can test handoffs and repeated decisions, but food effects, storage transactions, Oracle calls and other live mechanics are not emulated. No production world writes occur. AI and generation calls require owner sign-in and incur API charges.</div>
+  <div className="dh-notice"><a href="/decision-harness/context-experiment"><strong>Compare five context strategies on historical snapshots</strong></a> with 1–5 AI decisions per strategy and a downloadable comparison report.</div>\n  <div className="dh-notice"><strong>Not the live Cloudflare D1 executor.</strong> This is an in-browser replay of a limited set of actions using Nimo's shared map and pathfinding rules. It can test handoffs and repeated decisions, but food effects, storage transactions, Oracle calls and other live mechanics are not emulated. No production world writes occur. AI and generation calls require owner sign-in and incur API charges.</div>
   <section className="dh-panel dh-controls dh-sandbox-controls">
    <div className="dh-field"><label htmlFor="sandbox-upload">World snapshot</label><input id="sandbox-upload" type="file" accept=".json,application/json" onChange={e=>void upload(e)} disabled={busy}/><small>#{record.traceId} — archived or synthetic</small></div>
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
    </div>
+   <div className="dh-field"><label htmlFor="sandbox-context">Decision context</label>
+    <select id="sandbox-context" value={contextTier} disabled={busy||stepLogs.length>0} onChange={e=>setContextTier(e.target.value as ContextTier)}>
+     <option value="E">E — Adaptive (recommended)</option><option value="B">B — Recent experience</option>
+     <option value="A">A — Baseline</option><option value="C">C — Goal awareness</option><option value="D">D — Full retrieval</option>
+    </select><small>Locked after first step. Reset to change strategy.</small></div>
+   <div className="dh-field"><label htmlFor="sandbox-batch">Endurance test length</label>
+    <select id="sandbox-batch" value={batchSize} disabled={busy} onChange={e=>setBatchSize(Number(e.target.value) as 10|20)}>
+     <option value={10}>10 decisions</option><option value={20}>20 decisions</option>
+    </select><small>Real Decisions + focused generation when needed</small></div>
    <div className="dh-field"><label htmlFor="sandbox-action">Action to replay</label>
     <select id="sandbox-action" value={selected} onChange={e=>setManual(e.target.value)} disabled={busy||mode==="ai"}>
      {supported.map(c=><option key={c.id} value={c.id}>{c.id}</option>)}
@@ -257,7 +292,7 @@ export default function SandboxPage(){
    </div>
    <div className="dh-actions">
     <button type="button" className="dh-run" disabled={busy||sandbox.step>=30} onClick={()=>void step()}>Run one sandbox step</button>
-    <button type="button" className="dh-run dh-ai" disabled={busy||!owner||sandbox.step>=30} onClick={()=>void runTwenty()}>Run 20 AI decisions</button>
+    <button type="button" className="dh-run dh-ai" disabled={busy||!owner||sandbox.step>=30} onClick={()=>void runTwenty()}>Run {batchSize} AI decisions</button>
     <button type="button" className="dh-quiet" onClick={exportFullRun} disabled={!stepLogs.length}>Download full run (JSON)</button>
     {busy?<button type="button" className="dh-quiet" onClick={halt}>Stop run</button>:
       <button type="button" className="dh-quiet" onClick={reset}>Reset</button>}
@@ -278,6 +313,18 @@ export default function SandboxPage(){
     <div><span>Output tokens</span><strong>{tokenTotals.output}</strong></div>
     <div><span>Est. selection cost</span><strong>{describeCost(selectionEstimate)}</strong></div></div>
   </section>
+  <section className="dh-panel dh-summary">
+   <div><div className="dh-eyebrow">Long-run behaviour diagnostics</div><h2>Patterns and continuity</h2>
+    <p>Based on simulated outcomes. Repetition is diagnostic, not automatically a failure.</p></div>
+   <div className="dh-stats">
+    <div><span>Movement reversals</span><strong>{diagnostics.movementReversals}</strong></div>
+    <div><span>Consecutive reflections</span><strong>{diagnostics.repeatedReflections}</strong></div>
+    <div><span>Goals completed</span><strong>{diagnostics.completedGoals}</strong></div>
+    <div><span>Goals replaced</span><strong>{diagnostics.replacedGoals}</strong></div>
+    <div><span>Unique actions</span><strong>{diagnostics.uniqueActions}</strong></div>
+    <div><span>Steps without tracked change</span><strong>{diagnostics.unchangedStateSteps}</strong></div>
+   </div>
+  </section>
   <div className="dh-detail">
    <section className="dh-panel dh-stage-view"><div className="dh-stage-head"><div><div className="dh-eyebrow">Execution trace</div><h3>History</h3><p>Only simulated outcomes; not verified Cloudflare execution.</p></div></div>
     {sandbox.history.length===0?<p>No steps yet.</p>:<ol className="dh-sandbox-history">{sandbox.history.map((h,i)=><li key={i}>
@@ -285,7 +332,7 @@ export default function SandboxPage(){
      {h.route&&<small>Route: {h.route.map(p=>`(${p.x},${p.y})`).join(" → ")}</small>}
     </li>)}</ol>}
    </section>
-   <section className="dh-panel dh-stage-view"><div className="dh-stage-head"><div><div className="dh-eyebrow">Latest step</div><h3>Selection → generation → replay</h3></div></div>
+   <section className="dh-panel dh-stage-view"><div className="dh-stage-head"><div><div className="dh-eyebrow">Latest step</div><h3>Selection → generation → replay · {contextTier}</h3></div></div>
     <div className="dh-code-block"><div className="dh-code-head"><strong>Full trace</strong><button onClick={()=>navigator.clipboard.writeText(json(last))}>Copy</button></div><pre>{json(last??"No step selected")}</pre></div>
     <div className="dh-code-block"><div className="dh-code-head"><strong>Current compact context</strong><button onClick={()=>navigator.clipboard.writeText(json(frame.context))}>Copy</button></div><pre>{json(frame.context)}</pre></div>
    </section>
