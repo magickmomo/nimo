@@ -168,9 +168,56 @@ export default function ContextExperimentPage(){
    const fixture=createSandbox(world);
    const updated=stepSandbox(fixture,"reflect",{monologue:"The walk is complete.",activity:"resting",goal:null,intentDisposition:"complete"});
    const context=buildExperimentalContext(updated.world,updated.history,"E");
-   const passed=context.self?.currentIntention===null&&context.goalAwareness?.disposition?.disposition==="complete";
+   const passed=context.self?.currentIntention===null&&context.goalAwareness?.latestTransition?.disposition==="complete";
    checks.push({name:"Next decision receives completion",passed,detail:"Adaptive context reads recorded completion and no active intention."});
   }catch(e){checks.push({name:"Next decision receives completion",passed:false,detail:String(e)});}
+  try{
+   const fixture=createSandbox(world);
+   const completed=stepSandbox(fixture,"reflect",{
+    monologue:"The active intention has been fulfilled.",activity:"resting",
+    goal:null,intentDisposition:"complete",projectId:null,projectDisposition:"none"
+   });
+   const replay=stepSandbox(completed,"reflect",{
+    monologue:"A quiet moment without a new intention.",activity:"pausing",
+    goal:null,intentDisposition:"complete",projectId:null,projectDisposition:"none"
+   });
+   const outcome=replay.history.at(-1);
+   const settled=(replay.world.experience?.settledIntentions??[]) as LooseRecord[];
+   checks.push({name:"No repeated completion of a null goal",
+    passed:outcome?.status==="simulated_success"&&outcome.legacyDecision?.intentDisposition==="keep"&&
+      settled.length===1,
+    detail:"Second completion must normalise to keep and create no extra settled event."});
+   const adaptive=buildExperimentalContext(replay.world,replay.history,"E");
+   checks.push({name:"No stale completion shown as active context",
+    passed:adaptive.self.currentIntention===null&&adaptive.goalAwareness?.status==="no_active_intention"&&
+      !adaptive.goalAwareness?.latestTransition&&adaptive.continuity?.lastReflection===null,
+    detail:"After an extra decision, goal stays empty and archived completion is no longer front-and-centre."});
+  }catch(e){checks.push({name:"Repeated completion and context",passed:false,detail:String(e)});}
+  try{
+   const fixture=createSandbox(world);
+   const original=fixture.world.state.currentGoal;
+   const project={id:99999,title:"Test flower comparison",objective:"Count nearby blooms",next_step:"Compare all three patches",status:"active"};
+   fixture.world.projects=[project,...(fixture.world.projects??[])];
+   const completed=stepSandbox(fixture,"reflect",{
+    monologue:"Compared all three patches and verified the counts.",activity:"reviewing",
+    goal:null,intentDisposition:"complete",projectId:99999,projectDisposition:"complete"
+   });
+   const closed=(completed.world.projects as LooseRecord[]).find(p=>p.id===99999);
+   checks.push({name:"Explicit project closure",
+    passed:Boolean(original)&&completed.history.at(-1)?.status==="simulated_success"&&closed?.status==="completed",
+    detail:"An explicitly identified active project becomes completed with recorded evidence."});
+   const untouched=createSandbox(world);
+   untouched.world.projects=[{...project},...(untouched.world.projects??[])];
+   untouched.world.state.currentGoal=null;
+   const invalid=stepSandbox(untouched,"reflect",{
+    monologue:"It's already done.",activity:"reviewing",
+    goal:null,intentDisposition:"complete",projectId:99999,projectDisposition:"complete"
+   });
+   checks.push({name:"No project closure without active intention",
+    passed:invalid.history.at(-1)?.status==="simulated_failure"&&
+     (invalid.world.projects as LooseRecord[]).find(p=>p.id===99999)?.status==="active",
+    detail:"A completion request with no active intention cannot close a project."});
+  }catch(e){checks.push({name:"Project closure protections",passed:false,detail:String(e)});}
   setGoalCheck({pass:checks.every(x=>x.passed),results:checks});
  }
  function stop(){stopping.current=true;controller.current?.abort();setProgress("Stopping…");}
