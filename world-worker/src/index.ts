@@ -27,7 +27,7 @@ import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
 import {goalReviewContext,type GoalReview} from "./goal-review";
-import {saveDecisionInputAudit,decisionAuditExport,type DecisionInputAudit} from "./decision-input-audit";
+import {saveDecisionInputAudit,decisionAuditExport,latestDecisionAudit,type DecisionInputAudit} from "./decision-input-audit";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
@@ -1204,6 +1204,19 @@ export default {
       }
       // Separate owner-only R2 export: no D1 scans or new writes. Collect all
       // cursor pages offline to reconstruct individual decision contexts.
+      if (path === "/decision-context/latest" && request.method === "GET") {
+        // Owner proxy only. This endpoint reads private archived production input
+        // from R2, never computes a new tick, runs an AI call or mutates D1.
+        if(!env.ARCHIVES)return json({error:"R2 archive binding unavailable"},503);
+        try{
+          const record=await latestDecisionAudit(env.ARCHIVES);
+          if(!record)return json({error:"No captured decision input in the last three UTC days"},404);
+          return json({format:"nimo-live-decision-capture-v1",source:"private_r2_exact_decision_input",
+            fetchedAt:new Date().toISOString(),record});
+        }catch(error){
+          return json({error:error instanceof Error?error.message:"Latest decision input unavailable"},503);
+        }
+      }
       if (path === "/decision-context/export" && request.method === "GET") {
         if(!env.ARCHIVES)return json({error:"R2 archive binding unavailable"},503);
         const params=new URL(request.url).searchParams;
