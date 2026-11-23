@@ -41,9 +41,10 @@ export default function ContextExperimentPage(){
  const [progress,setProgress]=useState("");
  const [error,setError]=useState("");
  const [groups,setGroups]=useState<TrialGroup[]>([]);
- const [selectedTier,setSelectedTier]=useState<ContextTier>("D");
+ const [selectedTier,setSelectedTier]=useState<ContextTier>("E");
  const [detail,setDetail]=useState(0);
  const [runMode,setRunMode]=useState<"ai"|"offline">("ai");
+ const [goalCheck,setGoalCheck]=useState<{pass:boolean;results:{name:string;passed:boolean;detail:string}[]}|null>(null);
  const stopping=useRef(false),controller=useRef<AbortController|null>(null),active=useRef(false);
  useEffect(()=>{void fetch("/api/world/session",{cache:"no-store"}).then(r=>r.json()).then(d=>setOwner(Boolean(d.authenticated))).catch(()=>{});return ()=>{stopping.current=true;controller.current?.abort();};},[]);
  const record=records.find(r=>r.traceId===traceId)??records[0];
@@ -145,11 +146,38 @@ export default function ContextExperimentPage(){
   }catch(x){setError(x instanceof Error?x.message:"Experiment failed");}
   finally{controller.current=null;active.current=false;setBusy(false);}
  }
+ function runGoalCheck(){
+  // Deterministic read-only test: no API calls, no D1 writes.
+  const checks:{name:string;passed:boolean;detail:string}[]=[];
+  const test=(name:string,disposition:string,goal:string|null,expected:string|null)=>{
+   try{
+    const fixture=createSandbox(world);
+    const next=stepSandbox(fixture,"reflect",{monologue:"Reconsidering the current intention.",activity:"reflecting",goal,intentDisposition:disposition});
+    const actual=next.world.state.currentGoal??null;
+    const recorded=next.world.state.lastIntentOutcome;
+    checks.push({name,passed:next.history.at(-1)?.status==="simulated_success"&&actual===expected&&recorded?.disposition===disposition,
+     detail:"New goal: "+JSON.stringify(actual)+", disposition: "+String(recorded?.disposition)});
+   }catch(e){checks.push({name,passed:false,detail:e instanceof Error?e.message:String(e)});}
+  };
+  const original=world.state.currentGoal??null;
+  test("Keep intention","keep",original,original);
+  test("Complete intention","complete",null,null);
+  test("Abandon intention","abandon",null,null);
+  test("Replace intention","replace","Explore the open garden nook.","Explore the open garden nook.");
+  try{
+   const fixture=createSandbox(world);
+   const updated=stepSandbox(fixture,"reflect",{monologue:"The walk is complete.",activity:"resting",goal:null,intentDisposition:"complete"});
+   const context=buildExperimentalContext(updated.world,updated.history,"E");
+   const passed=context.self?.currentIntention===null&&context.goalAwareness?.disposition?.disposition==="complete";
+   checks.push({name:"Next decision receives completion",passed,detail:"Adaptive context reads recorded completion and no active intention."});
+  }catch(e){checks.push({name:"Next decision receives completion",passed:false,detail:String(e)});}
+  setGoalCheck({pass:checks.every(x=>x.passed),results:checks});
+ }
  function stop(){stopping.current=true;controller.current?.abort();setProgress("Stopping…");}
  return <main className="dh-shell">
   <div className="dh-heading"><div><div className="dh-eyebrow">Nimo / decision harness</div>
    <h1>Context experiment</h1>
-   <p>Compare four context strategies using the same historical snapshot. Each strategy replays its own isolated sequence.</p>
+   <p>Compare five context strategies, including a lean adaptive candidate, using the same historical snapshot. Each strategy replays its own isolated sequence.</p>
   </div><span className="dh-pill">Test branch only</span></div>
   <div className="dh-notice"><strong>Controlled comparison, not production execution.</strong> Runs are isolated browser replays with real Decisions API calls when AI is selected. Every variant begins from the same archived snapshot. Unsupported tools stop that variant; this does not exercise the Cloudflare D1 executor. Choosing different paths means the later states are not identical across variants. API charges apply.</div>
   <section className="dh-panel dh-controls dh-sandbox-controls">
@@ -165,32 +193,36 @@ export default function ContextExperimentPage(){
     </select>
     <label htmlFor="cx-steps">Decisions per strategy</label>
     <select id="cx-steps" disabled={busy} value={steps} onChange={e=>setSteps(Number(e.target.value))}>
-     <option value={1}>1 (4 total)</option><option value={3}>3 (12 total)</option><option value={5}>5 (20 total)</option>
+     <option value={1}>1 (5 total)</option><option value={3}>3 (15 total)</option><option value={5}>5 (25 total)</option>
     </select>
    </div>
    <div className="dh-actions">
-    <button className="dh-run dh-ai" type="button" disabled={busy||runMode==="ai"&&!owner} onClick={()=>void run()}>Compare four strategies</button>
+    <button className="dh-run dh-ai" type="button" disabled={busy||runMode==="ai"&&!owner} onClick={()=>void run()}>Compare five strategies</button>
+    <button type="button" className="dh-quiet" disabled={busy} onClick={runGoalCheck}>Check goal transitions (offline)</button>
     {busy?<button type="button" className="dh-quiet" onClick={stop}>Stop</button>:null}
     <button type="button" className="dh-quiet" disabled={!groups.length} onClick={()=>exportJson({
-     format:"nimo-context-experiment-v1",exportedAt:new Date().toISOString(),
+     format:"nimo-context-experiment-v2",exportedAt:new Date().toISOString(),goalTransitionChecks:goalCheck,
      source:{traceId:record.traceId,capturedAt:record.capturedAt??null},mode:runMode,
      stepsPerStrategy:steps,summary:totals,
-     warning:"Costs are estimates for Decisions selections only; no verified legacy or Responses pricing.",
+     warning:"Costs are estimated for Decisions selections only; Responses token usage is included but pricing is not computed. No production world writes.",
      variants:groups})}>Download comparison (JSON)</button>
     {!owner&&<small>Sign in at <a href="/world/settings">World settings</a> to make AI calls.</small>}
-    <small>Run 1 decision per tier first, then 3–5 to examine continuity. Max 20 paid Decisions calls plus any Responses handoffs.</small>
+    <small>Run deterministic goal checks first, then 3–5 AI decisions per tier (up to 25 paid selections). Every tier starts from the same snapshot.</small>
    </div>
   </section>
   {progress&&<section className="dh-panel dh-batch-progress" role="status">{progress}</section>}
   {error&&<div className="dh-error" role="alert">{error}</div>}
+  {goalCheck&&<section className="dh-panel dh-stage-view" role="status"><h3>Offline goal transition checks: {goalCheck.pass?"All passed":"Failures detected"}</h3>
+    <ol>{goalCheck.results.map(c=><li key={c.name}><strong>{c.passed?"PASS":"FAIL"} · {c.name}</strong> — {c.detail}</li>)}</ol>
+  </section>}
   <section className="dh-panel dh-stage-view">
-   <div className="dh-stage-head"><div><h3>Four context strategies</h3><p>Each tier adds only the context described here.</p></div></div>
+   <div className="dh-stage-head"><div><h3>Five context strategies</h3><p>Each tier adds only the context described here.</p></div></div>
    <div className="dh-variant-grid">{CONTEXT_TIERS.map(t=><button key={t.id} type="button" onClick={()=>{setSelectedTier(t.id);setDetail(0);}} className={"dh-variant-card "+(selectedTier===t.id?"active":"")}>
     <strong>{t.id} · {t.name}</strong><small>{t.description}</small>
    </button>)}</div>
    <div className="dh-code-block"><div className="dh-code-head"><strong>Starting context: {selectedTier}</strong><button type="button" onClick={()=>navigator.clipboard.writeText(stringify(sampleContext))}>Copy</button></div><pre>{stringify(sampleContext)}</pre></div>
   </section>
-  {groups.length>0&&<section className="dh-panel dh-stage-view"><div className="dh-stage-head"><div><h3>Comparison results</h3><p>Loop counts are a diagnostic, not an instruction to maximise activity. Estimated charges cover selection only.</p></div></div>
+  {groups.length>0&&<section className="dh-panel dh-stage-view"><div className="dh-stage-head"><div><h3>Comparison results</h3><p>Loop counts are diagnostics, not instructions to maximise activity. Estimated charges cover selection only; input/output tokens include generation.</p></div></div>
    <div className="dh-comparison-scroll"><table className="dh-comparison-table"><thead><tr><th>Strategy</th><th>Completed</th><th>Unique actions</th><th>Movement reversals</th><th>Input tokens</th><th>Output tokens</th><th>Estimated selection cost</th></tr></thead><tbody>
     {totals.map(t=><tr key={t.tier}><td>{t.tier}</td><td>{t.success}/{t.attempted}</td><td>{t.unique}</td><td>{t.reversals}</td><td>{t.input.toLocaleString()}</td><td>{t.output.toLocaleString()}</td><td>{"$"+t.selectionCost.toFixed(6)}</td></tr>)}
    </tbody></table></div>
