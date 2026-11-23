@@ -39,7 +39,7 @@ export async function GET(req:NextRequest){
    for(let page=0;page<24;page++){
     const params=new URLSearchParams({date});
     if(cursor)params.set("cursor",cursor);
-    const upstream=await fetch(url.replace(/\\/$/,"")+"/decision-context/export?"+params,{
+    const upstream=await fetch(url.replace(/[/]$/,"")+"/decision-context/export?"+params,{
      headers:{Authorization:"Bearer "+secret},
      cache:"no-store",signal:AbortSignal.timeout(20000)
     });
