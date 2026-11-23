@@ -27,7 +27,7 @@ function samePoint(a:unknown,b:unknown){
  return x?.x===y?.x&&x?.y===y?.y&&Number.isInteger(x?.x);
 }
 export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],tier:ContextTier):LooseRecord{
- const context=compactContext(w,null);
+ const context:LooseRecord=compactContext(w,null);
  if(tier==="A")return context;
  const archived=arr(w.experience?.recentEvents).slice(0,6).map(e=>({
   action:e.action??e.kind,summary:text(e.content,170),when:e.when??null,
