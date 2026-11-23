@@ -7,7 +7,8 @@ type Shape=Record<string,unknown>;
 const obj=(properties:Shape)=>({type:"object",properties,required:Object.keys(properties),additionalProperties:false});
 const str={type:"string"};
 const int={type:"integer"};
-const point=obj({x:int,y:int});
+// Strict Structured Outputs accepts the array shape; point-count/range constraints
+// are enforced by validateGenerated() below (and repeated in the task instruction).
 const stroke=obj({points:{type:"array",items:{type:"array",items:int}},color:str,width:int});
 function schemaFor(task:string,choiceId:string):Shape|null{
  if(task==="start_sketch")return obj({title:str,intention:str});
@@ -23,6 +24,29 @@ function schemaFor(task:string,choiceId:string):Shape|null{
  if(task==="reply")return obj({monologue:str,activity:str,replyIntent:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","abandon"]}});
  return null;
 }
+function drawingIssues(p:Shape):string[]{
+ const issues:string[]=[];
+ if(!Array.isArray(p.strokes)||p.strokes.length<1||p.strokes.length>8)
+  return ["strokes: expected 1-8 strokes"];
+ for(const [i,s] of p.strokes.entries()){
+  if(!s||typeof s!=="object"||Array.isArray(s)){issues.push("strokes["+i+"]: expected object");continue;}
+  const v=s as Shape;
+  if(typeof v.color!=="string"||!/^#[a-f0-9]{6}$/i.test(v.color))
+   issues.push("strokes["+i+"].color: expected #RRGGBB");
+  if(!Number.isInteger(v.width)||(v.width as number)<1||(v.width as number)>8)
+   issues.push("strokes["+i+"].width: expected integer 1-8");
+  if(!Array.isArray(v.points)||v.points.length<2||v.points.length>24){
+   issues.push("strokes["+i+"].points: expected 2-24 points");continue;
+  }
+  for(const [j,pt] of v.points.entries()){
+   if(!Array.isArray(pt)||pt.length!==2||!pt.every((n,k)=>Number.isInteger(n)&&n>=0&&n<=(k===0?240:180))){
+    issues.push("strokes["+i+"].points["+j+"]: expected [x,y] integers within x=0..240,y=0..180");
+    if(issues.length>=12)return issues;
+   }
+  }
+ }
+ return issues;
+}
 function validGenerated(task:string,p:Shape):boolean{
  const nonempty=(key:string,max:number)=>typeof p[key]==="string"&&(p[key] as string).trim().length>0&&(p[key] as string).length<=max;
  if(task==="start_sketch")return nonempty("title",100)&&nonempty("intention",300);
@@ -32,11 +56,7 @@ function validGenerated(task:string,p:Shape):boolean{
  if(task==="remember_object")return nonempty("objectId",80)&&typeof p.label==="string"&&p.label.length<=80&&typeof p.note==="string"&&p.note.length<=500&&Boolean(p.label||p.note);
  if(task==="expand_world")return ["add","modify"].includes(String(p.changeType))&&nonempty("title",100)&&nonempty("target",120)&&nonempty("description",700)&&nonempty("reason",400);
  if(task==="ask_oracle")return nonempty("question",500);
- if(task==="draw_strokes")return Array.isArray(p.strokes)&&p.strokes.length>=1&&p.strokes.length<=8&&p.strokes.every((s:unknown)=>{
-  if(!s||typeof s!=="object"||Array.isArray(s))return false;
-  const v=s as Shape;
-  return Array.isArray(v.points)&&v.points.length>=2&&v.points.length<=24&&v.points.every((pt:unknown)=>Array.isArray(pt)&&pt.length===2&&pt.every((n:unknown,i:number)=>Number.isInteger(n)&&(n as number)>=0&&(n as number)<=(i===0?240:180)))&&typeof v.color==="string"&&/^#[a-fA-F0-9]{6}$/.test(v.color)&&Number.isInteger(v.width)&&(v.width as number)>=1&&(v.width as number)<=8;
- });
+ if(task==="draw_strokes")return drawingIssues(p).length===0;
  if(task==="reflect"||task==="request"){
   const shared=nonempty("monologue",1800)&&typeof p.activity==="string"&&p.activity.length<=120&&
     (p.goal===null||typeof p.goal==="string"&&p.goal.length<=250);
@@ -65,31 +85,85 @@ export async function POST(req:NextRequest){
  const apiKey=process.env.LAB_OPENAI_API_KEY||process.env.OPENAI_API_KEY;
  if(!apiKey)return failure("OpenAI API key unavailable",503);
  const model=process.env.LAB_OPENAI_MODEL||"gpt-6-luna";
- const payload={
-  model,
-  input:[
-   {role:"developer",content:"You are Nimo completing one selected task in a persistent simulated world. Generate only the fields requested by the schema, grounded in the task context. Respect current possessions and constraints. For reflection, choose whether to keep, complete, abandon or replace the current intention; evidence of reaching a destination is not itself a mandate to complete it. To complete or abandon, use goal:null; to replace, supply a new goal. Avoid invented successful outcomes. Return concise original content."},
-   {role:"user",content:JSON.stringify({selectedAction:choiceId,task,taskContext:body.context})}
-  ],
-  text:{format:{type:"json_schema",name:"nimo_sandbox_task",strict:true,schema}},
-  max_output_tokens:1000,
-  store:false
- };
+ const instruction=[
+  "You are Nimo completing one selected task in a persistent simulated world.",
+  "Generate only the fields requested by the schema, grounded in task context.",
+  "Respect current possessions and constraints. Avoid invented successful outcomes.",
+  "For reflection, choose keep, complete, abandon or replace. To complete or abandon, use goal:null; to replace, supply a new goal.",
+  task==="draw_strokes"?
+   "DRAWING RULES: Produce 1-3 strokes. Each stroke must have 2-12 points in [x,y] tuple format. x and y MUST be integers, x between 0 and 240 inclusive, y between 0 and 180 inclusive. Use hex colors exactly #RRGGBB and integer widths 1-8. No decimals. Avoid redundant points and keep the image modest.":"Return concise original content."
+ ].join(" ");
  const started=performance.now();
- try{
-  const res=await fetch("https://api.openai.com/v1/responses",{method:"POST",
-   headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
-   body:JSON.stringify(payload),cache:"no-store",signal:AbortSignal.timeout(35000)});
-  const data=await res.json() as Shape;
-  if(!res.ok){const err=data.error as {message?:string}|undefined;return failure(err?.message?.slice(0,240)||"Generation request failed",502);}
+ const attempts:Shape[]=[];
+ const usageTotals={input_tokens:0,output_tokens:0,cached_tokens:0,cache_write_tokens:0};
+ const mergeUsage=(usage:Shape|null)=>{
+  if(!usage)return;
+  usageTotals.input_tokens+=Number(usage.input_tokens??0);
+  usageTotals.output_tokens+=Number(usage.output_tokens??0);
+  const details=(usage.input_tokens_details??{}) as Shape;
+  usageTotals.cached_tokens+=Number(details.cached_tokens??0);
+  usageTotals.cache_write_tokens+=Number(details.cache_write_tokens??0);
+ };
+ let feedback:string[]=[];
+ const maxAttempts=task==="draw_strokes"?2:1;
+ for(let n=1;n<=maxAttempts;n++){
+  const payload={
+   model,
+   input:[
+    {role:"developer",content:instruction+(feedback.length?" Previous candidate was invalid: "+feedback.join("; ")+". Correct these fields.":"")},
+    {role:"user",content:JSON.stringify({selectedAction:choiceId,task,taskContext:body.context})}
+   ],
+   text:{format:{type:"json_schema",name:"nimo_sandbox_task",strict:true,schema}},
+   max_output_tokens:task==="draw_strokes"?1500:1000,
+   store:false
+  };
+  let data:Shape;
+  try{
+   const res=await fetch("https://api.openai.com/v1/responses",{
+    method:"POST",headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
+    body:JSON.stringify(payload),cache:"no-store",signal:AbortSignal.timeout(35000)
+   });
+   data=await res.json() as Shape;
+   mergeUsage((data.usage??null) as Shape|null);
+   if(!res.ok){
+    const err=data.error as {message?:string}|undefined;
+    const message=err?.message?.slice(0,240)||"Generation request failed";
+    return NextResponse.json({error:message,task,choiceId,attempts,usage:{
+      input_tokens:usageTotals.input_tokens,output_tokens:usageTotals.output_tokens,
+      input_tokens_details:{cached_tokens:usageTotals.cached_tokens,cache_write_tokens:usageTotals.cache_write_tokens}
+     },worldWrites:0},{status:502,headers:{"Cache-Control":"private, no-store"}});
+   }
+  }catch{
+   return NextResponse.json({error:"Generation API failed or timed out",task,choiceId,attempts,usage:{
+     input_tokens:usageTotals.input_tokens,output_tokens:usageTotals.output_tokens,
+     input_tokens_details:{cached_tokens:usageTotals.cached_tokens,cache_write_tokens:usageTotals.cache_write_tokens}
+    },worldWrites:0},{status:502,headers:{"Cache-Control":"private, no-store"}});
+  }
   const outputs=Array.isArray(data.output)?data.output:[];
   const responseText=outputs.flatMap((o:unknown)=>o&&typeof o==="object"&&Array.isArray((o as Shape).content)?(o as {content:Shape[]}).content:[])
    .filter((v:Shape)=>v.type==="output_text"&&typeof v.text==="string").map((v:Shape)=>v.text as string).join("");
-  let generated:Shape;
-  try{generated=JSON.parse(responseText) as Shape;}catch{return failure("Responses API returned no valid JSON output",502);}
-  if(!generated||typeof generated!=="object"||Array.isArray(generated)||!validGenerated(task,generated))return failure("Generated parameters did not pass task validation",422);
-  return NextResponse.json({task,choiceId,generated,usage:data.usage??null,model,latencyMs:Math.round(performance.now()-started),worldWrites:0},{
-   headers:{"Cache-Control":"private, no-store"}
-  });
- }catch{return failure("Generation API failed or timed out",502);}
+  let generated:Shape|null=null;
+  try{generated=JSON.parse(responseText) as Shape;}catch{feedback=["response: invalid or missing JSON output"];}
+  if(generated&&typeof generated==="object"&&!Array.isArray(generated)){
+   feedback=task==="draw_strokes"?drawingIssues(generated):[];
+   if(!validGenerated(task,generated)&&!feedback.length)feedback=["response: task field validation failed"];
+  }else if(!feedback.length)feedback=["response: object required"];
+  const valid=Boolean(generated&&typeof generated==="object"&&!Array.isArray(generated)&&validGenerated(task,generated));
+  attempts.push({attempt:n,valid,issues:valid?[]:[...feedback],inputTokens:Number((data.usage as Shape|undefined)?.input_tokens??0),
+    outputTokens:Number((data.usage as Shape|undefined)?.output_tokens??0)});
+  if(valid){
+   return NextResponse.json({task,choiceId,generated,attempts,retryCount:n-1,
+    usage:{input_tokens:usageTotals.input_tokens,output_tokens:usageTotals.output_tokens,
+     input_tokens_details:{cached_tokens:usageTotals.cached_tokens,cache_write_tokens:usageTotals.cache_write_tokens}},
+    model,latencyMs:Math.round(performance.now()-started),worldWrites:0},{
+     headers:{"Cache-Control":"private, no-store"}
+   });
+  }
+ }
+ return NextResponse.json({error:"Generated parameters failed validation after "+maxAttempts+" attempt(s)",
+  task,choiceId,attempts,usage:{input_tokens:usageTotals.input_tokens,output_tokens:usageTotals.output_tokens,
+   input_tokens_details:{cached_tokens:usageTotals.cached_tokens,cache_write_tokens:usageTotals.cache_write_tokens}},
+  worldWrites:0,latencyMs:Math.round(performance.now()-started)},
+  {status:422,headers:{"Cache-Control":"private, no-store"}});
+}
 }
