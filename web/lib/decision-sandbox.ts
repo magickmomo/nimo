@@ -27,7 +27,7 @@ export function sandboxFrame(state:SandboxState){
 }
 export function supportsSandboxChoice(choice:Choice):boolean{
  return ["idle","observe","reflect","request_capability"].includes(choice.id)||
-  !!choice.toolCall&&["travel_to","eat_fruit","discard_fruit","discard_wildflower","rest"].includes(str(choice.toolCall.name))||
+  !!choice.toolCall&&["travel_to","eat_fruit","discard_fruit","discard_wildflower","rest","finish_sketch"].includes(str(choice.toolCall.name))||
   !!choice.task&&["start_sketch","draw_strokes","finish_sketch","write_document","create_project","update_project","remember_object","expand_world"].includes(choice.task);
 }
 function safeLegacy(choice:Choice,call:LooseRecord|null,generated:LooseRecord|null,goal:string|null,activity:string):LooseRecord{
@@ -132,6 +132,26 @@ export function stepSandbox(state:SandboxState,choiceId:string,generated:LooseRe
    }
    active.strokes=[...list(active.strokes),...clone(strokes)];
    summary="Added "+strokes.length+" strokes to isolated sketch.";
+  }else if(actionName==="finish_sketch"){
+   const active=world.sketchbook?.active;
+   if(!active||active.id!==call?.sketchId)throw Error("No matching active sketch");
+   const newStatus=str(call?.status);
+   if(!["finished","abandoned"].includes(newStatus))throw Error("Invalid sketch final status");
+   if(newStatus==="finished"&&!list(active.strokes).length)throw Error("Cannot finish an empty sketch");
+   world.sketchbook.recent=Array.isArray(world.sketchbook.recent)?world.sketchbook.recent:[];
+   world.sketchbook.recent.unshift({
+    id:active.id,title:active.title,intention:active.intention,
+    status:newStatus,strokeCount:list(active.strokes).length,
+    visualFeedback:null,source:"sandbox_replay"
+   });
+   world.sketchbook.recent=world.sketchbook.recent.slice(0,24);
+   world.sketchbook.active=null;
+   world.availableActions=list(world.availableActions)
+    .filter(o=>!["draw_strokes","finish_sketch"].includes(str(o.name)));
+   if(!list(world.availableActions).some(o=>o.name==="start_sketch")&&world.sketchbook.owned)
+    world.availableActions.push({name:"start_sketch"});
+   summary=(newStatus==="finished"?"Finished":"Abandoned")+" isolated sketch "+
+    str(active.title)+" with "+list(active.strokes).length+" strokes.";
   }else if(actionName==="write_document"){
    if(!/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(str(call?.path))||str(call?.content).length>2000)throw Error("Invalid document");
    const files=list(world.workspace),idx=files.findIndex(f=>f.path===call?.path);
