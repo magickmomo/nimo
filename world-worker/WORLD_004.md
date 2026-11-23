@@ -7,7 +7,7 @@
 - Replaces only `decide()` with Strategy E, using a compact dynamic real-world context for an OpenAI Decisions choice followed by a Responses structured-generation handoff.
 - Validates the generated action with the existing `validateDecision` and requires exact agreement with the first-stage selection before any tool can execute.
 - Retains normal owner pause control, sleeping schedule, D1 trace logging and R2 decision audit.
-- Adds `WORLD_004_ENABLED` (default false), absolute `WORLD_004_STOP_AT`, and `WORLD_004_MAX_DAILY_DECISIONS` (default 120, hard maximum 1000).
+- Adds `WORLD_004_ENABLED` (default false), absolute `WORLD_004_START_AT` and `WORLD_004_STOP_AT`, and `WORLD_004_MAX_DAILY_DECISIONS` (default 120, hard maximum 1000).
 
 ## Isolation: mandatory before deploy
 - Allocate a completely separate Cloudflare D1 named `nimo-world-004`.
@@ -18,7 +18,7 @@
 - Set Cloudflare Worker secrets via environment tooling, never commit them: `OPENAI_API_KEY`, `WORLD_INTERNAL_SECRET` and any additional external-action secrets needed for the cloned engine. Do not share World 003 internal secret.
 - Deploy explicitly with `wrangler deploy -c wrangler.world-004.toml` only after passing the safety checker and Worker tests.
 - Verify separate database bindings and read-only snapshot first, with `WORLD_004_ENABLED=false`. Do not give public URLs to an instance without authenticated controls.
-- Set absolute UTC `WORLD_004_STOP_AT` to 24h after activation and verify the daily call cap before enabling autonomy; do not enable until QA. Add a minute cron trigger to the **World 004 config only** after approval, or invoke its isolated /tick endpoint from a separate scheduler. Leave World 003 schedules untouched.
+- Set absolute UTC `WORLD_004_START_AT` at activation and `WORLD_004_STOP_AT` no more than 24 hours later; verify the daily call cap before enabling autonomy (only post-start decisions count, not copied historical rows); do not enable until QA. Add a minute cron trigger to the **World 004 config only** after approval, or invoke its isolated /tick endpoint from a separate scheduler. Leave World 003 schedules untouched.
 - Use a distinct website/environment configuration for World 004, pointing only to its own Worker; do not reuse the production web's `WORLD_WORKER_URL`.
 
 ## Observation and limitations
