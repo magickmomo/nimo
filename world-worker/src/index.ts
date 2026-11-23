@@ -12,6 +12,7 @@ import { recordExperience, recentExperiences, type VerifiedOutcome } from "./exp
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
 import {decideWorld004} from "./world-004-decision";
+import {world004Guard} from "./world-004-guards";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
@@ -459,19 +460,8 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
 }
 async function tick(env: Env) {
   const now = new Date();
-  if(env.WORLD_004_MODE==="strategy-e"){
-    // Fail closed: a clone must never autonomously tick before its own storage,
-    // secrets, budget and stop time have been explicitly configured.
-    if(env.WORLD_004_ENABLED!=="true")return {status:"world_004_disabled"};
-    const stopAt=Date.parse(env.WORLD_004_STOP_AT??"");
-    if(!Number.isFinite(stopAt)||now.getTime()>=stopAt)return {status:"world_004_expired"};
-    const dailyCap=Number(env.WORLD_004_MAX_DAILY_DECISIONS??120);
-    if(!Number.isSafeInteger(dailyCap)||dailyCap<1||dailyCap>1000)
-      return {status:"world_004_invalid_daily_cap"};
-    const used=await env.DB.prepare("SELECT COUNT(*) AS n FROM decisions WHERE day=?")
-      .bind(day(now)).first<{n:number}>();
-    if((used?.n??0)>=dailyCap)return {status:"world_004_daily_cap"};
-  }
+  const world004Status=await world004Guard(env,now);
+  if(world004Status)return {status:world004Status};
   // Sleep stops decisions *before* any model call or usage quota reservation.
   if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
   // Recover buffered messages before Nimo makes a new decision.
