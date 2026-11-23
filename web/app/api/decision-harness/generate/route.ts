@@ -166,4 +166,3 @@ export async function POST(req:NextRequest){
   worldWrites:0,latencyMs:Math.round(performance.now()-started)},
   {status:422,headers:{"Cache-Control":"private, no-store"}});
 }
-}
