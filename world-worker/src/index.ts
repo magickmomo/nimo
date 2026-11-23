@@ -11,6 +11,7 @@ import { nextVisitorIntent } from "./visitor-intent";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
+import {decideWorld004} from "./world-004-decision";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
@@ -41,6 +42,10 @@ type Env = {
   ARTWORK_VISION_MODEL?: string;
   MEMORY_MODEL?: string;
   MEMORY_CONSOLIDATION_ENABLED?: string;
+  WORLD_004_MODE?: string;
+  WORLD_004_ENABLED?: string;
+  WORLD_004_STOP_AT?: string;
+  WORLD_004_MAX_DAILY_DECISIONS?: string;
   WORLD_INTERNAL_SECRET: string;
 };
 type EventRow = ExperienceEvent;
@@ -386,6 +391,13 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
         text: { format: { ...format.json_schema, type: "json_schema" } },
       }
     : { model, temperature: 0.7, max_tokens: 1100, response_format: format, messages };
+  if(env.WORLD_004_MODE==="strategy-e"){
+    // Reuse the live Worker's real perception, eligible menu, schemas and executor.
+    // Only the selection/generation layer is replaced; no simulator is involved.
+    return decideWorld004({apiKey:env.OPENAI_API_KEY,model,originalMessages:messages,
+      responseFormat:format as unknown as Record<string,unknown>,hasVisitor:pendingMessage!==null,
+      onUsage,onRequest});
+  }
   // Capture the exact payload sent, including historical memory text, action
   // schemas and preceding experience. Never capture the authorization header.
   onRequest(payload);
@@ -447,6 +459,19 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
 }
 async function tick(env: Env) {
   const now = new Date();
+  if(env.WORLD_004_MODE==="strategy-e"){
+    // Fail closed: a clone must never autonomously tick before its own storage,
+    // secrets, budget and stop time have been explicitly configured.
+    if(env.WORLD_004_ENABLED!=="true")return {status:"world_004_disabled"};
+    const stopAt=Date.parse(env.WORLD_004_STOP_AT??"");
+    if(!Number.isFinite(stopAt)||now.getTime()>=stopAt)return {status:"world_004_expired"};
+    const dailyCap=Number(env.WORLD_004_MAX_DAILY_DECISIONS??120);
+    if(!Number.isSafeInteger(dailyCap)||dailyCap<1||dailyCap>1000)
+      return {status:"world_004_invalid_daily_cap"};
+    const used=await env.DB.prepare("SELECT COUNT(*) AS n FROM decisions WHERE day=?")
+      .bind(day(now)).first<{n:number}>();
+    if((used?.n??0)>=dailyCap)return {status:"world_004_daily_cap"};
+  }
   // Sleep stops decisions *before* any model call or usage quota reservation.
   if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
   // Recover buffered messages before Nimo makes a new decision.
