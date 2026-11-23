@@ -5,6 +5,7 @@
 export type World004GuardConfig={
  WORLD_004_MODE?:string;
  WORLD_004_ENABLED?:string;
+ WORLD_004_START_AT?:string;
  WORLD_004_STOP_AT?:string;
  WORLD_004_MAX_DAILY_DECISIONS?:string;
  DB:D1Database;
@@ -12,12 +13,16 @@ export type World004GuardConfig={
 export async function world004Guard(env:World004GuardConfig,now:Date):Promise<string|null>{
  if(env.WORLD_004_MODE!=="strategy-e")return null;
  if(env.WORLD_004_ENABLED!=="true")return "world_004_disabled";
+ const startAt=Date.parse(env.WORLD_004_START_AT??"");
  const stopAt=Date.parse(env.WORLD_004_STOP_AT??"");
- if(!Number.isFinite(stopAt)||now.getTime()>=stopAt)return "world_004_expired";
+ if(!Number.isFinite(startAt)||!Number.isFinite(stopAt)||stopAt<=startAt||
+    stopAt-startAt>86400000)return "world_004_invalid_window";
+ if(now.getTime()<startAt)return "world_004_not_started";
+ if(now.getTime()>=stopAt)return "world_004_expired";
  const cap=Number(env.WORLD_004_MAX_DAILY_DECISIONS??120);
  if(!Number.isSafeInteger(cap)||cap<1||cap>1000)return "world_004_invalid_daily_cap";
- const used=await env.DB.prepare("SELECT COUNT(*) AS n FROM decisions WHERE day=?")
-  .bind(now.toISOString().slice(0,10)).first<{n:number}>();
+ const used=await env.DB.prepare("SELECT COUNT(*) AS n FROM decisions WHERE day=? AND created_at>=?")
+  .bind(now.toISOString().slice(0,10),new Date(startAt).toISOString()).first<{n:number}>();
  if((used?.n??0)>=cap)return "world_004_daily_cap";
  return null;
 }
