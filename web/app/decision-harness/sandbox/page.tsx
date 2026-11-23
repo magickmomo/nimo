@@ -35,6 +35,7 @@ export default function SandboxPage(){
  const [record,setRecord]=useState<ArchiveRecord>(SAMPLE);
  const [loadingLive,setLoadingLive]=useState(false);
  const [archiveProgress,setArchiveProgress]=useState("");
+ const [archiveWarning,setArchiveWarning]=useState("");
  const [captureSource,setCaptureSource]=useState<{type:"live"|"uploaded";capturedAt:string|null;fetchedAt?:string|null}|null>(null);
  const [sandbox,setSandbox]=useState<SandboxState>(()=>createSandbox(contextOf(SAMPLE).world));
  const [manual,setManual]=useState("travel:south");
@@ -71,38 +72,51 @@ export default function SandboxPage(){
    const snapshot=contextOf(first);
    if(snapshot.visitor)throw Error("Visitor messages are not yet supported by the isolated replay");
    setRecord(first);setSandbox(createSandbox(snapshot.world));
-   setCaptureSource({type:"uploaded",capturedAt:first.capturedAt??null});
+   setCaptureSource({type:"uploaded",capturedAt:first.capturedAt??null});setArchiveWarning("");setArchiveProgress("");
    setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("ai");
   }catch(e){setError(e instanceof Error?e.message:"Could not load archive");}
   event.target.value="";
  }
  async function loadLatestLiveContext(){
   if(busy||loadingLive||!owner)return;
-  setLoadingLive(true);setError("");setArchiveProgress("Checking captured decisions…");
+  setLoadingLive(true);setError("");setArchiveWarning("");
+  setArchiveProgress("Checking recorded decision context…");
+  let newest:ArchiveRecord|null=null;
+  let pages=0;
+  let warning="";
+  let verifiedNewest=false;
   try{
-   // Each R2 archive page gets a separate, bounded authenticated request.
-   // Avoid a long serverless chain that can time out without diagnostics.
-   let newest:ArchiveRecord|null=null;
-   let pages=0;
+   // Each R2 page contains up to 50 full model requests. These can be very
+   // large and the upstream may return a truncated body even with HTTP 200.
+   // Preserve the best verified record seen so far rather than discarding it.
    const now=Date.now();
    for(let dayOffset=0;dayOffset<3;dayOffset++){
     const day=new Date(now-dayOffset*86400000).toISOString().slice(0,10);
     let cursor:string|null=null;
     const seen=new Set<string>();
     let complete=false;
+    let foundForDay=false;
     for(let page=0;page<120;page++){
      setArchiveProgress("Checking "+day+" · page "+(page+1)+"…");
      const params=new URLSearchParams({date:day});
      if(cursor)params.set("cursor",cursor);
      let response:Response;
      try{response=await fetch("/api/world/decision-context/export?"+params.toString(),{cache:"no-store"});}
-     catch(e){throw Error("Archive connection failed on "+day+" page "+(page+1)+": "+String(e));}
+     catch(e){warning="Archive request failed for "+day+" page "+(page+1)+": "+String(e);break;}
      let data:{error?:string;records?:ArchiveRecord[];truncated?:boolean;nextCursor?:string|null};
-     try{data=await response.json();}catch{
-      throw Error("Archive returned non-JSON on "+day+" page "+(page+1)+" (HTTP "+response.status+").");
+     try{data=await response.json();}
+     catch{
+      warning="Archive page "+(page+1)+" on "+day+" was incomplete or not valid JSON (HTTP "+response.status+"). Latest record cannot be verified.";
+      break;
      }
-     if(!response.ok)throw Error("Archive failed on "+day+" page "+(page+1)+" (HTTP "+response.status+"): "+(data.error??"Unknown error"));
-     if(!Array.isArray(data.records))throw Error("Invalid archive page for "+day+": records array missing");
+     if(!response.ok){
+      warning="Archive page "+(page+1)+" on "+day+" failed (HTTP "+response.status+"): "+(data.error??"Unknown error");
+      break;
+     }
+     if(!Array.isArray(data.records)){
+      warning="Archive page "+(page+1)+" on "+day+" has no records list.";
+      break;
+     }
      pages++;
      for(const candidate of data.records){
       if(!Number.isSafeInteger(candidate?.traceId)||!Array.isArray(candidate.request?.input))continue;
@@ -110,24 +124,40 @@ export default function SandboxPage(){
        const parsed=contextOf(candidate);
        if(parsed.visitor||!parsed.world.state||!parsed.world.perception||
         !Array.isArray(parsed.world.availableActions))continue;
-       if(!newest||candidate.traceId>newest.traceId)newest=candidate;
-      }catch{/* Skip invalid captured decision records. */}
+       if(!newest||Date.parse(candidate.capturedAt??"")>Date.parse(newest.capturedAt??"")||
+        (candidate.capturedAt===newest.capturedAt&&candidate.traceId>newest.traceId))
+        newest=candidate;
+       foundForDay=true;
+      }catch{/* Skip malformed, visitor or unsupported production input. */}
      }
      if(!data.truncated){complete=true;break;}
-     if(!data.nextCursor||seen.has(data.nextCursor))
-      throw Error("Archive cursor did not advance on "+day+" page "+(page+1));
+     if(!data.nextCursor||seen.has(data.nextCursor)){
+      warning="Archive cursor did not advance for "+day+" page "+(page+1)+". Latest record cannot be verified.";
+      break;
+     }
      seen.add(data.nextCursor);cursor=data.nextCursor;
     }
-    if(!complete)throw Error("Archive "+day+" exceeds 120 pages; cannot verify newest input.");
-    if(newest)break;
+    if(complete&&foundForDay){verifiedNewest=true;break;}
+    if(warning)break;
+    if(!complete){
+     warning="Archive for "+day+" exceeded the 120-page limit. Latest record cannot be verified.";
+     break;
+    }
    }
-   if(!newest)throw Error("No compatible autonomous decision capture from the last three UTC days.");
+   if(!newest){
+    throw Error((warning?warning+". ":"")+"No usable production decision snapshot was retrieved. Use a previously exported decision-input JSON.");
+   }
    const isolated=createSandbox(contextOf(newest).world);
    setRecord(newest);setSandbox(isolated);
    setStepLogs([]);setApiHistory([]);setRunErrors([]);setLast(null);setRunProgress(null);
    setManual("");setMode("ai");setContextTier("E");
    setCaptureSource({type:"live",capturedAt:newest.capturedAt??null,fetchedAt:new Date().toISOString()});
-   setArchiveProgress("Loaded decision #"+newest.traceId+" across "+pages+" archive page(s).");
+   if(!verifiedNewest){
+    setArchiveWarning((warning?warning+" ":"")+"Loaded a previously captured real decision from "+pages+
+     " valid archive page(s), but this is NOT verified as the newest. It may be stale.");
+   }
+   setArchiveProgress("Loaded archived decision #"+newest.traceId+
+    (verifiedNewest?" (newest verified).":" (latest seen; incomplete archive scan)."));
   }catch(e){setArchiveProgress("");setError(e instanceof Error?e.message:"Archived decision lookup failed");}
   finally{setLoadingLive(false);}
  }
@@ -354,6 +384,7 @@ export default function SandboxPage(){
     <small>Reads the latest available decision input in private R2, which may be over a day old. This is NOT a live refresh of Nimo's current state. Reset and reload to check whether newer inputs have been captured.</small>
    </div>
    {archiveProgress&&<small role="status">{archiveProgress}</small>}
+   {archiveWarning&&<p role="alert" className="dh-notice">{archiveWarning}</p>}
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
    </div>
