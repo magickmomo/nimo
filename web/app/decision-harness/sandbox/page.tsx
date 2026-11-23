@@ -33,6 +33,8 @@ const describeCost=(cost:number)=>"$"+cost.toFixed(6);
 
 export default function SandboxPage(){
  const [record,setRecord]=useState<ArchiveRecord>(SAMPLE);
+ const [loadingLive,setLoadingLive]=useState(false);
+ const [captureSource,setCaptureSource]=useState<{type:"live"|"uploaded";capturedAt:string|null;fetchedAt?:string|null}|null>(null);
  const [sandbox,setSandbox]=useState<SandboxState>(()=>createSandbox(contextOf(SAMPLE).world));
  const [manual,setManual]=useState("travel:south");
  const [mode,setMode]=useState<"manual"|"ai">("ai");
@@ -68,9 +70,29 @@ export default function SandboxPage(){
    const snapshot=contextOf(first);
    if(snapshot.visitor)throw Error("Visitor messages are not yet supported by the isolated replay");
    setRecord(first);setSandbox(createSandbox(snapshot.world));
+   setCaptureSource({type:"uploaded",capturedAt:first.capturedAt??null});
    setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("ai");
   }catch(e){setError(e instanceof Error?e.message:"Could not load archive");}
   event.target.value="";
+ }
+ async function loadLatestLiveContext(){
+  if(busy||loadingLive||!owner)return;
+  setLoadingLive(true);setError("");
+  try{
+   const res=await fetch("/api/decision-harness/live-context",{cache:"no-store"});
+   const data=await res.json() as {error?:string;record?:ArchiveRecord;capturedAt?:string;fetchedAt?:string};
+   if(!res.ok||!data.record)throw Error(data.error??"Could not fetch live context");
+   const latest=data.record;
+   if(!Number.isSafeInteger(latest.traceId)||latest.traceId===SAMPLE.traceId)throw Error("Invalid live decision capture");
+   const snapshot=contextOf(latest);
+   if(snapshot.visitor)throw Error("Latest input was a visitor turn; use a normal autonomous archive");
+   const isolated=createSandbox(snapshot.world);
+   setRecord(latest);setSandbox(isolated);
+   setStepLogs([]);setApiHistory([]);setRunErrors([]);setLast(null);setRunProgress(null);
+   setManual("");setMode("ai");setContextTier("E");
+   setCaptureSource({type:"live",capturedAt:latest.capturedAt??data.capturedAt??null,fetchedAt:data.fetchedAt??null});
+  }catch(e){setError(e instanceof Error?e.message:"Unable to load real live input");}
+  finally{setLoadingLive(false);}
  }
  function reset(){
   setSandbox(createSandbox(contextOf(record).world));setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");
@@ -261,6 +283,7 @@ export default function SandboxPage(){
      format:"nimo-sandbox-run-v2",exportedAt:new Date().toISOString(),contextTier,batchSize,
      branch:"experiment/decision-context-harness",
      sandboxType:"browser-isolated-emulator-not-D1-worker",
+     captureSource,
      source:{traceId:record.traceId,capturedAt:record.capturedAt??null},
      summary,runProgress,errors:runErrors,
      initialWorld:contextOf(record).world,
@@ -278,7 +301,16 @@ export default function SandboxPage(){
   <div className="dh-notice"><a href="/decision-harness/context-experiment"><strong>Compare five context strategies on historical snapshots</strong></a> with 1–5 AI decisions per strategy and a downloadable comparison report.</div>\n  <div className="dh-notice"><strong>Not the live Cloudflare D1 executor.</strong> This is an in-browser replay of a limited set of actions using Nimo's shared map and pathfinding rules. It can test handoffs and repeated decisions, but food effects, storage transactions, Oracle calls and other live mechanics are not emulated. No production world writes occur. AI and generation calls require owner sign-in and incur API charges.</div>
   <section className="dh-panel dh-controls dh-sandbox-controls">
    <div className="dh-field"><label htmlFor="sandbox-upload">World snapshot</label><input id="sandbox-upload" type="file" accept=".json,application/json" onChange={e=>void upload(e)} disabled={busy}/>
-    <small>#{record.traceId} — {record.traceId===SAMPLE.traceId?"built-in sample (AI batch disabled)":"real archived input loaded"}</small></div>
+    <small>#{record.traceId} — {record.traceId===SAMPLE.traceId?"built-in sample (AI batch disabled)":captureSource?.type==="live"?"most recent captured real decision input":"real archived input loaded"}</small>
+    {captureSource?.capturedAt&&<small>Captured {new Date(captureSource.capturedAt).toLocaleString()} · {captureSource.type==="live"?"Loaded from live Worker's private decision archive":"Uploaded historical archive"}. Snapshot is frozen for this sandbox run.</small>}
+   </div>
+   <div className="dh-field">
+    <label>Read actual production decision context</label>
+    <button type="button" className="dh-run" disabled={busy||loadingLive||!owner} onClick={()=>void loadLatestLiveContext()}>
+     {loadingLive?"Reading private decision archive…":"Load latest real decision context"}
+    </button>
+    <small>Reads the exact last captured live decision input from private R2. It may be minutes or hours old, and does not advance Nimo's world. Reset and reload to start from a newer capture.</small>
+   </div>
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
    </div>
@@ -303,7 +335,7 @@ export default function SandboxPage(){
     {busy?<button type="button" className="dh-quiet" onClick={halt}>Stop run</button>:
       <button type="button" className="dh-quiet" onClick={reset}>Reset</button>}
     {!owner&&<small>For AI and generation, <a href="/world/settings">sign in as owner</a>.</small>}
-    <small>Upload a real historical input to enable the endurance batch. The built-in sample is for manual step tests only.</small>
+    <small>Load the most recent live decision input or upload an archive to enable the endurance batch. Both stay isolated; the built-in sample is for manual tests only.</small>
     <small>Sketch generation may retry once after invalid strokes. Rejected candidates are never exported; safe diagnostics and all reported usage are logged. Maximum 30 replay steps. Each model call costs money.</small>
    </div>
   </section>
