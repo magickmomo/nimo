@@ -63,8 +63,8 @@ export default function SandboxPage(){
    if(file.size>20_000_000)throw Error("Archive exceeds 20MB");
    const data=JSON.parse(await file.text());
    const records=(Array.isArray(data?.records)?data.records:Array.isArray(data)?data:[data]) as ArchiveRecord[];
-   const first=records.find(r=>Number.isSafeInteger(r.traceId)&&Array.isArray(r.request?.input));
-   if(!first)throw Error("No compatible archived input found");
+   const first=records.find(r=>Number.isSafeInteger(r.traceId)&&r.traceId!==SAMPLE.traceId&&Array.isArray(r.request?.input));
+   if(!first)throw Error("No real archived decision input found. Upload the last-60-minute decision-input export, not a sandbox or comparison export.");
    const snapshot=contextOf(first);
    if(snapshot.visitor)throw Error("Visitor messages are not yet supported by the isolated replay");
    setRecord(first);setSandbox(createSandbox(snapshot.world));
@@ -126,10 +126,15 @@ export default function SandboxPage(){
        body:JSON.stringify({task,choiceId:choice.id,context}),signal
      });
      const data=await response.json();
-     if(!response.ok)throw Error(data.error??"Responses generation failed");
-     generated=data.generated;
+     // Log unsuccessful generations too, including retry diagnostics and paid usage.
+     // The API never returns rejected drawing content, only validation paths.
      trace.generation=data;log.generationResponse=data;
-     api.push({kind:"responses",usage:data.usage,latencyMs:data.latencyMs??null});
+     if(data.usage)api.push({kind:"responses",usage:data.usage,latencyMs:data.latencyMs??null});
+     if(!response.ok){
+       const detail=Array.isArray(data.attempts)?data.attempts.map((a:{issues?:string[]})=>a.issues?.join("; ")).filter(Boolean).join(" | "):"";
+       throw Error((data.error??"Responses generation failed")+(detail?" — "+detail:""));
+     }
+     generated=data.generated;
    }
    const next=stepSandbox(current,choice.id,generated);
    trace.validated=next.history.at(-1);
@@ -171,7 +176,7 @@ export default function SandboxPage(){
    finally{controllerRef.current=null;activeRef.current=false;setBusy(false);}
  }
  async function runTwenty(){
-   if(activeRef.current||!owner||sandbox.step>=30)return;
+   if(activeRef.current||!owner||sandbox.step>=30||record.traceId===SAMPLE.traceId)return;
    activeRef.current=true;stoppedRef.current=false;setBusy(true);setError("");
    const target=Math.min(batchSize,30-sandbox.step);
    setRunProgress({completed:0,target,status:"Running"});
@@ -272,7 +277,8 @@ export default function SandboxPage(){
   </div><span className="dh-pill">Local state only</span></div>
   <div className="dh-notice"><a href="/decision-harness/context-experiment"><strong>Compare five context strategies on historical snapshots</strong></a> with 1–5 AI decisions per strategy and a downloadable comparison report.</div>\n  <div className="dh-notice"><strong>Not the live Cloudflare D1 executor.</strong> This is an in-browser replay of a limited set of actions using Nimo's shared map and pathfinding rules. It can test handoffs and repeated decisions, but food effects, storage transactions, Oracle calls and other live mechanics are not emulated. No production world writes occur. AI and generation calls require owner sign-in and incur API charges.</div>
   <section className="dh-panel dh-controls dh-sandbox-controls">
-   <div className="dh-field"><label htmlFor="sandbox-upload">World snapshot</label><input id="sandbox-upload" type="file" accept=".json,application/json" onChange={e=>void upload(e)} disabled={busy}/><small>#{record.traceId} — archived or synthetic</small></div>
+   <div className="dh-field"><label htmlFor="sandbox-upload">World snapshot</label><input id="sandbox-upload" type="file" accept=".json,application/json" onChange={e=>void upload(e)} disabled={busy}/>
+    <small>#{record.traceId} — {record.traceId===SAMPLE.traceId?"built-in sample (AI batch disabled)":"real archived input loaded"}</small></div>
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
    </div>
@@ -292,12 +298,13 @@ export default function SandboxPage(){
    </div>
    <div className="dh-actions">
     <button type="button" className="dh-run" disabled={busy||sandbox.step>=30} onClick={()=>void step()}>Run one sandbox step</button>
-    <button type="button" className="dh-run dh-ai" disabled={busy||!owner||sandbox.step>=30} onClick={()=>void runTwenty()}>Run {batchSize} AI decisions</button>
+    <button type="button" className="dh-run dh-ai" disabled={busy||!owner||sandbox.step>=30||record.traceId===SAMPLE.traceId} onClick={()=>void runTwenty()}>Run {batchSize} AI decisions</button>
     <button type="button" className="dh-quiet" onClick={exportFullRun} disabled={!stepLogs.length}>Download full run (JSON)</button>
     {busy?<button type="button" className="dh-quiet" onClick={halt}>Stop run</button>:
       <button type="button" className="dh-quiet" onClick={reset}>Reset</button>}
     {!owner&&<small>For AI and generation, <a href="/world/settings">sign in as owner</a>.</small>}
-    <small>Batch stops on unsupported actions, validation failures or API errors. Maximum 30 total replay steps. Each AI call costs money.</small>
+    <small>Upload a real historical input to enable the endurance batch. The built-in sample is for manual step tests only.</small>
+    <small>Sketch generation may retry once after invalid strokes. Rejected candidates are never exported; safe diagnostics and all reported usage are logged. Maximum 30 replay steps. Each model call costs money.</small>
    </div>
   </section>
   {runProgress&&<section className="dh-panel dh-batch-progress" role="status">
