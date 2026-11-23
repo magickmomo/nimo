@@ -1,0 +1,16 @@
+import {readFileSync} from "node:fs";
+const path=new URL("../wrangler.world-004.toml",import.meta.url);
+const config=readFileSync(path,"utf8");
+const assert=(ok,message)=>{if(!ok){console.error("Unsafe World 004 config: "+message);process.exitCode=1;}};
+assert(/^name = "nimo-world-004"$/m.test(config),"expected dedicated Worker name");
+assert(/database_name = "nimo-world-004"/.test(config),"expected separate D1 database");
+assert(/bucket_name = "nimo-world-004-archives"/.test(config),"expected separate archive bucket");
+assert(!config.includes("adf7b04a-0a03-40b7-8389-b02d7339a31f"),"production D1 ID is forbidden");
+assert(!config.includes('bucket_name = "nimo-daily-archives"'),"production R2 bucket is forbidden");
+assert(/WORLD_004_MODE = "strategy-e"/.test(config),"World 004 strategy must be explicit");
+assert(/WORLD_004_ENABLED = "false"/.test(config),"canary must start disabled");
+assert(!/^crons\s*=/m.test(config),"no cron before data bootstrap and approval");
+const id=config.match(/database_id = "([^"]+)"/)?.[1];
+assert(id!==undefined&&/^[0-9a-f-]{36}$/.test(id),"database UUID must be valid");
+assert(id!=="00000000-0000-0000-0000-000000000000","replace placeholder D1 UUID before deploy");
+if(!process.exitCode)console.log("World 004 isolated deployment configuration is safe.");
