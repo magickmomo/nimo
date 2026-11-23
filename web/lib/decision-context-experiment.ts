@@ -116,9 +116,10 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
   // which can otherwise become an accidental recurring topic.
   const compactRecent=recent.map((event,index)=>({
     ...event,
-    summary:event.action==="reflect"&&
-     history.slice(-recent.length)[index]?.legacyDecision?.intentDisposition==="complete"
-     ?"Goal completed (recorded transition)":event.summary
+    summary:event.action==="reflect"?
+     (history.slice(-recent.length)[index]?.legacyDecision?.intentDisposition==="complete"
+      ?"Goal completed (recorded transition)":"Reflection occurred; no completed-goal narrative repeated")
+     :event.summary
   }));
   context.recentExperience.replay={
    recentActions:compactRecent,
