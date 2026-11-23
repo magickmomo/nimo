@@ -1,0 +1,103 @@
+name: Deploy isolated Nimo World 004 (manual, disabled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-004-DISABLED; never deploy to World 003'
+        required: true
+        type: string
+      revision:
+        description: 'Reviewed commit SHA from experiment/world-004-strategy-e'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-world-004-deployment
+  cancel-in-progress: false
+
+jobs:
+  isolated-deploy:
+    if: ${{ inputs.confirm == 'DEPLOY-004-DISABLED' && inputs.revision != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: world-004
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+    steps:
+      - name: Fetch exact reviewed World 004 revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify this is a reviewed World 004 commit
+        shell: bash
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Full commit SHA required"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          test -f world-worker/wrangler.world-004.toml
+          test -f world-worker/src/world-004-decision.ts
+
+      - name: Install and verify Worker (does not deploy)
+        working-directory: world-worker
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run check:world004
+          grep -q '^WORLD_004_ENABLED = "false"$' wrangler.world-004.toml
+          ! grep -q '^crons =' wrangler.world-004.toml
+
+      - name: Check Cloudflare credentials are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_D1_API_TOKEN; do
+            test -n "${!key}" || { echo "::error::Missing $key"; exit 1; }
+          done
+
+      - name: Verify World 004 database is populated and paused
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world-004 --remote --config wrangler.world-004.toml --json --command "SELECT (SELECT COUNT(*) FROM events) AS event_count, (SELECT COUNT(*) FROM documents) AS note_count, (SELECT autonomous_enabled FROM world_control WHERE id=1) AS enabled" > "$RUNNER_TEMP/world004-check.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'world004-check.json').read_text())
+          entries=data if isinstance(data,list) else [data]
+          assert entries and all(e.get('success') is True for e in entries)
+          rows=[r for e in entries for r in e.get('results',[])]
+          assert len(rows)==1 and rows[0]['event_count']>=11000 and rows[0]['note_count']>=12
+          assert rows[0]['enabled']==0, 'World 004 must be paused before deployment'
+          print('Verified isolated World 004 state and paused control.')
+          PY
+
+      - name: Deploy disabled World 004 Worker only
+        working-directory: world-worker
+        run: npx wrangler deploy --config wrangler.world-004.toml
+
+      - name: Record release identity
+        run: |
+          echo '### World 004 deployed with autonomy OFF' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Worker: nimo-world-004' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Database: nimo-world-004' >> "$GITHUB_STEP_SUMMARY"
+          echo 'R2: nimo-world-004-archives' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Cron: disabled; enable only after separate secrets and validation' >> "$GITHUB_STEP_SUMMARY"
