@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from "next/server";
-import {hasOwnerSession} from "../../../../../lib/world-owner-session";
+import {hasOwnerSession} from "../../../../lib/world-owner-session";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
