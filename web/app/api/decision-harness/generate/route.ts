@@ -19,7 +19,7 @@ function schemaFor(task:string,choiceId:string):Shape|null{
  if(task==="expand_world")return obj({changeType:{type:"string",enum:["add","modify"]},title:str,target:str,description:str,reason:str});
  if(task==="ask_oracle")return obj({question:str});
  if(task==="draw_strokes")return obj({strokes:{type:"array",items:stroke}});
- if(task==="reflect")return obj({monologue:str,activity:str,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon","replace"]}});
+ if(task==="reflect")return obj({monologue:str,activity:str,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon","replace"]},projectId:{type:["integer","null"]},projectDisposition:{type:"string",enum:["none","complete"]}});
  if(task==="request")return obj({monologue:str,activity:str,goal:{type:["string","null"]}});
  if(task==="reply")return obj({monologue:str,activity:str,replyIntent:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","abandon"]}});
  return null;
@@ -65,6 +65,10 @@ function validGenerated(task:string,p:Shape):boolean{
    const disposition=String(p.intentDisposition);
    if(!["keep","complete","abandon","replace"].includes(disposition))return false;
    if(disposition==="replace"&&!(typeof p.goal==="string"&&p.goal.trim()))return false;
+   if(!["none","complete"].includes(String(p.projectDisposition)))return false;
+   if(p.projectDisposition==="complete"&&(!Number.isInteger(p.projectId)||(p.projectId as number)<=0))return false;
+   if(p.projectDisposition==="none"&&p.projectId!==null)return false;
+   if(p.projectDisposition==="complete"&&disposition!=="complete")return false;
   }
   return true;
  }
@@ -89,7 +93,7 @@ export async function POST(req:NextRequest){
   "You are Nimo completing one selected task in a persistent simulated world.",
   "Generate only the fields requested by the schema, grounded in task context.",
   "Respect current possessions and constraints. Avoid invented successful outcomes.",
-  "For reflection, choose keep, complete, abandon or replace. To complete or abandon, use goal:null; to replace, supply a new goal.",
+  "For reflection: choose keep, complete, abandon or replace for an ACTIVE intention. If there is no active intention, use keep with goal:null; do not re-complete old intentions. To complete or abandon an active intention use goal:null; to replace supply a new goal. Independently choose projectDisposition complete and a valid active projectId ONLY if the selected project's entire objective is actually met by the evidence in current context. Otherwise use projectDisposition none and projectId:null. Do not guess project completion merely because the intention is finished. Distinguish the archived past from current simulated outcomes.",
   task==="draw_strokes"?
    "DRAWING RULES: Produce 1-3 strokes. Each stroke must have 2-12 points in [x,y] tuple format. x and y MUST be integers, x between 0 and 240 inclusive, y between 0 and 180 inclusive. Use hex colors exactly #RRGGBB and integer widths 1-8. No decimals. Avoid redundant points and keep the image modest.":"Return concise original content."
  ].join(" ");
