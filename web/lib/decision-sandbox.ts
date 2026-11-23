@@ -155,7 +155,7 @@ export function stepSandbox(state:SandboxState,choiceId:string,generated:LooseRe
   }else if(actionName==="write_document"){
    if(!/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(str(call?.path))||str(call?.content).length>2000)throw Error("Invalid document");
    const files=list(world.workspace),idx=files.findIndex(f=>f.path===call?.path);
-   if(idx<0&&files.length>=12)throw Error("Workspace full");
+   if(idx<0&&files.length>=100)throw Error("Workspace full (100 documents)");
    if(idx>=0)files[idx]={...files[idx],content:call?.content};
    else files.push({path:call?.path,content:call?.content});
    world.workspace=files;summary="Saved isolated document "+str(call?.path)+".";
