@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const adapter=readFileSync(new URL("../src/world-004-decision.ts",import.meta.url),"utf8");
 const worker=readFileSync(new URL("../src/index.ts",import.meta.url),"utf8");
+const guards=readFileSync(new URL("../src/world-004-guards.ts",import.meta.url),"utf8");
 const config=readFileSync(new URL("../wrangler.world-004.toml",import.meta.url),"utf8");
 test("World 004 selection is grounded in the real dynamic action menu",()=>{
  assert.match(adapter,/rows\(w\.availableActions\)/);
@@ -14,10 +15,11 @@ test("World 004 selection is grounded in the real dynamic action menu",()=>{
 });
 test("World 004 is opt-in and has a hard stop plus daily cap",()=>{
  assert.match(worker,/WORLD_004_MODE==="strategy-e"/);
- assert.match(worker,/WORLD_004_ENABLED!=="true"/);
- assert.match(worker,/WORLD_004_STOP_AT/);
- assert.match(worker,/WORLD_004_MAX_DAILY_DECISIONS/);
- assert.match(worker,/SELECT COUNT\(\*\) AS n FROM decisions WHERE day=\?/);
+ assert.match(worker,/world004Guard\(env,now\)/);
+ assert.match(guards,/WORLD_004_ENABLED!=="true"/);
+ assert.match(guards,/WORLD_004_STOP_AT/);
+ assert.match(guards,/WORLD_004_MAX_DAILY_DECISIONS/);
+ assert.match(guards,/SELECT COUNT\(\*\) AS n FROM decisions WHERE day=\?/);
 });
 test("World 004 starts with segregated storage and no autonomous trigger",()=>{
  assert.match(config,/name = "nimo-world-004"/);
