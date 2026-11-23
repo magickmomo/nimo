@@ -18,6 +18,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  checks: read
 
 concurrency:
   group: nimo-world-004-deployment
@@ -57,6 +59,23 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
     steps:
+      - name: Require exact ready World 004 PR head and successful checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/pulls/125" > "$RUNNER_TEMP/world004-pr.json"
+          head_sha="$(jq -r '.head.sha' "$RUNNER_TEMP/world004-pr.json")"
+          draft="$(jq -r '.draft' "$RUNNER_TEMP/world004-pr.json")"
+          test "$REVISION" = "$head_sha" || { echo "::error::Revision is not the current World 004 PR head"; exit 1; }
+          test "$draft" = false || { echo "::error::World 004 PR must be marked ready for review"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$REVISION/check-runs" > "$RUNNER_TEMP/world004-checks.json"
+          jq -e '[.check_runs[] | select(.name == "worker" or .name == "verify" or .name == "verify-canary")] | length >= 3' "$RUNNER_TEMP/world004-checks.json" >/dev/null || { echo "::error::Required CI checks are missing"; exit 1; }
+          jq -e '[.check_runs[] | select(.name == "worker" or .name == "verify" or .name == "verify-canary")] | all(.[]; .conclusion == "success")' "$RUNNER_TEMP/world004-checks.json" >/dev/null || { echo "::error::Required CI checks are not all green"; exit 1; }
+
       - name: Fetch exact reviewed World 004 revision
         uses: actions/checkout@v4
         with:
