@@ -176,7 +176,7 @@ export default function SandboxPage(){
        continuity:{memories:currentFrame.context.continuity.memories,
         projects:currentFrame.context.continuity.projects,
         unfinishedSketch:currentFrame.context.continuity.unfinishedSketch},
-       relevantWorkspace:task==="write_document"?(w.workspace??[]).slice(0,12):undefined,
+       relevantWorkspace:task==="write_document"?(w.workspace??[]).slice(0,100):undefined,
        sketch:task.includes("sketch")?w.sketchbook:undefined,
        knownObjects:task==="remember_object"?w.objectMemory:undefined
      };
