@@ -18,7 +18,8 @@ function schemaFor(task:string,choiceId:string):Shape|null{
  if(task==="expand_world")return obj({changeType:{type:"string",enum:["add","modify"]},title:str,target:str,description:str,reason:str});
  if(task==="ask_oracle")return obj({question:str});
  if(task==="draw_strokes")return obj({strokes:{type:"array",items:stroke}});
- if(task==="reflect"||task==="request")return obj({monologue:str,activity:str,goal:{type:["string","null"]}});
+ if(task==="reflect")return obj({monologue:str,activity:str,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon","replace"]}});
+ if(task==="request")return obj({monologue:str,activity:str,goal:{type:["string","null"]}});
  if(task==="reply")return obj({monologue:str,activity:str,replyIntent:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","abandon"]}});
  return null;
 }
@@ -36,7 +37,17 @@ function validGenerated(task:string,p:Shape):boolean{
   const v=s as Shape;
   return Array.isArray(v.points)&&v.points.length>=2&&v.points.length<=24&&v.points.every((pt:unknown)=>Array.isArray(pt)&&pt.length===2&&pt.every((n:unknown,i:number)=>Number.isInteger(n)&&(n as number)>=0&&(n as number)<=(i===0?240:180)))&&typeof v.color==="string"&&/^#[a-fA-F0-9]{6}$/.test(v.color)&&Number.isInteger(v.width)&&(v.width as number)>=1&&(v.width as number)<=8;
  });
- if(task==="reflect"||task==="request")return nonempty("monologue",1800)&&typeof p.activity==="string"&&p.activity.length<=120&&(p.goal===null||typeof p.goal==="string"&&p.goal.length<=250);
+ if(task==="reflect"||task==="request"){
+  const shared=nonempty("monologue",1800)&&typeof p.activity==="string"&&p.activity.length<=120&&
+    (p.goal===null||typeof p.goal==="string"&&p.goal.length<=250);
+  if(!shared)return false;
+  if(task==="reflect"){
+   const disposition=String(p.intentDisposition);
+   if(!["keep","complete","abandon","replace"].includes(disposition))return false;
+   if(disposition==="replace"&&!(typeof p.goal==="string"&&p.goal.trim()))return false;
+  }
+  return true;
+ }
  if(task==="reply")return nonempty("monologue",1800)&&typeof p.activity==="string"&&p.activity.length<=120;
  return false;
 }
@@ -57,7 +68,7 @@ export async function POST(req:NextRequest){
  const payload={
   model,
   input:[
-   {role:"developer",content:"You are Nimo completing one selected task in a persistent simulated world. Generate only the fields requested by the schema, grounded in the task context. Respect current possessions and constraints. Avoid invented successful outcomes. Return concise original content."},
+   {role:"developer",content:"You are Nimo completing one selected task in a persistent simulated world. Generate only the fields requested by the schema, grounded in the task context. Respect current possessions and constraints. For reflection, choose whether to keep, complete, abandon or replace the current intention; evidence of reaching a destination is not itself a mandate to complete it. To complete or abandon, use goal:null; to replace, supply a new goal. Avoid invented successful outcomes. Return concise original content."},
    {role:"user",content:JSON.stringify({selectedAction:choiceId,task,taskContext:body.context})}
   ],
   text:{format:{type:"json_schema",name:"nimo_sandbox_task",strict:true,schema}},
