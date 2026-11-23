@@ -164,9 +164,13 @@ export function stepSandbox(state:SandboxState,choiceId:string,generated:LooseRe
   }else if(!call){
    summary=choice.id==="idle"?"Remained idle.":choice.id==="observe"?"Observed surroundings.":generated?.monologue??"Reflected.";
    if(task==="reflect"&&generated){
-    const disposition=str(generated.intentDisposition)||"keep";
-    if(!["keep","complete","abandon","replace"].includes(disposition))throw Error("Invalid intention disposition");
-    const oldGoal=world.state.currentGoal??null;
+    const requestedDisposition=str(generated.intentDisposition)||"keep";
+    if(!["keep","complete","abandon","replace"].includes(requestedDisposition))throw Error("Invalid intention disposition");
+    const oldGoal=str(world.state.currentGoal).trim()||null;
+    // A model is free to reflect without an intention. Such reflection is NOT
+    // another completed goal; normalise accidental repeat completions to keep.
+    const disposition=(!oldGoal&&["complete","abandon"].includes(requestedDisposition))
+      ?"keep":requestedDisposition;
     if(disposition==="replace"){
      if(!str(generated.goal).trim())throw Error("Replacement intention is missing");
      world.state.currentGoal=generated.goal;
@@ -174,11 +178,47 @@ export function stepSandbox(state:SandboxState,choiceId:string,generated:LooseRe
      world.state.currentGoal=null;
     }else if(typeof generated.goal==="string"&&generated.goal.trim()){
      world.state.currentGoal=generated.goal;
+    }else if(!oldGoal)world.state.currentGoal=null;
+
+    // Only explicit evidence-backed model requests can close a project.
+    // The project ID must match an actual active project in this replay.
+    const projectId=generated.projectId;
+    const projectDisposition=str(generated.projectDisposition)||"none";
+    let projectClosure:LooseRecord|null=null;
+    if(projectDisposition==="complete"){
+     const project=list(world.projects).find(p=>p.id===projectId&&p.status==="active");
+     if(project&&oldGoal&&disposition==="complete"){
+      project.status="completed";
+      project.progress_note=str(generated.monologue).slice(0,450);
+      project.next_step="No further step; this project is marked complete.";
+      projectClosure={id:project.id,title:project.title,disposition:"complete",
+       source:"simulated_explicit_model_request",evidence:str(generated.monologue).slice(0,450)};
+     }else throw Error("Cannot close project: active goal and matching active project required");
+    }else if(projectDisposition!=="none"||projectId!==null&&projectId!==undefined){
+     throw Error("Invalid project completion signal");
     }
-    world.state.lastIntentOutcome={disposition,previousGoal:oldGoal,
-      newGoal:world.state.currentGoal??null,evidence:summary,source:"simulated_reflection",
-      step:state.step+1};
-    summary="Reflection "+disposition+": "+summary;
+    // Historical completion is recorded only on real transitions, rather than
+    // reasserted each time Nimo thinks beside the same place.
+    const goalTransition=disposition!=="keep"&&
+     (Boolean(oldGoal)||disposition==="replace");
+    if(goalTransition){
+     world.state.lastIntentOutcome={disposition,previousGoal:oldGoal,
+       newGoal:world.state.currentGoal??null,source:"simulated_reflection",
+       step:state.step+1,projectClosure};
+     world.experience=world.experience??{};
+     world.experience.settledIntentions=[
+      {description:oldGoal,disposition,step:state.step+1,projectClosure,
+       source:"sandbox_replay"},
+      ...list(world.experience.settledIntentions)
+     ].slice(0,12);
+    }
+    // If no goal is active, a reflection may be meaningful without closing one.
+    summary=goalTransition?"Reflection "+disposition+": "+summary:
+     "Reflection without goal transition: "+summary;
+    generated={...generated,intentDisposition:disposition,
+      goal:world.state.currentGoal??null};
+    // Deliberately do not allow a completed project to remain active.
+    if(projectClosure)summary+=" Project #"+projectId+" marked completed.";
    }else if(task==="request"&&(typeof generated?.goal==="string"||generated?.goal===null)){
     world.state.currentGoal=generated.goal;
    }
