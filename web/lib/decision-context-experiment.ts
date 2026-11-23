@@ -6,12 +6,13 @@
 import {compactContext,type LooseRecord} from "./decision-harness";
 import type {SandboxResult} from "./decision-sandbox";
 
-export type ContextTier="A"|"B"|"C"|"D";
+export type ContextTier="A"|"B"|"C"|"D"|"E";
 export const CONTEXT_TIERS:{id:ContextTier;name:string;description:string}[]=[
  {id:"A",name:"Baseline",description:"Present state, intentions and selected memories (original compact prompt)."},
  {id:"B",name:"Recent experience",description:"A + recent archived events and sandbox actions, with measured repetition."},
  {id:"C",name:"Goal awareness",description:"B + completion evidence, activity summary, milestones and curiosity guidance."},
- {id:"D",name:"Relevant retrieval",description:"C + bounded location/object and project memories matched to the current situation."}
+ {id:"D",name:"Relevant retrieval",description:"C + bounded location/object and project memories matched to the current situation."},
+ {id:"E",name:"Adaptive (new)",description:"Lean B-style context + compact goal evidence + retrieval only when tied to a current object or active task."}
 ];
 const arr=(v:unknown):LooseRecord[]=>Array.isArray(v)?v:[];
 const text=(v:unknown,max=170)=>typeof v==="string"?v.slice(0,max):"";
@@ -29,11 +30,20 @@ function samePoint(a:unknown,b:unknown){
 export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],tier:ContextTier):LooseRecord{
  const context:LooseRecord=compactContext(w,null);
  if(tier==="A")return context;
- const archived=arr(w.experience?.recentEvents).slice(0,6).map(e=>({
+ if(tier==="E"){
+  // Avoid repeated catalogue descriptions, duplicate memory selection and long
+  // historical strings. The executable menu is separately provided to the API.
+  delete context.continuity.capabilities;
+  context.continuity.memories=(context.continuity.memories??[]).slice(0,3).map((m:LooseRecord)=>({
+   subject:m.subject,statement:text(m.statement,150),confidence:m.confidence
+  }));
+  context.continuity.projects=(context.continuity.projects??[]).slice(0,2);
+ }
+ const archived=arr(w.experience?.recentEvents).filter(e=>!String(e.action??"").startsWith("SANDBOX_")).slice(0,tier==="E"?3:6).map(e=>({
   action:e.action??e.kind,summary:text(e.content,170),when:e.when??null,
   source:"archived_event",simulated:false
  }));
- const recent=history.slice(-10).map(summarizedAction);
+ const recent=history.slice(tier==="E"?-6:-10).map(summarizedAction);
  // An observed backtrack is a return to the previous position, not just any movement.
  const moves=history.filter(h=>h.status==="simulated_success"&&h.action.startsWith("travel:"));
  let reversals=0;
@@ -51,6 +61,43 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
  };
  context.recentExperience={archivedEvents:archived,replay,source:"archived log plus local sandbox history"};
  if(tier==="B")return context;
+ if(tier==="E"){
+  // Treat destination matching as evidence, never automatic completion.
+  const goal=text(w.state?.currentGoal,240),position=w.perception?.position??null;
+  const match=goal.match(/\((\d{1,2})\s*,\s*(\d{1,2})\)/);
+  const reached=Boolean(match&&samePoint(position,{x:Number(match[1]),y:Number(match[2])}));
+  const prior=arr(w.experience?.recentEvents).filter(e=>!String(e.action??"").startsWith("SANDBOX_"));
+  const reported=prior.some(e=>e.kind==="thought"&&/enough for now|walk is enough|already beside|already at/.test(text(e.content,400).toLowerCase()));
+  context.goalAwareness={
+   description:goal||null,destinationReached:reached,priorSelfReportOfSatisfaction:reported,
+   disposition:w.state?.lastIntentOutcome??null,
+   note:"Arrival and reflections are evidence, not automatic completion. Nimo can choose to keep, complete, abandon or replace an intention during reflection."
+  };
+  if(!goal){context.self.currentIntention=null;}
+  const cues=new Set<string>();
+  const words=tokenSet([goal,text(w.state?.currentActivity),...arr(w.perception?.visibleObjects).filter(o=>o.distance<=2).slice(0,3).map(o=>text(o.type))].join(" "));
+  for(const word of words)cues.add(word);
+  const objects=arr(w.objectMemory).filter(o=>{
+   const visible=arr(w.perception?.visibleObjects).some(v=>v.id===o.id&&Number(v.distance)<=2);
+   return visible&&relevance([text(o.label),text(o.note)].join(" "),cues)>0;
+  }).slice(0,1).map(o=>({id:o.id,note:text(o.note,150),source:"objectMemory"}));
+  const projects=arr(w.projects).filter(p=>p.status==="active"&&relevance([text(p.title),text(p.objective),text(p.next_step)].join(" "),cues)>0)
+    .slice(0,1).map(p=>({id:p.id,title:text(p.title,80),nextStep:text(p.next_step,130),source:"projects"}));
+  const guidance=text(w.curiosityGuidance,350);
+  context.adaptiveKnowledge={
+   objects,projects,
+   ...(Number(w.needsPercent?.curiosity)>=85?{curiosityGuidance:guidance}:{}),
+   selectionMethod:"Only nearby relevant objects and active matching projects; no dormant project retrieval."
+  };
+  context.recentExperience.replay={
+   recentActions:recent,
+   movementReversals:reversals,
+   actionCounts:replay.actionCounts,
+   observationsAreSimulated:true
+  };
+  return context;
+ }
+
  const goal=text(w.state?.currentGoal,250);
  const position=w.perception?.position??null;
  const destinationMatch=goal.match(/\((\d{1,2})\s*,\s*(\d{1,2})\)/);
@@ -64,7 +111,7 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
   currentIntention:goal||null,
   destinationReached:arrived?{evidence:"position matches coordinates in stated intention",status:"observed_position_only"}:null,
   reflectionSuggestsSatisfied:priorReflection?{evidence:"archived reflection",status:"self_report_not_verified"}:null,
-  completionConfirmed:false,
+  completionConfirmed:!goal&&Boolean(w.state?.lastIntentOutcome?.disposition==="complete"),
   guidance:"Evidence of progress is not a command to complete or abandon this goal."
  };
  context.activityAwareness={
