@@ -47,7 +47,7 @@ type Env = {
   WORLD_004_ENABLED?: string;
   WORLD_004_START_AT?: string;
   WORLD_004_STOP_AT?: string;
-  WORLD_004_MAX_DAILY_DECISIONS?: string;
+  WORLD_004_MAX_RUN_DECISIONS?: string;
   WORLD_INTERNAL_SECRET: string;
 };
 type EventRow = ExperienceEvent;
