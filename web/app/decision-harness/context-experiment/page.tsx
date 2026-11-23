@@ -218,6 +218,30 @@ export default function ContextExperimentPage(){
      (invalid.world.projects as LooseRecord[]).find(p=>p.id===99999)?.status==="active",
     detail:"A completion request with no active intention cannot close a project."});
   }catch(e){checks.push({name:"Project closure protections",passed:false,detail:String(e)});}
+  try{
+   const fixture=createSandbox(world);
+   fixture.world.sketchbook={owned:true,active:{id:1001,title:"Test seedpod",intention:"A test sketch",strokes:[
+    {points:[[10,10],[30,20]],color:"#345678",width:2}
+   ],status:"drawing"},recent:[]};
+   fixture.world.availableActions=[{name:"finish_sketch",sketchIds:[1001]},{name:"draw_strokes",sketchIds:[1001]}];
+   const finished=stepSandbox(fixture,"finish_sketch:1001");
+   const stored=(finished.world.sketchbook?.recent??[]) as LooseRecord[];
+   const offered=finished.world.availableActions as LooseRecord[];
+   checks.push({name:"Finish a drawn sketch without a generation handoff",
+    passed:finished.history.at(-1)?.status==="simulated_success"&&
+      finished.world.sketchbook?.active===null&&stored[0]?.status==="finished"&&
+      stored[0]?.strokeCount===1&&
+      offered.some(a=>a.name==="start_sketch")&&
+      !offered.some(a=>a.name==="finish_sketch"),
+    detail:"Finalise saved strokes, clear active sketch, restore start action, remove finish action."});
+   const empty=createSandbox(world);
+   empty.world.sketchbook={owned:true,active:{id:1001,title:"Blank",intention:"No strokes yet",strokes:[],status:"drawing"},recent:[]};
+   empty.world.availableActions=[{name:"finish_sketch",sketchIds:[1001]}];
+   const rejected=stepSandbox(empty,"finish_sketch:1001");
+   checks.push({name:"Reject finishing an empty sketch",
+    passed:rejected.history.at(-1)?.status==="simulated_failure"&&Boolean(rejected.world.sketchbook?.active),
+    detail:"No empty final artwork is saved."});
+  }catch(e){checks.push({name:"Sketch finish transition",passed:false,detail:String(e)});}
   setGoalCheck({pass:checks.every(x=>x.passed),results:checks});
  }
  function stop(){stopping.current=true;controller.current?.abort();setProgress("Stopping…");}
