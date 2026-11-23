@@ -95,7 +95,7 @@ async function inspectObject(db: D1Database, direction: Direction) {
   return inspectAndRemember(db, object);
 }
 
-const MAX_DOCS = 12;
+const MAX_DOCS = 100;
 const MAX_DOC_CHARS = 2000;
 async function documents(db: D1Database): Promise<DocumentRow[]> {
   const r = await db.prepare("SELECT path,content,revision,updated_at FROM documents ORDER BY path LIMIT ?")
@@ -111,7 +111,7 @@ async function writeDocument(db: D1Database, input: { path: string; content: str
   const existing = await db.prepare("SELECT path FROM documents WHERE path=?").bind(input.path).first();
   if (!existing) {
     const count = await db.prepare("SELECT count(*) AS n FROM documents").first<{n:number}>();
-    if ((count?.n ?? 0) >= MAX_DOCS) throw new Error("Workspace is full (12 documents)");
+    if ((count?.n ?? 0) >= MAX_DOCS) throw new Error("Workspace is full (100 documents)");
   }
   await db.prepare(`INSERT INTO documents(path,content,revision) VALUES(?,?,1)
     ON CONFLICT(path) DO UPDATE SET content=excluded.content, revision=documents.revision+1,
@@ -300,7 +300,7 @@ To travel, choose any reachable walkable destination using one-based coordinates
 If you buy the small sketchpad from the vending machine, it permanently unlocks creative drawing. You alone choose WHAT to draw. start_sketch records a title and a clear intention, draw_strokes draws actual pencil strokes (no image generator), and finish_sketch completes or abandons the page. Canvas is 240 wide by 180 high; points are integer [x,y] pairs from [0,0] top left to [240,180] bottom right. Each draw_strokes action accepts 1–8 strokes; each stroke has 2–24 points, #RRGGBB color and integer width 1–8. Plan deliberate shapes with several small batches; simple line sketches are fine. Your saved strokes and current progress are in sketchbook. Drawing is optional; do it when genuinely interested, not as a mandatory daily task. Finished work appears in your art gallery. The strokes alone do not tell you what the finished page looks like. If you have enough coins, you can pay 10 coins to inspect a finished artwork using an external visual model. The tool gives you a grounded visual description and a comparison with your intention, not an objective judgement of quality. Each finished drawing can be inspected successfully only once; failed calls refund the coins. The inspection is optional, not a routine. Past inspection descriptions appear in sketchbook.\nexpand_world lets you propose adding something to the world or changing something that exists. It records a proposal in the creator Requests inbox; it does not change the world immediately. Choose your own idea, if any, and explain what you would change and why. It is optional, not an objective or a routine. Use REQUEST for general help or missing capabilities instead.
 The write_document tool creates or fully replaces a plain text document in your virtual workspace.
 Paths must be simple lowercase .txt filenames, no directories, up to 40 characters before .txt.
-Content is limited to 2000 characters, workspace to 12 files.
+Content is limited to 2000 characters, workspace to 100 files.
 Your current workspace is provided with this request. Read it before writing.
 For an available tool, choose action ACT and supply only the required fields shown in the dynamic menu. Writing records text. Object notes record your interpretation, not verified properties.
 These are your ONLY actual external actions. ACT without toolCall does not create anything.
