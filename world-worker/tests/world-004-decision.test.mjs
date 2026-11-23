@@ -17,9 +17,10 @@ test("World 004 is opt-in and has a hard stop plus daily cap",()=>{
  assert.match(worker,/WORLD_004_MODE==="strategy-e"/);
  assert.match(worker,/world004Guard\(env,now\)/);
  assert.match(guards,/WORLD_004_ENABLED!=="true"/);
+ assert.match(guards,/WORLD_004_START_AT/);
  assert.match(guards,/WORLD_004_STOP_AT/);
  assert.match(guards,/WORLD_004_MAX_DAILY_DECISIONS/);
- assert.match(guards,/SELECT COUNT\(\*\) AS n FROM decisions WHERE day=\?/);
+ assert.match(guards,/SELECT COUNT\(\*\) AS n FROM decisions WHERE day=\? AND created_at>=\?/);
 });
 test("World 004 starts with segregated storage and no autonomous trigger",()=>{
  assert.match(config,/name = "nimo-world-004"/);
