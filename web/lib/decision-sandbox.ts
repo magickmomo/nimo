@@ -34,7 +34,7 @@ function safeLegacy(choice:Choice,call:LooseRecord|null,generated:LooseRecord|nu
  const passive=choice.id==="observe"?"OBSERVE":choice.id==="request_capability"?"REQUEST":"THINK";
  return {action:call?"ACT":passive,monologue:generated?.monologue??("I choose "+choice.description),
   activity:generated?.activity??activity,goal:generated?.goal??goal,identityUpdate:null,
-  toolCall:call,replyIntent:null,intentDisposition:"keep"};
+  toolCall:call,replyIntent:null,intentDisposition:generated?.intentDisposition??"keep"};
 }
 function refreshContext(world:LooseRecord){
  const position=world.perception.position as {x:number;y:number};
@@ -163,7 +163,25 @@ export function stepSandbox(state:SandboxState,choiceId:string,generated:LooseRe
    summary="Queued a simulated expansion request. No world change.";
   }else if(!call){
    summary=choice.id==="idle"?"Remained idle.":choice.id==="observe"?"Observed surroundings.":generated?.monologue??"Reflected.";
-   if(typeof generated?.goal==="string"||generated?.goal===null)world.state.currentGoal=generated.goal;
+   if(task==="reflect"&&generated){
+    const disposition=str(generated.intentDisposition)||"keep";
+    if(!["keep","complete","abandon","replace"].includes(disposition))throw Error("Invalid intention disposition");
+    const oldGoal=world.state.currentGoal??null;
+    if(disposition==="replace"){
+     if(!str(generated.goal).trim())throw Error("Replacement intention is missing");
+     world.state.currentGoal=generated.goal;
+    }else if(disposition==="complete"||disposition==="abandon"){
+     world.state.currentGoal=null;
+    }else if(typeof generated.goal==="string"&&generated.goal.trim()){
+     world.state.currentGoal=generated.goal;
+    }
+    world.state.lastIntentOutcome={disposition,previousGoal:oldGoal,
+      newGoal:world.state.currentGoal??null,evidence:summary,source:"simulated_reflection",
+      step:state.step+1};
+    summary="Reflection "+disposition+": "+summary;
+   }else if(task==="request"&&(typeof generated?.goal==="string"||generated?.goal===null)){
+    world.state.currentGoal=generated.goal;
+   }
   }else if(actionName==="rest"){
    summary="Paused beside the garden nook in isolated replay (no meter changes).";
   }else throw Error("No isolated executor for "+actionName);
