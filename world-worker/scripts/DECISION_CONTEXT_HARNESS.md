@@ -106,3 +106,17 @@ The browser sends only the compact decision context and choice value/description
 The cost displayed in the UI is an estimate based on published Decisions API token rates for a short-context `gpt-6-luna` call ($0.10/M uncached inputs, $0.01/M cached reads, $0.125/M cache writes, zero output cost). Actual charges can differ depending on billing tier, region, rate changes or discounts; consult provider billing for exact cost.
 
 Do not expose the OpenAI key in client code or share downloaded historical traces publicly. The owner session is essential because public callers must not be able to incur API charges.
+
+## Isolated replay sandbox (first integration milestone)
+
+Open `/decision-harness/sandbox` on the preview deployment.
+
+- Load the built-in fixture or upload an archived decision input.
+- Run one step manually or use the owner-authenticated Decisions API.
+- A supported selected creative action invokes the owner-protected `/api/decision-harness/generate` endpoint (real `/v1/responses` call) to produce narrow structured parameters.
+- The browser applies supported action effects to an isolated clone of the loaded world. Travel uses the same `web/lib/world-map.ts` pathfinding as the Worker. It reports the generated legacy-shaped decision and feeds replay events into the next compact context.
+- Stepwise trace shows the exact selection, generation result, local replay outcome, running usage and the next state. A reset restores the original snapshot. No browser or server step may write to D1 or invoke the production Worker.
+
+**Important limitation:** This is a guarded *emulator*, not the Cloudflare D1-backed executor in `world-worker/src/index.ts`. Although it uses the actual shared map, local effects are deliberately restricted. For example, fruit consumption removes a carried item but deliberately does **not** invent the fruit's fullness effect. Tool outcomes are tagged `sandbox_replay_event`; unsupported actions fail without mutations. A true executor-parity test requires a separately provisioned D1 database, migrations, and a dedicated isolated Worker binding, or a carefully extracted executor with an injectable persistence interface.
+
+Do not enable automatic consecutive AI calls or point this sandbox at the production Worker. Calls occur only on the owner's explicit step click; maximum 30 steps per replay.
