@@ -37,9 +37,26 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
   context.continuity.memories=(context.continuity.memories??[]).slice(0,3).map((m:LooseRecord)=>({
    subject:m.subject,statement:text(m.statement,150),confidence:m.confidence
   }));
-  context.continuity.projects=(context.continuity.projects??[]).slice(0,2);
+  // Show only genuinely unfinished projects. A completed project belongs in
+  // history, not in the active-work section of every new prompt.
+  context.continuity.projects=(context.continuity.projects??[])
+   .filter((p:LooseRecord)=>p.status==="active"||p.status==="paused").slice(0,3);
+  const liveGoal=Boolean(text(w.state?.currentGoal).trim());
+  if(!liveGoal){
+   // Archived thoughts and a stale last-reflection field were repeatedly
+   // resurrecting completed work as if it were still awaiting a decision.
+   context.continuity.lastReflection=null;
+   if(context.continuity.lastVerifiedOutcome?.action==="SANDBOX_THOUGHT")
+    context.continuity.lastVerifiedOutcome=null;
+  }
  }
- const archived=arr(w.experience?.recentEvents).filter(e=>!String(e.action??"").startsWith("SANDBOX_")).slice(0,tier==="E"?3:6).map(e=>({
+ const archived=arr(w.experience?.recentEvents).filter(e=>{
+  if(String(e.action??"").startsWith("SANDBOX_"))return false;
+  // When the intention is settled, old speculative reflections shouldn't be
+  // treated as the next open problem. Preserve tool observations.
+  if(tier==="E"&&!text(w.state?.currentGoal)&&e.kind==="thought")return false;
+  return true;
+ }).slice(0,tier==="E"?3:6).map(e=>({
   action:e.action??e.kind,summary:text(e.content,170),when:e.when??null,
   source:"archived_event",simulated:false
  }));
@@ -68,10 +85,16 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
   const reached=Boolean(match&&samePoint(position,{x:Number(match[1]),y:Number(match[2])}));
   const prior=arr(w.experience?.recentEvents).filter(e=>!String(e.action??"").startsWith("SANDBOX_"));
   const reported=prior.some(e=>e.kind==="thought"&&/enough for now|walk is enough|already beside|already at/.test(text(e.content,400).toLowerCase()));
-  context.goalAwareness={
-   description:goal||null,destinationReached:reached,priorSelfReportOfSatisfaction:reported,
-   disposition:w.state?.lastIntentOutcome??null,
-   note:"Arrival and reflections are evidence, not automatic completion. Nimo can choose to keep, complete, abandon or replace an intention during reflection."
+  const settled=w.state?.lastIntentOutcome;
+  const immediatelySettled=Boolean(!goal&&settled&&history.length&&settled.step===history.length);
+  context.goalAwareness=goal?{
+   description:goal,destinationReached:reached,priorSelfReportOfSatisfaction:reported,
+   note:"Arrival is evidence, not automatic completion. Completion is a one-time transition."
+  }:{
+   description:null,status:"no_active_intention",
+   ...(immediatelySettled?{latestTransition:{disposition:settled.disposition,
+      projectId:settled.projectClosure?.id??null,source:"sandbox_replay"}}:{}),
+   note:"There is no active goal to complete. Reflection remains available for new thinking."
   };
   if(!goal){context.self.currentIntention=null;}
   const cues=new Set<string>();
@@ -89,8 +112,16 @@ export function buildExperimentalContext(w:LooseRecord,history:SandboxResult[],t
    ...(Number(w.needsPercent?.curiosity)>=85?{curiosityGuidance:guidance}:{}),
    selectionMethod:"Only nearby relevant objects and active matching projects; no dormant project retrieval."
   };
+  // Retain action/outcome chronology while dropping old completed-goal prose,
+  // which can otherwise become an accidental recurring topic.
+  const compactRecent=recent.map((event,index)=>({
+    ...event,
+    summary:event.action==="reflect"&&
+     history.slice(-recent.length)[index]?.legacyDecision?.intentDisposition==="complete"
+     ?"Goal completed (recorded transition)":event.summary
+  }));
   context.recentExperience.replay={
-   recentActions:recent,
+   recentActions:compactRecent,
    movementReversals:reversals,
    actionCounts:replay.actionCounts,
    observationsAreSimulated:true
