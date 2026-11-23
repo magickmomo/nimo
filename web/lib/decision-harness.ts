@@ -148,8 +148,10 @@ export function compactContext(w:LooseRecord,visitor:string|null){
  }
  for(const item of others){if(diverse.length===3)break;if(!diverse.includes(item))diverse.push(item);}
  const recent=arr(e.recentEvents);
- const thought=recent.find(x=>x.kind==="thought"||x.action==="THINK");
- const outcome=recent.find(x=>x.kind==="tool");
+ const outcomeIndex=recent.findIndex(x=>x.kind==="tool");
+ const reflectionIndex=recent.findIndex(x=>x.kind==="thought"||x.action==="THINK");
+ const thought=reflectionIndex>=0&&(outcomeIndex<0||reflectionIndex<outcomeIndex)?recent[reflectionIndex]:null;
+ const outcome=outcomeIndex>=0?recent[outcomeIndex]:null;
  const lastReflection=thought?{when:thought.when??null,content:thought.content}:null;
  const reportedEnough=/(enough for now|walk is enough|walk end|already (beside|at|reached))/.test(String(thought?.content??"").toLowerCase());
  return {
@@ -164,7 +166,7 @@ export function compactContext(w:LooseRecord,visitor:string|null){
    inventory:{fruit:arr(w.food?.inventory).map(x=>x.fruit),other:arr(g.inventory).map(x=>({kind:x.kind,waterUnits:x.water_units})),used:g.inventoryUsed,capacity:g.capacity,coins:g.coins}},
   continuity:{projects:arr(w.projects).filter(x=>["active","paused"].includes(x.status)).slice(0,5).map(x=>({id:x.id,title:x.title,status:x.status,nextStep:x.next_step??x.nextStep??null})),
    memories:[...relevant,...diverse].map(({m})=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status})),
-   lastReflection,lastVerifiedOutcome:outcome?{when:outcome.when??null,action:outcome.action,description:outcome.content,source:"recorded_tool_event"}:null,
+   lastReflection,lastVerifiedOutcome:outcome?{when:outcome.when??null,action:outcome.action,description:outcome.content,source:String(outcome.action??"").startsWith("SANDBOX_")?"sandbox_replay_event":"recorded_tool_event"}:null,
    capabilities:actionRegistry(w),
    availableActionNames:actionRegistry(w).filter(a=>a.offeredByWorld).map(a=>a.name),
    unfinishedSketch:w.sketchbook?.active?{id:w.sketchbook.active.id,title:w.sketchbook.active.title}:null},
