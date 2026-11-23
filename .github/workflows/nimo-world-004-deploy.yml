@@ -1,6 +1,10 @@
 name: Deploy isolated Nimo World 004 (manual, disabled)
 
 on:
+  pull_request:
+    paths:
+      - 'world-worker/**'
+      - '.github/workflows/nimo-world-004-deploy.yml'
   workflow_dispatch:
     inputs:
       confirm:
@@ -20,8 +24,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-canary:
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'experiment/world-004-strategy-e' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify canary compiles, tests and cannot target production
+        working-directory: world-worker
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run check:world004
+          npx wrangler deploy --dry-run --config wrangler.world-004.toml --outdir "$RUNNER_TEMP/world004-dist"
+
   isolated-deploy:
-    if: ${{ inputs.confirm == 'DEPLOY-004-DISABLED' && inputs.revision != '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm == 'DEPLOY-004-DISABLED' && inputs.revision != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: world-004
