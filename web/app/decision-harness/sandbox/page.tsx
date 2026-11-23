@@ -6,6 +6,21 @@ import "../harness.css";
 
 const json=(v:unknown)=>JSON.stringify(v,null,2);
 type UsageRow={kind:"decisions"|"responses";usage:unknown;latencyMs:number|null};
+type StepLog={
+ step:number;startedAt:string;completedAt:string;status:"success"|"failed";
+ selectionMode:"manual"|"ai";action:string|null;
+ context:unknown;offeredChoices:unknown;selectionResponse:unknown;
+ generationResponse:unknown;outcome:unknown;usage:UsageRow[];
+ error?:string;
+};
+const saveJson=(name:string,payload:unknown)=>{
+ const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+ const url=URL.createObjectURL(blob);
+ const link=document.createElement("a");
+ link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();
+ window.setTimeout(()=>URL.revokeObjectURL(url),1500);
+};
+
 const decisionCost=(usage:unknown)=>{
  const u=usage as {input_tokens?:number;input_tokens_details?:{cached_tokens?:number;cache_write_tokens?:number}}|null;
  if(typeof u?.input_tokens!=="number")return 0;
@@ -25,6 +40,8 @@ export default function SandboxPage(){
  const [owner,setOwner]=useState(false);
  const [last,setLast]=useState<unknown>(null);
  const [apiHistory,setApiHistory]=useState<UsageRow[]>([]);
+ const [stepLogs,setStepLogs]=useState<StepLog[]>([]);
+ const [runErrors,setRunErrors]=useState<string[]>([]);
  const [runProgress,setRunProgress]=useState<{completed:number;target:number;status:string}|null>(null);
  const activeRef=useRef(false);
  const stoppedRef=useRef(false);
@@ -48,18 +65,22 @@ export default function SandboxPage(){
    const snapshot=contextOf(first);
    if(snapshot.visitor)throw Error("Visitor messages are not yet supported by the isolated replay");
    setRecord(first);setSandbox(createSandbox(snapshot.world));
-   setApiHistory([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("manual");
+   setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");setManual("");setMode("manual");
   }catch(e){setError(e instanceof Error?e.message:"Could not load archive");}
   event.target.value="";
  }
  function reset(){
-  setSandbox(createSandbox(contextOf(record).world));setApiHistory([]);setLast(null);setRunProgress(null);setError("");
+  setSandbox(createSandbox(contextOf(record).world));setApiHistory([]);setStepLogs([]);setRunErrors([]);setLast(null);setRunProgress(null);setError("");
  }
- async function executeOne(current:SandboxState, chosenMode:"manual"|"ai",choiceId:string,signal:AbortSignal):Promise<{next:SandboxState;trace:unknown;api:UsageRow[]}>{
+ async function executeOne(current:SandboxState, chosenMode:"manual"|"ai",choiceId:string,signal:AbortSignal):Promise<{next:SandboxState;trace:unknown;api:UsageRow[];log:StepLog}>{
    const currentFrame=sandboxFrame(current);
+   const log:StepLog={step:current.step+1,startedAt:new Date().toISOString(),completedAt:"",
+     status:"failed",selectionMode:chosenMode,action:null,context:currentFrame.context,
+     offeredChoices:currentFrame.choices,selectionResponse:null,generationResponse:null,outcome:null,usage:[]};
    let choice:Choice|undefined;
    const trace:{selection?:unknown;generation?:unknown;validated?:unknown}={};
    const api:UsageRow[]=[];
+   try{
    if(chosenMode==="ai"){
      if(!owner)throw Error("Sign in as Nimo's owner on this preview to make API calls");
      const response=await fetch("/api/decision-harness/run",{
@@ -69,12 +90,13 @@ export default function SandboxPage(){
      });
      const data=await response.json();
      if(!response.ok)throw Error(data.error??"Decisions API failed");
-     trace.selection=data;
+     trace.selection=data;log.selectionResponse=data;
      api.push({kind:"decisions",usage:data.usage,latencyMs:data.latencyMs??null});
      if(!data.selectionValid)throw Error("Decisions API selected no valid action");
      choice=currentFrame.choices.find(c=>c.id===data.selectedChoice);
    }else choice=currentFrame.choices.find(c=>c.id===choiceId);
    if(!choice)throw Error("Selected action is not offered");
+   log.action=choice.id;
    if(!supportsSandboxChoice(choice)){
      const err=new Error("AI chose "+choice.id+"; this sandbox cannot replay that action. Stopped without executing it.");
      Object.assign(err,{selectedAction:choice.id});
@@ -100,12 +122,23 @@ export default function SandboxPage(){
      const data=await response.json();
      if(!response.ok)throw Error(data.error??"Responses generation failed");
      generated=data.generated;
-     trace.generation=data;
+     trace.generation=data;log.generationResponse=data;
      api.push({kind:"responses",usage:data.usage,latencyMs:data.latencyMs??null});
    }
    const next=stepSandbox(current,choice.id,generated);
    trace.validated=next.history.at(-1);
-   return {next,trace:{selected:choice.id,...trace},api};
+   log.outcome=trace.validated;
+   log.status=next.history.at(-1)?.status==="simulated_success"?"success":"failed";
+   log.completedAt=new Date().toISOString();log.usage=[...api];
+   return {next,trace:{selected:choice.id,...trace},api,log};
+   }catch(e){
+     log.error=e instanceof Error?e.message:String(e);
+     log.completedAt=new Date().toISOString();log.usage=[...api];
+     // Preserve paid usage and failed selections even when a step cannot execute.
+     const error=e instanceof Error?e:new Error(String(e));
+     Object.assign(error,{stepLog:log,partialUsage:api});
+     throw error;
+   }
  }
  async function step(){
    if(activeRef.current||sandbox.step>=30)return;
@@ -114,10 +147,21 @@ export default function SandboxPage(){
    try{
      const result=await executeOne(sandbox,mode,selected,controller.signal);
      setApiHistory(h=>[...h,...result.api]);
+     setStepLogs(h=>[...h,result.log]);
      setLast(result.trace);setSandbox(result.next);
      const outcome=result.next.history.at(-1);
      if(outcome?.status!=="simulated_success")setError(outcome?.summary??"Sandbox replay failed");
-   }catch(e){if(!stoppedRef.current)setError(e instanceof Error?e.message:"Step failed");}
+   }catch(e){
+     const diagnostic=e as Error & {stepLog?:StepLog;partialUsage?:UsageRow[]};
+     if(diagnostic.stepLog){
+       setStepLogs(h=>[...h,diagnostic.stepLog!]);
+       setApiHistory(h=>[...h,...(diagnostic.partialUsage??[])]);
+     }
+     if(!stoppedRef.current){
+       const message=e instanceof Error?e.message:"Step failed";
+       setError(message);setRunErrors(h=>[...h,message]);
+     }
+   }
    finally{controllerRef.current=null;activeRef.current=false;setBusy(false);}
  }
  async function runTwenty(){
@@ -137,21 +181,29 @@ export default function SandboxPage(){
        if(stoppedRef.current)break;
        current=result.next;
        setSandbox(current);setLast(result.trace);
+       setStepLogs(h=>[...h,result.log]);
        setApiHistory(h=>[...h,...result.api]);
        completed++;
        const outcome=current.history.at(-1);
        setRunProgress({completed,target,status:"Running"});
        if(outcome?.status!=="simulated_success"){
-         setError("Stopped after "+completed+" step(s): "+(outcome?.summary??"Sandbox action failed"));
+         const message="Stopped after "+completed+" step(s): "+(outcome?.summary??"Sandbox action failed");
+         setError(message);setRunErrors(h=>[...h,message]);
          break;
        }
      }
      setRunProgress({completed,target,status:stoppedRef.current?"Stopped by owner":
        completed===target?"Completed": "Stopped on an unsuccessful step"});
    }catch(e){
+     const diagnostic=e as Error & {stepLog?:StepLog;partialUsage?:UsageRow[]};
+     if(diagnostic.stepLog){
+       setStepLogs(h=>[...h,diagnostic.stepLog!]);
+       setApiHistory(h=>[...h,...(diagnostic.partialUsage??[])]);
+     }
      if(stoppedRef.current)setRunProgress({completed,target,status:"Stopped by owner"});
      else{
-       setError((e instanceof Error?e.message:"AI step failed")+" — stopped after "+completed+" successful step(s).");
+       const message=(e instanceof Error?e.message:"AI step failed")+" — stopped after "+completed+" successful step(s).";
+       setError(message);setRunErrors(h=>[...h,message]);
        setRunProgress({completed,target,status:"Stopped on an error"});
      }
    }finally{controllerRef.current=null;activeRef.current=false;setBusy(false);}
@@ -161,6 +213,31 @@ export default function SandboxPage(){
   return {input:a.input+(usage?.input_tokens??0),output:a.output+(usage?.output_tokens??0)};
  },{input:0,output:0});
  const selectionEstimate=apiHistory.filter(x=>x.kind==="decisions").reduce((sum,x)=>sum+decisionCost(x.usage),0);
+ function exportFullRun(){
+   const decisionCalls=apiHistory.filter(x=>x.kind==="decisions").length;
+   const responseCalls=apiHistory.filter(x=>x.kind==="responses").length;
+   const summary={
+     stepsAttempted:stepLogs.length,stepsSucceeded:stepLogs.filter(x=>x.status==="success").length,
+     stepsFailed:stepLogs.filter(x=>x.status==="failed").length,
+     decisionCalls,responseCalls,
+     inputTokens:tokenTotals.input,outputTokens:tokenTotals.output,
+     estimatedSelectionCostUsd:selectionEstimate,
+     totalBilledCostUsd:null,
+     baselineLegacyCostUsd:null,
+     note:"Selection cost is estimated, not billed. Responses costs and legacy comparison are not yet calculated."
+   };
+   saveJson("nimo-sandbox-run-"+new Date().toISOString().replaceAll(":","-")+".json",{
+     format:"nimo-sandbox-run-v1",exportedAt:new Date().toISOString(),
+     branch:"experiment/decision-context-harness",
+     sandboxType:"browser-isolated-emulator-not-D1-worker",
+     source:{traceId:record.traceId,capturedAt:record.capturedAt??null},
+     summary,runProgress,errors:runErrors,
+     initialWorld:contextOf(record).world,
+     steps:stepLogs,apiUsage:apiHistory,
+     replayOutcomes:sandbox.history,finalWorld:sandbox.world,
+     finalCompactContext:frame.context
+   });
+ }
  return <main className="dh-shell">
   <div className="dh-heading"><div>
    <div className="dh-eyebrow">Nimo / experimental replay</div>
@@ -181,6 +258,7 @@ export default function SandboxPage(){
    <div className="dh-actions">
     <button type="button" className="dh-run" disabled={busy||sandbox.step>=30} onClick={()=>void step()}>Run one sandbox step</button>
     <button type="button" className="dh-run dh-ai" disabled={busy||!owner||sandbox.step>=30} onClick={()=>void runTwenty()}>Run 20 AI decisions</button>
+    <button type="button" className="dh-quiet" onClick={exportFullRun} disabled={!stepLogs.length}>Download full run (JSON)</button>
     {busy?<button type="button" className="dh-quiet" onClick={halt}>Stop run</button>:
       <button type="button" className="dh-quiet" onClick={reset}>Reset</button>}
     {!owner&&<small>For AI and generation, <a href="/world/settings">sign in as owner</a>.</small>}
