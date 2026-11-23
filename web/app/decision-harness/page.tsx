@@ -108,6 +108,7 @@ export default function DecisionHarnessPage(){
     </div>
     <span className="dh-pill">Read-only test harness</span>
    </div>
+   <div className="dh-notice"><a href="/decision-harness/sandbox"><strong>Open the multi-step Decision Sandbox</strong></a> to replay selected actions with isolated state and a focused Responses generation handoff. It does not use the live D1 executor.</div>
    <div className="dh-notice"><strong>Neither mode changes Nimo's world.</strong> Run simulation stays entirely in your browser. Run with AI sends only the compact context and offered choices to our owner-protected server and the OpenAI Decisions API; it incurs a small API charge. Original uploaded archives are never sent. The built-in example is synthetic.</div>
    <section className="dh-panel dh-controls">
     <div className="dh-field">
