@@ -8,7 +8,7 @@ compatibility_date = "2026-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "nimo-world-004"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "b212d201-4b67-4885-8795-9fbe24371dcd"
 
 [[r2_buckets]]
 binding = "ARCHIVES"
