@@ -1,0 +1,25 @@
+# World 004 is an isolated canary. DO NOT replace wrangler.toml with this file.
+# Provision its own D1 and R2, then replace the placeholder database ID.
+# No scheduled trigger until the cloned database and secret are verified.
+name = "nimo-world-004"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nimo-world-004"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "ARCHIVES"
+bucket_name = "nimo-world-004-archives"
+
+[vars]
+OPENAI_MODEL = "gpt-6-luna"
+WORLD_004_MODE = "strategy-e"
+WORLD_004_ENABLED = "false"
+WORLD_004_MAX_DAILY_DECISIONS = "120"
+# Fill an absolute UTC timestamp no more than 24 hours from activation.
+WORLD_004_STOP_AT = "1970-01-01T00:00:00.000Z"
+# Hourly memory consolidation stays disabled until clone/migrations are verified.
+MEMORY_CONSOLIDATION_ENABLED = "false"
