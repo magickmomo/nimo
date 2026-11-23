@@ -301,15 +301,20 @@ export default function SandboxPage(){
   <div className="dh-notice"><a href="/decision-harness/context-experiment"><strong>Compare five context strategies on historical snapshots</strong></a> with 1–5 AI decisions per strategy and a downloadable comparison report.</div>\n  <div className="dh-notice"><strong>Not the live Cloudflare D1 executor.</strong> This is an in-browser replay of a limited set of actions using Nimo's shared map and pathfinding rules. It can test handoffs and repeated decisions, but food effects, storage transactions, Oracle calls and other live mechanics are not emulated. No production world writes occur. AI and generation calls require owner sign-in and incur API charges.</div>
   <section className="dh-panel dh-controls dh-sandbox-controls">
    <div className="dh-field"><label htmlFor="sandbox-upload">World snapshot</label><input id="sandbox-upload" type="file" accept=".json,application/json" onChange={e=>void upload(e)} disabled={busy}/>
-    <small>#{record.traceId} — {record.traceId===SAMPLE.traceId?"built-in sample (AI batch disabled)":captureSource?.type==="live"?"most recent captured real decision input":"real archived input loaded"}</small>
-    {captureSource?.capturedAt&&<small>Captured {new Date(captureSource.capturedAt).toLocaleString()} · {captureSource.type==="live"?"Loaded from live Worker's private decision archive":"Uploaded historical archive"}. Snapshot is frozen for this sandbox run.</small>}
+    <small>#{record.traceId} — {record.traceId===SAMPLE.traceId?"built-in sample (AI batch disabled)":captureSource?.type==="live"?"latest available archived production input":"real archived input loaded"}</small>
+    {captureSource?.capturedAt&&<small>
+     Captured {new Date(captureSource.capturedAt).toLocaleString()} · {
+      Math.round((Date.parse(captureSource.fetchedAt??new Date().toISOString())-Date.parse(captureSource.capturedAt))/3600000*10)/10
+     } hours old when loaded. {captureSource.type==="live"?"This is an archived real decision, NOT a live current-state snapshot.":"Uploaded historical archive."}
+     Snapshot remains frozen throughout this sandbox run.
+    </small>}
    </div>
    <div className="dh-field">
     <label>Read actual production decision context</label>
     <button type="button" className="dh-run" disabled={busy||loadingLive||!owner} onClick={()=>void loadLatestLiveContext()}>
-     {loadingLive?"Reading private decision archive…":"Load latest real decision context"}
+     {loadingLive?"Reading private decision archive…":"Load latest archived production decision"}
     </button>
-    <small>Reads the exact last captured live decision input from private R2. It may be minutes or hours old, and does not advance Nimo's world. Reset and reload to start from a newer capture.</small>
+    <small>Reads the latest available decision input in private R2, which may be over a day old. This is NOT a live refresh of Nimo's current state. Reset and reload to check whether newer inputs have been captured.</small>
    </div>
    <div className="dh-field"><label htmlFor="sandbox-mode">Selection mode</label>
     <select id="sandbox-mode" value={mode} disabled={busy} onChange={e=>setMode(e.target.value as "manual"|"ai")}><option value="manual">Manual decision</option><option value="ai">Decisions API (real AI)</option></select>
