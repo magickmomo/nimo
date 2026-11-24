@@ -1222,6 +1222,54 @@ export default {
           return offlineWorldSnapshot(env);
         }
       }
+      // Isolated, owner-authenticated export of the complete bounded World 004
+      // experiment window. Unlike the historical ledger, this filters by time,
+      // so thousands of copied World 003 events cannot hide the canary results.
+      if (path === "/export/canary" && request.method === "GET") {
+        if(env.WORLD_004_MODE!=="strategy-e")
+          return json({error:"World 004 export is not available on this worker"},404);
+        const since=env.WORLD_004_START_AT??"";
+        const until=env.WORLD_004_STOP_AT??"";
+        const start=Date.parse(since),stop=Date.parse(until);
+        if(!Number.isFinite(start)||!Number.isFinite(stop)||
+          start<Date.parse("2026-11-24T00:00:00.000Z")||
+          stop<=start||stop-start>86400000)
+          return json({error:"World 004 experiment window is not configured"},409);
+        const limit=3000;
+        const datasets=[
+          ["events","SELECT * FROM events WHERE created_at>=? AND created_at<? ORDER BY id ASC LIMIT ?"],
+          ["decisions","SELECT * FROM decisions WHERE created_at>=? AND created_at<? ORDER BY id ASC LIMIT ?"],
+          ["actionTrace","SELECT * FROM action_trace WHERE started_at>=? AND started_at<? ORDER BY id ASC LIMIT ?"],
+          ["rewards","SELECT * FROM world_rewards WHERE created_at>=? AND created_at<? ORDER BY id ASC LIMIT ?"],
+          ["sketchesChanged","SELECT * FROM nimo_sketches WHERE updated_at>=? AND updated_at<? ORDER BY id ASC LIMIT ?"],
+          ["documentsChanged","SELECT * FROM documents WHERE updated_at>=? AND updated_at<? ORDER BY path ASC LIMIT ?"],
+          ["projectsChanged","SELECT * FROM nimo_projects WHERE updated_at>=? AND updated_at<? ORDER BY id ASC LIMIT ?"],
+          ["objectObservations","SELECT * FROM object_observations WHERE observed_at>=? AND observed_at<? ORDER BY id ASC LIMIT ?"],
+          ["experienceEvaluations","SELECT * FROM experience_evaluations WHERE created_at>=? AND created_at<? ORDER BY id ASC LIMIT ?"],
+          ["oracleQuestions","SELECT * FROM oracle_queries WHERE asked_at>=? AND asked_at<? ORDER BY id ASC LIMIT ?"]
+        ] as const;
+        const rows=await Promise.all(datasets.map(async ([name,sql])=>{
+          const result=await env.DB.prepare(sql).bind(since,until,limit+1).all<Record<string,unknown>>();
+          return {name,items:result.results.slice(0,limit),truncated:result.results.length>limit};
+        }));
+        const out:Record<string,unknown>={
+          format:"nimo-world-004-canary-v1",exportedAt:new Date().toISOString(),
+          experiment:{start:since,stop:until,maxDecisions:Number(env.WORLD_004_MAX_RUN_DECISIONS??120),
+            mode:env.WORLD_004_MODE,model:env.OPENAI_MODEL,enabled:env.WORLD_004_ENABLED},
+          finalSnapshot:await publicWorldSnapshot(env.DB),
+          documents:await documents(env.DB),
+          projects:await projectList(env.DB),
+          sketchbook:await sketchbookSnapshot(env.DB,true),
+          truncatedTables:rows.filter(x=>x.truncated).map(x=>x.name),
+          decisionContextExport:"/decision-context/export?date=YYYY-MM-DD (R2, paginated)"
+        };
+        for(const row of rows)out[row.name]=row.items;
+        return new Response(JSON.stringify(out),{
+          headers:{"Content-Type":"application/json; charset=utf-8",
+            "Content-Disposition":'attachment; filename="nimo-world-004-canary.json"',
+            "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}
+        });
+      }
       if (path === "/export" && request.method === "GET") {
         return json(await exportLedger(env.DB, env.OPENAI_MODEL || "gpt-6-luna"));
       }
