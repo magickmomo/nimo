@@ -1063,6 +1063,13 @@ async function offlineWorldSnapshot(env:Env):Promise<Response> {
 
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // World 004 runs ONLY inside its absolute experiment window and total
+    // decision budget. This protects auxiliary scheduled tasks (Oracle research,
+    // snapshots and archiving) as well as the ordinary autonomous tick.
+    if(env.WORLD_004_MODE==="strategy-e"){
+      const status=await world004Guard(env,new Date());
+      if(status)return;
+    }
     // Cloudflare cron is minute-granular. Within each invocation poll active
     // journeys at shorter intervals; make LLM decisions only when idle and due.
     // The UK sleep clock is independent of owner pause and of daily archiving.
