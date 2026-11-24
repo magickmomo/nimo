@@ -1,0 +1,175 @@
+name: Run isolated World 004 for one awake hour
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type RUN-004-ONE-HOUR to schedule World 004 for the next UK 06:00-07:00'
+        required: true
+        type: string
+      revision:
+        description: 'Exact current commit SHA of reviewed World 004 PR #125'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: nimo-world-004-deployment
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: ${{ inputs.confirm == 'RUN-004-ONE-HOUR' && inputs.revision != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: world-004
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORLD_004_API_TOKEN }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+    steps:
+      - name: Verify selected World 004 PR head and checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Full commit SHA required"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/pulls/125" > "$RUNNER_TEMP/pr.json"
+          test "$(jq -r '.head.sha' "$RUNNER_TEMP/pr.json")" = "$REVISION" || { echo "::error::PR head has changed"; exit 1; }
+          test "$(jq -r '.draft' "$RUNNER_TEMP/pr.json")" = false || { echo "::error::PR still draft"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$REVISION/check-runs" > "$RUNNER_TEMP/checks.json"
+          jq -e '[.check_runs[] | select(.name=="worker" or .name=="verify" or .name=="verify-canary")] | length >= 3' "$RUNNER_TEMP/checks.json" >/dev/null
+          jq -e '[.check_runs[] | select(.name=="worker" or .name=="verify" or .name=="verify-canary")] | all(.[];.conclusion=="success")' "$RUNNER_TEMP/checks.json" >/dev/null
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check code and safe inactive configuration
+        working-directory: world-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run check:world004
+          grep -q '^WORLD_004_ENABLED = "false"$' wrangler.world-004.toml
+          ! grep -q '^crons\s*=' wrangler.world-004.toml
+
+      - name: Verify both credentials and isolated D1 starting state
+        shell: bash
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_D1_API_TOKEN"
+          npx wrangler d1 execute nimo-world-004 --remote --config wrangler.world-004.toml --json --command "SELECT (SELECT autonomous_enabled FROM world_control WHERE id=1) AS enabled, (SELECT COUNT(*) FROM decisions) AS decisions, (SELECT COUNT(*) FROM events) AS events" > "$RUNNER_TEMP/canary-start.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload=json.loads((Path(os.environ['RUNNER_TEMP'])/'canary-start.json').read_text())
+          rows=[v for entry in payload for v in entry.get('results',[])]
+          assert len(rows)==1 and rows[0]['enabled']==0, 'Canary was already unpaused'
+          assert rows[0]['decisions']==0, 'Canary decision log is not empty; refusing a repeat run'
+          assert rows[0]['events']>=11000, 'World 004 history not present'
+          print('Fresh World 004 canary confirmed paused; no World 003 access')
+          PY
+
+      - name: Calculate next UK morning's 06:00-07:00 window and enable canary config
+        working-directory: world-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from datetime import datetime,timezone,timedelta,time
+          from zoneinfo import ZoneInfo
+          now=datetime.now(timezone.utc)
+          local=now.astimezone(ZoneInfo("Europe/London"))
+          start_local=datetime.combine(local.date(),time(6,0),tzinfo=ZoneInfo("Europe/London"))
+          if start_local.astimezone(timezone.utc)<=now+timedelta(minutes=5):
+              start_local+=timedelta(days=1)
+          start=start_local.astimezone(timezone.utc)
+          stop=start+timedelta(hours=1)
+          path=Path('wrangler.world-004.toml')
+          config=path.read_text()
+          expected={
+            'WORLD_004_ENABLED = "false"':'WORLD_004_ENABLED = "true"',
+            'WORLD_004_START_AT = "1970-01-01T00:00:00.000Z"':'WORLD_004_START_AT = "'+start.isoformat(timespec='milliseconds').replace('+00:00','Z')+'"',
+            'WORLD_004_STOP_AT = "1970-01-01T00:00:00.000Z"':'WORLD_004_STOP_AT = "'+stop.isoformat(timespec='milliseconds').replace('+00:00','Z')+'"',
+          }
+          for before,after in expected.items():
+              assert config.count(before)==1, 'Unexpected canary config'
+              config=config.replace(before,after)
+          assert 'name = "nimo-world-004"' in config
+          assert 'database_name = "nimo-world-004"' in config
+          assert 'bucket_name = "nimo-world-004-archives"' in config
+          assert 'WORLD_004_MAX_RUN_DECISIONS = "120"' in config
+          assert '[triggers]' not in config
+          config+='\n[triggers]\ncrons = ["* * * * *"]\n'
+          path.write_text(config)
+          with open(Path(__import__('os').environ['RUNNER_TEMP'])/'canary-window.txt','w') as f:
+              f.write(start.isoformat()+'\n'+stop.isoformat()+'\n')
+          print('Scheduled one-hour canary: '+start.isoformat()+' to '+stop.isoformat())
+          PY
+          # One-hour future window is intentional. The worker guard refuses all
+          # decisions before start and at/after stop, independently of cron.
+          grep -q '^WORLD_004_ENABLED = "true"$' wrangler.world-004.toml
+          grep -q '^crons = \["\* \* \* \* \*"\]$' wrangler.world-004.toml
+
+      - name: Deploy only World 004 with scheduled hard stop
+        working-directory: world-worker
+        run: npx wrangler deploy --config wrangler.world-004.toml
+
+      - name: Arm the isolated owner control without issuing a model request
+        working-directory: world-worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute nimo-world-004 --remote --config wrangler.world-004.toml --json --command "UPDATE world_control SET autonomous_enabled=1, updated_at=datetime('now') WHERE id=1 AND autonomous_enabled=0" > "$RUNNER_TEMP/armed.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          payload=json.loads((Path(os.environ['RUNNER_TEMP'])/'armed.json').read_text())
+          assert len(payload)==1 and payload[0].get('success') is True
+          assert payload[0].get('meta',{}).get('changes')==1, 'Expected exactly one isolated owner-control transition'
+          PY
+          npx wrangler d1 execute nimo-world-004 --remote --config wrangler.world-004.toml --json --command "SELECT autonomous_enabled FROM world_control WHERE id=1" > "$RUNNER_TEMP/verify.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'verify.json').read_text())
+          assert data[0]['results']==[{'autonomous_enabled':1}]
+          PY
+
+      - name: Record experiment plan and export links
+        shell: bash
+        run: |
+          {
+            echo '## World 004 one-hour Strategy E canary'
+            echo 'Autonomy start and hard stop (UTC):'
+            cat "$RUNNER_TEMP/canary-window.txt"
+            echo ''
+            echo 'Decision maximum: 120 for the entire run.'
+            echo 'Worker: nimo-world-004; D1: nimo-world-004; archive: nimo-world-004-archives.'
+            echo 'Model calls are blocked by the absolute start/stop guard outside the window.'
+            echo 'Owner-only ledger: https://nimo-world-004.vercel.app/api/world/export'
+            echo 'Owner-only decision contexts: https://nimo-world-004.vercel.app/api/world/decision-context/export?date=YYYY-MM-DD'
+          } >> "$GITHUB_STEP_SUMMARY"
