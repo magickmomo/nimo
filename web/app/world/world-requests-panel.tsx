@@ -15,6 +15,7 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
  // A retry must not deliver the same explanation twice to Nimo.
  const replyKeys=useRef<Record<number,string>>({});
  const [busy,setBusy]=useState<number|null>(null);
+ const [submissionErrors,setSubmissionErrors]=useState<Record<number,string>>({});
  const [loading,setLoading]=useState(true);
  const [refreshing,setRefreshing]=useState(false);
  const [error,setError]=useState("");
@@ -45,6 +46,7 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
   const message=current.message.trim();
   if(sendMessage&&!message)return;
   setBusy(item.id);setError("");setNotice("");
+  setSubmissionErrors(old=>{const next={...old};delete next[item.id];return next;});
   const key=sendMessage?(replyKeys.current[item.id]??crypto.randomUUID()):null;
   if(key)replyKeys.current[item.id]=key;
   try{
@@ -61,7 +63,11 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
    }else setNotice("Request status saved.");
    setDrafts(old=>{const next={...old};delete next[item.id];return next;});
    await load();
-  }catch(e){setError(e instanceof Error?e.message:"Could not update request");}
+  }catch(e){
+   const reason=e instanceof Error?e.message:"Could not update request";
+   setSubmissionErrors(old=>({...old,[item.id]:reason}));
+   setError(`Request #${item.id}: ${reason}`);
+  }
   finally{setBusy(null);}
  }
  const pending=items.filter(x=>x.status==="pending").length;
@@ -101,7 +107,7 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
       const draft=drafts[item.id]??{status:item.status,message:""};
       const hasReply=Boolean(draft.message.trim());
       return <article className="nimo-request-entry" key={item.id}>
-       <div className="nimo-request-meta"><strong>Request #{item.id} · {item.status}</strong><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></div>
+       <div className="nimo-request-meta"><strong>Request #{item.id} · {item.status}</strong><span className="meta">{/^WORLD EXPANSION \((?:add|modify)\):/.test(item.content)?"World expansion proposal":"General request"}</span><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></div>
        <p>{item.content}</p>
        {item.times_asked>1&&<p className="meta">Mentioned {item.times_asked} times</p>}
        {item.responses?.length>0&&<details className="nimo-request-responses">
@@ -125,11 +131,12 @@ export default function WorldRequestsPanel({onClose,onUpdated}:{onClose:()=>void
         placeholder="Explain what you implemented, what changed, or why this request isn't possible yet…"
         value={draft.message} disabled={busy!==null}
         onChange={e=>{delete replyKeys.current[item.id];updateDraft(item,{message:e.target.value});}}/>
+       {submissionErrors[item.id]&&<p className="world-warning" role="alert">Could not send: {submissionErrors[item.id]}</p>}
        <div className="nimo-request-buttons">
         <button type="button" disabled={busy!==null||draft.status===item.status}
          onClick={()=>void submit(item,false)}>Save status only</button>
         <button type="button" disabled={busy!==null||!hasReply}
-         onClick={()=>void submit(item,true)}>{busy===item.id?"Saving…":"Send response to Nimo"}</button>
+         onClick={()=>void submit(item,true)}>{busy===item.id?"Sending…":"Send response to Nimo"}</button>
        </div>
       </article>;
      })
