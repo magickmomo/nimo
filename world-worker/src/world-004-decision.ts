@@ -184,6 +184,20 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
   {id:"request",description:"Ask creator for help.",tool:null},
   {id:"write_journal",description:"Write a deliberately chosen journal entry.",tool:null}
  ];
+ // While a visitor intention is pending, retain explicit model-generated
+ // intentDisposition so Nimo can choose whether a verified action fulfils it.
+ // Do not silently keep a completed commitment forever.
+ if(asObj(w.state).pendingIntent){
+  for(const a of rows(w.availableActions)){
+   const name=a.name;
+   if(typeof name!=="string"||!/^[a-z_]{2,50}$/.test(name))continue;
+   const targets=Object.entries(a).filter(([key,value])=>key!=="name"&&Array.isArray(value))
+    .map(([key,value])=>key+": "+JSON.stringify(value).slice(0,230)).join("; ");
+   actions.push({id:name,tool:name,description:"Use "+name+(targets?"; eligible "+targets:"")});
+  }
+  if(actions.length>255)throw Error("World 004 action list exceeds 255 choices");
+  return actions;
+ }
  const p=asObj(w.perception);
  const add=(name:string,params:R,label:string)=>actions.push({
   id:"direct_"+actions.length,tool:name,toolCall:{name,...params},description:label});
