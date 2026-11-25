@@ -210,6 +210,9 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
    continue;
   }
   if(name==="travel_to"){
+   // Keep a generative choice for destinations outside the immediate viewport.
+   // Only the visible grounded candidate destinations can be direct choices.
+   actions.push({id:name,tool:name,description:"Travel to a known destination beyond the immediately offered points."});
    const pos=asObj(p.position);
    const tiles=rows(p.visibleTiles).filter(t=>t.object==null&&Number.isInteger(Number(t.x))&&Number.isInteger(Number(t.y))&&
     Number(t.x)>=1&&Number(t.x)<=16&&Number(t.y)>=1&&Number(t.y)<=16&&(t.x!==pos.x||t.y!==pos.y)).slice(0,65);
@@ -228,7 +231,6 @@ export function world004ActionMatches(choice:Selection,decision:Decision):boolea
  if(choice.tool)return decision.action==="ACT"&&decision.toolCall?.name===choice.tool;
  if(choice.id==="reply")return decision.action==="REPLY"&&decision.toolCall===null;
  if(choice.id==="request")return decision.action==="REQUEST"&&decision.toolCall===null;
- if(choice.id==="write_journal")return decision.action==="WRITE_JOURNAL"&&decision.toolCall===null;
  if(choice.id==="write_journal")return decision.action==="WRITE_JOURNAL"&&decision.toolCall===null;
  if(choice.id==="observe")return decision.action==="OBSERVE"&&decision.toolCall===null;
  return choice.id==="think"&&decision.action==="THINK"&&decision.toolCall===null;
@@ -273,10 +275,13 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  const choice=options.find(o=>o.id===id);
  if(!choice)throw Error("World 004 selector returned invalid choice");
  const selectionUsage=usageOf(choiceResponse);
+ // Selection alone is a complete model request for parameter-ready actions.
+ // Audit it even when Responses generation is intentionally skipped.
+ args.onRequest(selectionPayload);
  if(choice.toolCall||choice.id==="observe"){
   const prior=asObj(world.state);
   const result=validateDecision({action:choice.toolCall?"ACT":"OBSERVE",monologue:"",
-   activity:clip(prior.currentActivity,120),goal:prior.currentGoal??null,
+   activity:choice.toolCall?("Executing "+choice.tool+" action").slice(0,120):"Observing surroundings",goal:prior.currentGoal??null,
    identityUpdate:null,replyIntent:null,intentDisposition:"keep",
    toolCall:choice.toolCall??null},false,true);
   args.onUsage(selectionUsage);
