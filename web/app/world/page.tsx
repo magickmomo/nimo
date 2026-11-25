@@ -20,6 +20,8 @@ type ExperimentStatus = {
   traceCounts:Record<string,number>;
   usage:{calls:number;inputTokens:number;cachedInputTokens:number;outputTokens:number};
   tracesTruncated:boolean;
+  manualAutonomousEnabled?:boolean;
+  recentOutcomes?:{at:string;action:string|null;text:string}[];
 };
 
 type ObjectRecord = {
@@ -491,6 +493,9 @@ export default function World() {
         {experiment ? <>
           <p><strong>{experiment.decisions} / {experiment.maxDecisions} decisions</strong> · {new Date(experiment.start).toLocaleString()}–{new Date(experiment.stop).toLocaleTimeString()}</p>
           <p className="meta">Model calls: {experiment.usage.calls} · Input: {experiment.usage.inputTokens.toLocaleString()} tokens · Output: {experiment.usage.outputTokens.toLocaleString()} tokens · Failed traces: {Object.entries(experiment.traceCounts).filter(([name])=>name.endsWith(":failed")).reduce((total,[,count])=>total+count,0)}{experiment.tracesTruncated?" (trace summary truncated)":""}</p>
+          <p className="meta">Worker configured: {experiment.enabled?"yes":"no"} · Owner control: {experiment.manualAutonomousEnabled?"awake":"paused"} · Journal entries in selected range: {journalEvents.length}{journalEvents.length?` · Latest ${new Date(journalEvents[0].created_at).toLocaleTimeString()}`:""}</p>
+          {experiment.decisions>0 && journalEvents.length===0 && <p className="world-warning" role="status">Decisions are recorded, but no journal events were returned for the selected time range. Check the journal API, event timestamps, and selected history window.</p>}
+          {!!experiment.recentOutcomes?.length && <details><summary>Recent tool outcomes and errors ({experiment.recentOutcomes.length})</summary><ul>{experiment.recentOutcomes.slice(0,10).map((outcome,i)=><li key={i}>{new Date(outcome.at).toLocaleTimeString()} · {outcome.action??"event"}: {outcome.text}</li>)}</ul></details>}
           <button type="button" disabled={exporting} onClick={()=>void exportWorld("/api/world/experiment/export")}>Download experiment JSON</button>
         </> : <p className="meta">Loading experiment status…</p>}
         {experimentError && <p role="alert" className="world-warning">{experimentError}</p>}
