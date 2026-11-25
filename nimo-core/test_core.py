@@ -77,6 +77,25 @@ class CoreTests(unittest.TestCase):
         error = self.rows("SELECT error FROM model_calls WHERE purpose='consolidate'")[0]["error"]
         self.assertIn("Intentional reflection failure", error)
 
+    def test_invalid_evidence_never_enters_fallback_memory(self):
+        class UnsupportedReflection(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint == "responses" and '"consolidate"' in payload["input"][1]["content"]:
+                    return {"output": [{"content": [{"type": "output_text", "text": json.dumps({
+                        "reflection": "I am unquestionably a master artist.",
+                        "identity_note": "I have always been a master artist.",
+                        "evidence_decision_ids": [999999]
+                    })}]}], "usage": {}}
+                return super().call(endpoint, payload)
+        core.run(self.db, UnsupportedReflection(), 10)
+        memory = self.rows("SELECT * FROM memories")[0]
+        self.assertEqual(memory["status"], "fallback")
+        self.assertIsNone(memory["reflection"])
+        self.assertIsNone(memory["tentative_identity_note"])
+        later = core.recent_context(self.db)["recent_memories"][0]
+        self.assertIsNone(later["reflection"])
+        self.assertIsNone(later["tentative_identity_note"])
+
     def test_oracle_max_three_per_utc_day(self):
         # Force the selector to choose Oracle whenever offered.
         class OracleFirst(core.MockAI):
