@@ -8,6 +8,7 @@ const ACTIONS:Record<string,Activity> = {
   draw_strokes:{name:"drawing",category:"creativity",phase:"continue"},
   finish_sketch:{name:"drawing",category:"creativity",phase:"continue"},
   write_document:{name:"writing",category:"creativity",phase:"instant"},
+  write_journal:{name:"journaling",category:"creativity",phase:"instant"},
   travel_to:{name:"exploring",category:"exploration",phase:"instant"},
   inspect:{name:"investigating",category:"exploration",phase:"instant"},
   remember_object:{name:"recording_observations",category:"exploration",phase:"instant"},
