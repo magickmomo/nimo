@@ -53,5 +53,5 @@ test("World 004 completes parameterised selections without a Responses call",()=
  assert.match(adapter,/curiosityGuidance:clip\(w\.curiosityGuidance,2000\)/);
  assert.match(adapter,/goalReview:\{existingGoal:/);
  assert.match(adapter,/name==="travel_to"/);
- assert.match(adapter,/name==="eat_fruit"\|\|name==="discard_fruit"/);
+ assert.match(adapter,/\["eat_fruit","discard_fruit"\]\.includes\(name\)/);
 });
