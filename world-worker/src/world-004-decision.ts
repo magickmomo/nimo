@@ -78,6 +78,7 @@ export function world004ActionMatches(choice:Selection,decision:Decision):boolea
 type Args={
  apiKey:string; model:string; originalMessages:Message[]; responseFormat:R; hasVisitor:boolean;
  onUsage:(usage:Record<string,number>)=>void; onRequest:(payload:unknown)=>void;
+ onSelection:(stage:{request:unknown;response:unknown;selectedAction:string|null;durationMs:number})=>void;
 };
 const usageOf=(r:R)=>{const u=asObj(r.usage);const cached=asObj(u.input_tokens_details);
  return {input_tokens:Number(u.input_tokens??0),cached_input_tokens:Number(cached.cached_tokens??0),output_tokens:Number(u.output_tokens??0)};
@@ -99,6 +100,7 @@ export async function decideWorld004(args:Args):Promise<Decision>{
   ],
   questions:[{type:"choice",name:"next_action",instructions:"Choose one next action based on current interests, needs, verified world state, and real executable choices. Only offered actions may execute.",choices:options.map(o=>({value:o.id,description:o.description}))}]
  };
+ const selectionStarted=Date.now();
  const selected=await fetch("https://api.openai.com/v1/decisions",{
   method:"POST",headers:{Authorization:"Bearer "+args.apiKey,"Content-Type":"application/json"},
   body:JSON.stringify(selectionPayload),signal:AbortSignal.timeout(25000)
@@ -107,6 +109,7 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  if(!selected.ok)throw Error("World 004 selection API returned HTTP "+selected.status+": "+clip(asObj(choiceResponse.error).message,150));
  const rawChoice=rows(choiceResponse.answers).find(x=>x.name==="next_action");
  const id=rawChoice?.type==="choice"?rawChoice.choice:null;
+ args.onSelection({request:selectionPayload,response:choiceResponse,selectedAction:typeof id==="string"?id:null,durationMs:Date.now()-selectionStarted});
  const choice=options.find(o=>o.id===id);
  if(!choice)throw Error("World 004 selector returned invalid choice");
  const selectionUsage=usageOf(choiceResponse);
