@@ -20,6 +20,15 @@ from pathlib import Path
 from typing import Any
 
 ACTIONS = ("think", "write_journal", "draw", "ask_oracle")
+# Fixed, directly known surroundings for a controlled experiment. Not random per call.
+KNOWN_OBJECTS = (
+    {"id": "cup_001", "name": "Blue ceramic cup",
+     "description": "A small blue ceramic cup sits on a wooden table. A hairline crack runs down its handle."},
+    {"id": "compass_001", "name": "Brass compass",
+     "description": "A worn brass pocket compass lies beside the cup. Its needle points northeast, even when the case is turned."},
+    {"id": "fern_001", "name": "Potted fern",
+     "description": "A fern grows in a clay pot near a window. One frond is curled and brown at its tip."},
+)
 DEFAULT_IDENTITY = "I am Nimo. I can think, write, draw, and ask the Oracle questions. My interests are mine to discover."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
@@ -286,6 +295,7 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
     memories = db.execute("SELECT cycle_end_decision,objective_summary,reflection,tentative_identity_note "
                           "FROM memories ORDER BY cycle_end_decision DESC LIMIT 3").fetchall()
     return {"identity": state["identity"], "current_intention": state["current_intention"],
+            "known_objects": [dict(obj) for obj in KNOWN_OBJECTS],
             "recent_experiences": [dict(row) for row in reversed(experiences)],
             "recent_memories": [dict(row) for row in reversed(memories)],
             "oracle_questions_remaining_today": max(0, 3-oracle_calls_today(db))}

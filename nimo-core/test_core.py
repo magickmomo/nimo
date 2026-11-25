@@ -29,6 +29,25 @@ class CoreTests(unittest.TestCase):
             core.run(self.db, self.ai, 1)
         self.assertEqual(len(self.rows("SELECT * FROM decisions")), 1)
 
+    def test_three_fixed_objects_reach_selector_and_generation_without_new_actions(self):
+        expected = [dict(item) for item in core.KNOWN_OBJECTS]
+        self.assertEqual(len(expected), 3)
+        first = core.run_one(self.db, self.ai)
+        self.assertEqual(first["status"], "completed")
+        record = self.rows("SELECT context_json,offered_json FROM decisions WHERE id=1")[0]
+        context = json.loads(record["context_json"])
+        self.assertEqual(context["known_objects"], expected)
+        self.assertEqual(json.loads(record["offered_json"]), list(core.ACTIONS))
+        calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
+        self.assertEqual([c["purpose"] for c in calls], ["select", "think"])
+        selection_payload = json.loads(calls[0]["request_json"])
+        self.assertEqual(selection_payload["input"][1]["content"][0]["data"]["known_objects"], expected)
+        generation_payload = json.loads(calls[1]["request_json"])
+        self.assertEqual(json.loads(generation_payload["input"][1]["content"])["context"]["known_objects"], expected)
+        core.run_one(self.db, self.ai)
+        second = json.loads(self.rows("SELECT context_json FROM decisions WHERE id=2")[0]["context_json"])
+        self.assertEqual(second["known_objects"], expected)
+
     def test_ten_decisions_guarantee_one_memory_even_with_failures(self):
         results = core.run(self.db, self.ai, 10)
         self.assertEqual(len(results), 10)
