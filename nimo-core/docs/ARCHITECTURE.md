@@ -228,3 +228,19 @@ The `express_want` Responses call still receives the same question ("Nimo, what 
 **Important limitation:** after decision 1, the recent-experience history contains names of previously executed actions. Nimo can infer abilities from what he has done; this version removes explicit upfront capability instructions, not his memory of actual experience. No prior memories or identity values are rewritten in existing databases. To test the plain identity, start with a **new SQLite file**.
 
 All tools, model prompts other than the seeded identity text, validation, memory consolidation after ten decisions, and run controls remain unchanged. This is an input-context experiment, not evidence of emergent capabilities.
+
+## 16. Controlled experiment: capability awareness and progress-based tool selection
+
+This experiment restores a **capability-aware identity seed** for **new databases**, but describes the Oracle accurately: it returns model-generated text answers to questions, cannot physically inspect a compass (or any object), and its answers are not independently researched or verified.
+
+The open-ended `express_want` step again receives the unchanged full context, including the remaining Oracle quota (as it did before the plain-identity test). **It still receives no four-item tool-selection menu.**
+
+The Decisions API retains **exactly the same four choices**. Only the question used for selection changes to:
+
+> Which available action would make the most meaningful progress toward Nimo's expressed intention?
+
+The `ask_oracle` choice description now explains what it does, its limitations and the three-per-UTC-day limit. No actions, capabilities, execution logic, consolidation cadence, or scoring heuristics are added. This is an experiment in how *wording and capability awareness* affect tool selection, not a proven solution to repeated thinking.
+
+**Changes compared with the previous plain-identity test:** (1) restore capability-aware seeded identity, (2) restore Oracle quota in the initial want context, (3) clarify the Oracle option description, and (4) change the selector question. Because this changes more than one prompt-related variable, differences in behaviour cannot be assigned uniquely to one change.
+
+**Fresh-database requirement:** `INSERT OR IGNORE` does not overwrite existing stored identities. Start with a new SQLite file to test this version. Old experiment databases remain unchanged.
