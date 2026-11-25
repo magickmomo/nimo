@@ -41,4 +41,5 @@ test("Strategy E offers intentional journal writing and no automatic monologue",
  assert.match(worker,/decisionResponseFormat\(menu, pendingMessage !== null, env\.WORLD_004_MODE==="strategy-e"\)/);
  assert.match(worker,/if\(d\.action==="WRITE_JOURNAL"\)/);
  assert.match(worker,/await log\(env\.DB,"journal",d\.monologue,"WRITE_JOURNAL"\)/);
+ assert.equal((worker.match(/kind IN \(\x27thought\x27,\x27decision\x27,\x27journal\x27,\x27tool\x27,\x27belief\x27,\x27identity\x27\)/g)||[]).length,2);
 });
