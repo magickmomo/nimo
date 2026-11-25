@@ -6,6 +6,8 @@
 
 ### The loop
 
+First, Responses asks Nimo **"What would you like to do?"** and records his free-form answer as `expressed_want`. The existing Decisions API then selects one of the same four choices, with that answer added to its context.
+
 One of four choices: **think, write in journal, draw, ask Oracle**. Decisions API selects the choice. Responses creates content only for the selected action. The executor validates the content and saves its actual result. Every **10 attempted decisions** produces exactly one memory: a guaranteed factual summary plus an optional model reflection.
 
 | File | Why it exists |
@@ -37,7 +39,7 @@ export NIMO_CORE_MODEL="gpt-6-luna"
 python nimo_core.py --db ./live-trial.sqlite3 run --live --decisions 10
 \`\`\`
 
-**No live run is automatically started.** This command will make paid Decisions and Responses API requests, including an extra Oracle answer call when selected and one consolidation call at decision 10. A single command is hard-capped at ten decisions. Use a fresh database to begin from a blank slate.
+**No live run is automatically started.** This command will make one additional paid Responses call per attempted decision to ask Nimo what he wants, as well as paid Decisions and Responses API requests, including an extra Oracle answer call when selected and one consolidation call at decision 10. A single command is hard-capped at ten decisions. Use a fresh database to begin from a blank slate.
 
 ### Inspect artwork and the audit trail
 
