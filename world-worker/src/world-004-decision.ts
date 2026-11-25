@@ -79,6 +79,7 @@ type Args={
  apiKey:string; model:string; originalMessages:Message[]; responseFormat:R; hasVisitor:boolean;
  onUsage:(usage:Record<string,number>)=>void; onRequest:(payload:unknown)=>void;
  onSelection:(stage:{request:unknown;response:unknown;selectedAction:string|null;durationMs:number})=>void;
+ onGeneration:(stage:{response:unknown;durationMs:number;httpStatus:number})=>void;
 };
 const usageOf=(r:R)=>{const u=asObj(r.usage);const cached=asObj(u.input_tokens_details);
  return {input_tokens:Number(u.input_tokens??0),cached_input_tokens:Number(cached.cached_tokens??0),output_tokens:Number(u.output_tokens??0)};
@@ -129,11 +130,13 @@ export async function decideWorld004(args:Args):Promise<Decision>{
   text:{format:{...asObj(asObj(args.responseFormat).json_schema),type:"json_schema"}},
  };
  args.onRequest(generationPayload);
+ const generationStarted=Date.now();
  const generated=await fetch("https://api.openai.com/v1/responses",{
   method:"POST",headers:{Authorization:"Bearer "+args.apiKey,"Content-Type":"application/json"},
   body:JSON.stringify(generationPayload),signal:AbortSignal.timeout(60000)
  });
  const genResponse=asObj(await generated.json());
+ args.onGeneration({response:genResponse,durationMs:Date.now()-generationStarted,httpStatus:generated.status});
  const generationUsage=usageOf(genResponse);
  args.onUsage({input_tokens:selectionUsage.input_tokens+generationUsage.input_tokens,
   cached_input_tokens:selectionUsage.cached_input_tokens+generationUsage.cached_input_tokens,
