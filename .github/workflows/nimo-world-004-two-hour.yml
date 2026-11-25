@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   activate:
-    if: ${{ inputs.confirm == 'RUN-004-ONE-HOUR' && inputs.revision != '' }}
+    if: ${{ inputs.confirm == 'RUN-004-TWO-HOURS' && inputs.revision != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: world-004
@@ -83,7 +83,7 @@ jobs:
           from pathlib import Path
           payload=json.loads((Path(os.environ['RUNNER_TEMP'])/'canary-start.json').read_text())
           rows=[v for entry in payload for v in entry.get('results',[])]
-          assert len(rows)==1 and rows[0]['events']>=11000, 'World 004 clone missing'
+          assert len(rows)==1 and rows[0]['events']>=11000, 'World 004 clone missing'\n          assert rows[0]['enabled'] in (0,1), 'Invalid World 004 control state'
           assert rows[0]['decisions']>=88, 'Previous World 004 run not present'
           print('World 004 historical data present; previous decisions preserved')
           PY
