@@ -81,7 +81,7 @@ const obj=(properties:Record<string,unknown>)=>({
 
 /** Constrained response schema: an unavailable tool or target cannot be selected
  * through the model's structured output interface. Runtime checks still apply. */
-export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false) {
+export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false, intentionalJournal=false) {
   const variants:unknown[]=[{type:"null"}];
   if(!hasPendingVisitor) {
     if(menu.restAtNook)variants.push(obj({name:{type:"string",enum:["rest"]}}));
@@ -127,7 +127,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
     }));
   }
   const schema=obj({
-    action:{type:"string",enum:hasPendingVisitor?["REPLY"]:["OBSERVE","THINK","REMEMBER","ACT","REQUEST"]},
+    action:{type:"string",enum:hasPendingVisitor?["REPLY"]:intentionalJournal?["OBSERVE","THINK","REMEMBER","ACT","REQUEST","WRITE_JOURNAL"]:["OBSERVE","THINK","REMEMBER","ACT","REQUEST"]},
     monologue:string(1800),activity:string(120),
     goal:nullableString(250),
     identityUpdate:{anyOf:[{type:"null"},obj({text:string(500),evidence:string(250)})]},

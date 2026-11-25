@@ -10,7 +10,7 @@ test("World 004 selection is grounded in the real dynamic action menu",()=>{
  assert.match(adapter,/world004Choices\(world,args\.hasVisitor\)/);
  assert.match(adapter,/\/v1\/decisions/);
  assert.match(adapter,/\/v1\/responses/);
- assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor\)/);
+ assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
  assert.match(adapter,/world004ActionMatches\(choice,result\)/);
 });
 test("World 004 is opt-in and has a hard stop plus 24-hour run cap",()=>{
@@ -29,4 +29,29 @@ test("World 004 starts with segregated storage and no autonomous trigger",()=>{
  assert.match(config,/WORLD_004_ENABLED = "false"/);
  assert.doesNotMatch(config,/^crons\s*=/m);
  assert.doesNotMatch(config,/adf7b04a-0a03-40b7-8389-b02d7339a31f/);
+});
+
+test("Strategy E offers intentional journal writing and no automatic monologue",()=>{
+ assert.match(adapter,/id:"write_journal"/);
+ assert.match(adapter,/choice\.id==="write_journal"/);
+ assert.match(adapter,/action==="WRITE_JOURNAL"/);
+ assert.match(adapter,/const textAction=\["reply","request","write_journal"\]/);
+ assert.match(adapter,/Set monologue to the empty string\. No running commentary/);
+ assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
+ assert.match(worker,/decisionResponseFormat\(menu, pendingMessage !== null, env\.WORLD_004_MODE==="strategy-e"\)/);
+ assert.match(worker,/if\(d\.action==="WRITE_JOURNAL"\)/);
+ assert.match(worker,/await log\(env\.DB,"journal",d\.monologue,"WRITE_JOURNAL"\)/);
+ assert.equal((worker.match(/kind IN \(\x27thought\x27,\x27decision\x27,\x27journal\x27,\x27tool\x27,\x27belief\x27,\x27identity\x27\)/g)||[]).length,2);
+});
+
+test("World 004 completes parameterised selections without a Responses call",()=>{
+ assert.match(adapter,/if\(choice\.toolCall\|\|choice\.id==="observe"\)/);
+ assert.match(adapter,/toolCall:choice\.toolCall\?\?null/);
+ assert.match(adapter,/args\.onUsage\(selectionUsage\);\s*return result;/);
+ assert.match(adapter,/const textAction=\["reply","request","write_journal"\]/);
+ assert.match(adapter,/behaviouralContext:\{/);
+ assert.match(adapter,/curiosityGuidance:clip\(w\.curiosityGuidance,2000\)/);
+ assert.match(adapter,/goalReview:\{existingGoal:/);
+ assert.match(adapter,/name==="travel_to"/);
+ assert.match(adapter,/\["eat_fruit","discard_fruit"\]\.includes\(name\)/);
 });

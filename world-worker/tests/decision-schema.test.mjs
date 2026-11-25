@@ -120,3 +120,28 @@ test("remember_object rejects plausible-looking IDs absent from the world regist
  assert.throws(()=>validateDecision(base("ACT",{name:"remember_object",objectId:"garden_nook_999",
    label:"Invented",note:"Does not exist."}),false),/remember_object/);
 });
+
+test("World 004 allows silent ACT/THINK/OBSERVE but legacy decisions still require narration",()=>{
+ for(const action of ["THINK","OBSERVE"]){
+   const silent={...base(action),monologue:""};
+   assert.equal(validateDecision(silent,false,true).monologue,"");
+   assert.throws(()=>validateDecision(silent,false),/monologue/);
+ }
+ const act={...base("ACT",{name:"rest"}),monologue:""};
+ assert.equal(validateDecision(act,false,true).toolCall.name,"rest");
+ assert.throws(()=>validateDecision({...base("ACT",{name:"rest"})},false,true),/ordinary decisions/);
+});
+test("World 004 journal is intentional, bounded, and cannot use an executable tool",()=>{
+ const entry={...base("WRITE_JOURNAL"),monologue:"I noticed how the light changes between the trees."};
+ assert.equal(validateDecision(entry,false,true).action,"WRITE_JOURNAL");
+ assert.throws(()=>validateDecision(entry,false),/unsupported action/);
+ assert.throws(()=>validateDecision({...entry,monologue:""},false,true),/journal entry/);
+ assert.throws(()=>validateDecision({...entry,toolCall:{name:"rest"}},false,true),/only ACT/);
+ assert.throws(()=>validateDecision({...entry,monologue:"x".repeat(1801)},false,true),/1800/);
+});
+test("World 004 still requires meaningful visitor replies and creator requests",()=>{
+ assert.equal(validateDecision(base("REPLY"),true,true).action,"REPLY");
+ assert.equal(validateDecision(base("REQUEST"),false,true).action,"REQUEST");
+ assert.throws(()=>validateDecision({...base("REPLY"),monologue:""},true,true),/reply/);
+ assert.throws(()=>validateDecision({...base("REQUEST"),monologue:""},false,true),/request/);
+});
