@@ -29,7 +29,7 @@ KNOWN_OBJECTS = (
     {"id": "fern_001", "name": "Potted fern",
      "description": "A fern grows in a clay pot near a window. One frond is curled and brown at its tip."},
 )
-DEFAULT_IDENTITY = "I am Nimo."
+DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
 
@@ -106,7 +106,7 @@ def open_db(path: str) -> sqlite3.Connection:
       status TEXT NOT NULL
     );
     INSERT OR IGNORE INTO state(id,identity,current_intention,attempted)
-    VALUES (1,'I am Nimo.',NULL,0);
+    VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
     """)
     db.commit()
     return db
@@ -307,12 +307,8 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
 def express_want(db: sqlite3.Connection, ai: Any, decision_id: int,
                  context: dict[str, Any]) -> str:
     """Nimo answers freely before any action is selected."""
-    # The intention stage sees Nimo's context but not the Oracle-specific
-    # availability hint; the selector still receives the full context unchanged.
-    want_context = {k: v for k, v in context.items()
-                    if k != "oracle_questions_remaining_today"}
     response = generate(db, ai, decision_id, "express_want",
-                        {"question": "Nimo, what would you like to do?", **want_context})
+                        {"question": "Nimo, what would you like to do?", **context})
     return text_field(response, "want", 300)
 
 
@@ -326,12 +322,12 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
                            "Select exactly one offered action."}]},
                          {"role": "user", "content": [{"type": "input_json", "data": context}]}],
                "questions": [{"type": "choice", "name": "next_action",
-                              "instructions": "Which one action would you like to take now?",
+                              "instructions": "Which available action would make the most meaningful progress toward Nimo's expressed intention?",
                               "choices": [{"value": x, "description": {
                                   "think": "Reflect, reconsider, or form an intention.",
                                   "write_journal": "Write a personal entry.",
                                   "draw": "Create one complete vector artwork.",
-                                  "ask_oracle": "Ask one outside-knowledge question (limited to three per UTC day)."
+                                  "ask_oracle": "Ask the Oracle a question and receive a text answer that may provide information or explanations. It cannot physically inspect objects or verify their condition. Answers are not independently sourced; limited to three questions per UTC day."
                               }[x]} for x in options]}]}
     response = call_logged(db, ai, "select", "decisions", payload, decision_id)
     answer = next((x.get("choice") for x in response.get("answers", [])
