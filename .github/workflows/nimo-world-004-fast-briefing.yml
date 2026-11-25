@@ -1,4 +1,4 @@
-name: Run World 004 direct-decisions verification (30 decisions)
+name: Run World 004 corrected direct decisions (120 fast decisions)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type RUN-004-FAST to run a capped 30-decision verification'
+        description: 'Type RUN-004-FAST to run a capped 120-decision verification'
         required: false
         type: string
       revision:
@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 25
     environment: world-004
     env:
-      REVISION: 18a1a12bed360bb05a95c21d62a3afb447c973cc
+      REVISION: 9197e67b4b9b3109e019e831a58359eeace19e29
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORLD_004_API_TOKEN }}
       CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
@@ -44,8 +44,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Full commit SHA required"; exit 1; }
-          gh api "repos/$GITHUB_REPOSITORY/pulls/141" > "$RUNNER_TEMP/pr.json"
-          test "$(jq -r '.head.sha' "$RUNNER_TEMP/pr.json")" = "$REVISION" || { echo "::error::PR head has changed"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/pulls/142" > "$RUNNER_TEMP/pr.json"
+          test "$(jq -r '.merge_commit_sha' "$RUNNER_TEMP/pr.json")" = "$REVISION" || { echo "::error::Not the reviewed, merged World 004 fix"; exit 1; }
+          test "$(jq -r '.merged' "$RUNNER_TEMP/pr.json")" = true || exit 1
           test "$(jq -r '.base.ref' "$RUNNER_TEMP/pr.json")" = "experiment/world-004-fast-runner" || { echo "::error::Wrong PR base"; exit 1; }
           # The exact checked-out revision is typechecked and tested in this job.
           # GitHub checks can be unavailable for later draft-PR follow-up commits.
@@ -71,6 +72,7 @@ jobs:
           grep -q 'if(choice.toolCall||choice.id==="observe")' src/world-004-decision.ts
           grep -q 'WORLD_004_STATIC_BRIEFING' src/world-004-decision.ts
           grep -q 'WORLD_004_FAST_MODE' src/index.ts
+          grep -q 'world004BoundGeneratedDecision' src/world-004-decision.ts
           grep -q '^WORLD_004_ENABLED = "false"$' wrangler.world-004.toml
           ! grep -q '^crons\s*=' wrangler.world-004.toml
 
@@ -112,10 +114,10 @@ jobs:
           candidate=ready.replace(second=0,microsecond=0)+timedelta(minutes=1)
           if candidate.hour<6:
               candidate=datetime.combine(candidate.date(),time(6),tzinfo=localzone)
-          elif candidate.hour>=20:
+          elif candidate.hour>=21:
               candidate=datetime.combine(candidate.date()+timedelta(days=1),time(6),tzinfo=localzone)
           start=candidate.astimezone(timezone.utc)
-          stop=min(start+timedelta(hours=6),datetime.combine(start.astimezone(localzone).date(),time(22),tzinfo=localzone).astimezone(timezone.utc))
+          stop=min(start+timedelta(hours=2),datetime.combine(start.astimezone(localzone).date(),time(22),tzinfo=localzone).astimezone(timezone.utc))
           assert start>datetime.now(timezone.utc)+timedelta(minutes=1)
           assert start.astimezone(localzone).hour>=6
           assert stop.astimezone(localzone).hour<=22
@@ -143,8 +145,7 @@ jobs:
           print('One-hour World 004 experiment: '+start.isoformat()+' to '+stop.isoformat())
           PY
           grep -q '^WORLD_004_ENABLED = "true"$' wrangler.world-004.toml
-          sed -i 's/^WORLD_004_MAX_RUN_DECISIONS = "120"$/WORLD_004_MAX_RUN_DECISIONS = "30"/' wrangler.world-004.toml
-          grep -q '^WORLD_004_MAX_RUN_DECISIONS = "30"$' wrangler.world-004.toml
+          grep -q '^WORLD_004_MAX_RUN_DECISIONS = "120"$' wrangler.world-004.toml
           grep -q '^crons = \["\* \* \* \* \*"\]$' wrangler.world-004.toml
 
       - name: Deploy only World 004 with scheduled hard stop
@@ -179,12 +180,12 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## World 004 direct-decisions 30-decision verification'
+            echo '## World 004 corrected direct-decisions 120-decision verification'
             echo 'Autonomy start and hard stop (UTC):'
             cat "$RUNNER_TEMP/canary-window.txt"
             echo ''
-            echo 'Decision maximum: 30 in this fast-run window; prior decision/event rows retained.'
-            echo 'Treatment revision: 18a1a12bed360bb05a95c21d62a3afb447c973cc (PR #141).'
+            echo 'Decision maximum: 120 in this fast-run window; prior decision/event rows retained.'
+            echo 'Treatment revision: 9197e67b4b9b3109e019e831a58359eeace19e29 (merged PR #142, including PR #141).'
             echo 'Worker: nimo-world-004; D1: nimo-world-004; archive: nimo-world-004-archives.'
             echo 'Model calls are blocked by the absolute start/stop guard outside the window.'
             echo 'Treatment: parameter-ready selections execute without Responses; open-ended selections still generate; curiosity, fullness and intentional journaling preserved.'
