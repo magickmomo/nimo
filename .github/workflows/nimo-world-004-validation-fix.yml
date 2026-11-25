@@ -1,0 +1,59 @@
+name: Deploy World 004 generator validation fix (disabled)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nimo-world-004-validation-fix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-world-004-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: world-004
+    env:
+      REVISION: 9197e67b4b9b3109e019e831a58359eeace19e29
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORLD_004_API_TOKEN }}
+    steps:
+      - name: Check out exact merged World 004 revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REVISION }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify isolated configuration and tested fixes
+        shell: bash
+        working-directory: world-worker
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run check:world004
+          grep -q '^name = "nimo-world-004"$' wrangler.world-004.toml
+          grep -q '^WORLD_004_ENABLED = "false"$' wrangler.world-004.toml
+          grep -q '^database_name = "nimo-world-004"$' wrangler.world-004.toml
+          grep -q '^bucket_name = "nimo-world-004-archives"$' wrangler.world-004.toml
+          ! grep -Eq '^crons[[:space:]]*=' wrangler.world-004.toml
+          grep -q 'world004BoundGeneratedDecision' src/world-004-decision.ts
+          npx wrangler deploy --dry-run --config wrangler.world-004.toml --outdir "$RUNNER_TEMP/world004-preview"
+      - name: Deploy code-only World 004 with autonomy OFF
+        working-directory: world-worker
+        run: npx wrangler deploy --config wrangler.world-004.toml
+      - name: Record safe deployment
+        run: |
+          echo 'World 004 generator recovery deployed without cron, autonomy disabled.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Revision: ${{ env.REVISION }}' >> "$GITHUB_STEP_SUMMARY"
+          echo 'World 003 untouched; no D1 data mutation.' >> "$GITHUB_STEP_SUMMARY"
