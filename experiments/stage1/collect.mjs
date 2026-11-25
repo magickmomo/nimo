@@ -5,6 +5,7 @@
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
+import {readJsonResponse} from './read-json-response.mjs';
 
 const BASE=(process.env.WORLD_004_WORKER_URL||'').replace(/\/$/,'');
 const TOKEN=process.env.WORLD_004_INTERNAL_SECRET||'';
@@ -23,10 +24,7 @@ function daysBetween(start,stop){
 const hash=b=>createHash('sha256').update(b).digest('hex');
 async function download(path,filename,manifest){
   const response=await fetch(BASE+path,{headers:{Authorization:'Bearer '+TOKEN,Accept:'application/json'},signal:AbortSignal.timeout(90000),redirect:'error'});
-  assert(response.ok,`HTTP ${response.status} exporting ${path}: ${(await response.text()).slice(0,180)}`);
-  const bytes=Buffer.from(await response.arrayBuffer());
-  assert(bytes.length>0,'Empty export: '+path);
-  const parsed=JSON.parse(bytes.toString('utf8'));
+  const {bytes,parsed}=await readJsonResponse(response,path);
   await writeFile(join(OUT,filename),bytes);
   manifest.files.push({path:filename,bytes:bytes.length,sha256:hash(bytes)});
   return parsed;
