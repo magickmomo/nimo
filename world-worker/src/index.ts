@@ -384,7 +384,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
           recentObservations: observations.slice(0,3) })), experience, olderLandmarks, workspace, food:modelFood, garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1) || memory.seen.some(t=>t.x===p.x&&t.y===p.y)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null}, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), fullnessDecayPointsPerSecond:rate, availableActions: offeredActions, capabilityCatalogue, priorityMode:priority.mode,curiosityGuidance:curiosityPrompt,goalReview }) },
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
-  const format = decisionResponseFormat(menu, pendingMessage !== null);
+  const format = decisionResponseFormat(menu, pendingMessage !== null, env.WORLD_004_MODE==="strategy-e");
   const payload = reasoningModel
     ? {
         model,
@@ -927,6 +927,19 @@ async function tick(env: Env) {
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
     if(d.replyIntent)await log(env.DB,"tool",
       "Nimo accepted visitor request #"+pendingMessage.id+": "+d.replyIntent,"INTENT_ACCEPTED");
+  } else if(env.WORLD_004_MODE==="strategy-e"){
+    // The executor already recorded verified ACT outcomes as tool events.
+    // Do not echo model-generated narration into history or the public journal.
+    if(d.action==="WRITE_JOURNAL"){
+      await log(env.DB,"journal",d.monologue,"WRITE_JOURNAL");
+    } else if(d.action==="REQUEST"){
+      const eventId=await log(env.DB,"request",d.monologue,"REQUEST");
+      try{await recordCreatorRequest(env.DB,eventId,d.monologue);}
+      catch(e){console.error("Request inbox indexing failed",e);}
+    } else if(!d.toolCall){
+      const descriptions:Record<string,string>={THINK:"Reflected",OBSERVE:"Observed surroundings",REMEMBER:"Reconsidered a memory"};
+      await log(env.DB,"decision",descriptions[d.action]??d.action,d.action);
+    }
   } else {
     const eventId=await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
     if(d.action==="REQUEST"){
