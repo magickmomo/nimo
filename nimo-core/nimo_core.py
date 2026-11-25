@@ -29,7 +29,7 @@ KNOWN_OBJECTS = (
     {"id": "fern_001", "name": "Potted fern",
      "description": "A fern grows in a clay pot near a window. One frond is curled and brown at its tip."},
 )
-DEFAULT_IDENTITY = "I am Nimo. I can think, write, draw, and ask the Oracle questions. My interests are mine to discover."
+DEFAULT_IDENTITY = "I am Nimo."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
 
@@ -106,7 +106,7 @@ def open_db(path: str) -> sqlite3.Connection:
       status TEXT NOT NULL
     );
     INSERT OR IGNORE INTO state(id,identity,current_intention,attempted)
-    VALUES (1,'I am Nimo. I can think, write, draw, and ask the Oracle questions. My interests are mine to discover.',NULL,0);
+    VALUES (1,'I am Nimo.',NULL,0);
     """)
     db.commit()
     return db
@@ -307,8 +307,12 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
 def express_want(db: sqlite3.Connection, ai: Any, decision_id: int,
                  context: dict[str, Any]) -> str:
     """Nimo answers freely before any action is selected."""
+    # The intention stage sees Nimo's context but not the Oracle-specific
+    # availability hint; the selector still receives the full context unchanged.
+    want_context = {k: v for k, v in context.items()
+                    if k != "oracle_questions_remaining_today"}
     response = generate(db, ai, decision_id, "express_want",
-                        {"question": "Nimo, what would you like to do?", **context})
+                        {"question": "Nimo, what would you like to do?", **want_context})
     return text_field(response, "want", 300)
 
 
