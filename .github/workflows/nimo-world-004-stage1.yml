@@ -52,7 +52,7 @@ jobs:
 
       - name: Collect raw ledger and every archived context page
         env:
-          WORLD_004_WORKER_URL: ${{ vars.WORLD_004_WORKER_URL }}
+          WORLD_004_WORKER_URL: https://nimo-world-004.moamrr.workers.dev
           WORLD_004_INTERNAL_SECRET: ${{ secrets.WORLD_004_INTERNAL_SECRET }}
         run: node experiments/stage1/collect.mjs
 
