@@ -1285,8 +1285,15 @@ export default {
       if (path === "/export/canary" && request.method === "GET") {
         if(env.WORLD_004_MODE!=="strategy-e")
           return json({error:"World 004 export is not available on this worker"},404);
-        const since=env.WORLD_004_START_AT??"";
-        const until=env.WORLD_004_STOP_AT??"";
+        const query=new URL(request.url).searchParams;
+        const custom=query.has("start")||query.has("stop");
+        if(custom && (!query.has("start")||!query.has("stop")))
+          return json({error:"Both start and stop must be supplied"},400);
+        const since=custom?query.get("start")??"":env.WORLD_004_START_AT??"";
+        const until=custom?query.get("stop")??"":env.WORLD_004_STOP_AT??"";
+        if(custom && (since!==new Date(Date.parse(since)).toISOString()||
+           until!==new Date(Date.parse(until)).toISOString()))
+          return json({error:"Use UTC ISO 8601 start and stop times"},400);
         const start=Date.parse(since),stop=Date.parse(until);
         if(!Number.isFinite(start)||!Number.isFinite(stop)||
           start<Date.parse("2026-11-24T00:00:00.000Z")||
@@ -1313,7 +1320,8 @@ export default {
           format:"nimo-world-004-canary-v1",exportedAt:new Date().toISOString(),
           experiment:{start:since,stop:until,maxDecisions:Number(env.WORLD_004_MAX_RUN_DECISIONS??120),
             mode:env.WORLD_004_MODE,model:env.OPENAI_MODEL,enabled:env.WORLD_004_ENABLED},
-          finalSnapshot:await publicWorldSnapshot(env.DB),
+          snapshotAtExport:await publicWorldSnapshot(env.DB),
+          snapshotNote:"This is the current world snapshot at export time, not a reconstruction of the experiment end.",
           documents:await documents(env.DB),
           projects:await projectList(env.DB),
           sketchbook:await sketchbookSnapshot(env.DB,true),
