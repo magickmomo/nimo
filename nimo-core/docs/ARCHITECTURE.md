@@ -172,7 +172,23 @@ The audit shows *observable inputs and outputs*, not a reliable causal explanati
 7. Do not replace a real-world observation with synthetic simulation and claim it is a live result.
 8. A green test suite is necessary but not proof that model behaviour will satisfy our goals.
 
-## 12. Open questions (deliberately undecided)
+## 12. Controlled experiment: three known objects
+
+In this small follow-up, Nimo receives exactly three fixed descriptions in a new `known_objects` field of his normal decision context. These are part of his immediately known surroundings; they are **not** actions, objectives, new tools, memories, or randomly regenerated prompts.
+
+| ID | Object | Direct description |
+|---|---|---|
+| `cup_001` | Blue ceramic cup | A small blue ceramic cup sits on a wooden table. A hairline crack runs down its handle. |
+| `compass_001` | Brass compass | A worn brass pocket compass lies beside the cup. Its needle points northeast, even when the case is turned. |
+| `fern_001` | Potted fern | A fern grows in a clay pot near a window. One frond is curled and brown at its tip. |
+
+These descriptions are inserted by `recent_context()`. The identical field reaches the **Decisions API selector** and the **Responses generator** for `think`, `write_journal`, `draw`, and Oracle question creation. The Oracle answer step still receives only its question and its answer-specific instruction, as before. Memory consolidation still receives only ten verified experiences and earlier memories.
+
+The objects are deliberately **constant across decisions and runs**, to test what happens when grounded sensory-like information is present without simultaneously changing the world. Nothing grants Nimo a way to manipulate or inspect these objects, and he is free to ignore them. The audit records the exact descriptions in each decision's saved context. No other behaviour, actions, quotas, memory cadence, prompts or execution mechanism is intentionally changed.
+
+**Interpretation:** Comparing decisions from a fresh ten-decision database to the previous blank-slate run may reveal whether external descriptive context makes his output less abstract, but this small comparison cannot prove causality or a lasting personality shift.
+
+## 13. Open questions (deliberately undecided)
 
 - Should a \`think\` result always change intention, or only when explicitly chosen?
 - Should repeated drawing subjects be accepted as sustained interest or prompt feedback?
