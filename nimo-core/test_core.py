@@ -39,14 +39,50 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(context["known_objects"], expected)
         self.assertEqual(json.loads(record["offered_json"]), list(core.ACTIONS))
         calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
-        self.assertEqual([c["purpose"] for c in calls], ["select", "think"])
-        selection_payload = json.loads(calls[0]["request_json"])
+        self.assertEqual([c["purpose"] for c in calls], ["express_want", "select", "think"])
+        intention_payload = json.loads(calls[0]["request_json"])
+        self.assertEqual(json.loads(intention_payload["input"][1]["content"])["context"]["known_objects"], expected)
+        selection_payload = json.loads(calls[1]["request_json"])
         self.assertEqual(selection_payload["input"][1]["content"][0]["data"]["known_objects"], expected)
-        generation_payload = json.loads(calls[1]["request_json"])
+        self.assertEqual(selection_payload["input"][1]["content"][0]["data"]["expressed_want"],
+                         "I would like to explore something I have noticed.")
+        generation_payload = json.loads(calls[2]["request_json"])
         self.assertEqual(json.loads(generation_payload["input"][1]["content"])["context"]["known_objects"], expected)
+        self.assertEqual(json.loads(generation_payload["input"][1]["content"])["context"]["expressed_want"],
+                         "I would like to explore something I have noticed.")
+        self.assertEqual(context["expressed_want"], "I would like to explore something I have noticed.")
         core.run_one(self.db, self.ai)
         second = json.loads(self.rows("SELECT context_json FROM decisions WHERE id=2")[0]["context_json"])
         self.assertEqual(second["known_objects"], expected)
+
+    def test_open_intention_is_logged_before_decisions_and_does_not_change_tool_menu(self):
+        result = core.run_one(self.db, self.ai)
+        self.assertEqual(result["expressed_want"], "I would like to explore something I have noticed.")
+        calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
+        self.assertEqual([c["purpose"] for c in calls], ["express_want", "select", "think"])
+        want_request = json.loads(calls[0]["request_json"])
+        self.assertEqual(want_request["input"][1]["role"], "user")
+        self.assertIn("what would you like to do",
+                      want_request["input"][1]["content"].lower())
+        selector_request = json.loads(calls[1]["request_json"])
+        selector_context = selector_request["input"][1]["content"][0]["data"]
+        self.assertEqual(selector_context["expressed_want"], result["expressed_want"])
+        self.assertEqual([x["value"] for x in selector_request["questions"][0]["choices"]],
+                         list(core.ACTIONS))
+
+    def test_failed_intention_generation_prevents_selection_and_records_failure(self):
+        class BadIntention(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint == "responses" and '"express_want"' in payload["input"][1]["content"]:
+                    return {"output": [{"content": [{"type": "output_text", "text": '{"want":""}'}]}]}
+                return super().call(endpoint, payload)
+        result = core.run_one(self.db, BadIntention())
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["selected"], "selection_error")
+        self.assertIsNone(result["expressed_want"])
+        self.assertEqual([r["purpose"] for r in self.rows("SELECT purpose FROM model_calls")],
+                         ["express_want"])
+        self.assertEqual(len(self.rows("SELECT * FROM experiences")), 1)
 
     def test_ten_decisions_guarantee_one_memory_even_with_failures(self):
         results = core.run(self.db, self.ai, 10)
