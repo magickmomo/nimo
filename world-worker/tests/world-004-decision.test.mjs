@@ -30,3 +30,15 @@ test("World 004 starts with segregated storage and no autonomous trigger",()=>{
  assert.doesNotMatch(config,/^crons\s*=/m);
  assert.doesNotMatch(config,/adf7b04a-0a03-40b7-8389-b02d7339a31f/);
 });
+
+test("Strategy E offers intentional journal writing and no automatic monologue",()=>{
+ assert.match(adapter,/id:"write_journal"/);
+ assert.match(adapter,/choice\.id==="write_journal"/);
+ assert.match(adapter,/action==="WRITE_JOURNAL"/);
+ assert.match(adapter,/const textAction=\["reply","request","write_journal"\]/);
+ assert.match(adapter,/Set monologue to the empty string\. No running commentary/);
+ assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
+ assert.match(worker,/decisionResponseFormat\(menu, pendingMessage !== null, env\.WORLD_004_MODE==="strategy-e"\)/);
+ assert.match(worker,/if\(d\.action==="WRITE_JOURNAL"\)/);
+ assert.match(worker,/await log\(env\.DB,"journal",d\.monologue,"WRITE_JOURNAL"\)/);
+});
