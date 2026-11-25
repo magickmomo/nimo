@@ -6,7 +6,7 @@ Stage 1 is **read-only**: it does not touch Nimo's decision policy, mutate World
 
 Use the repository's `world-004` environment (or repository-level secrets/variables).
 
-- **Environment variable** `WORLD_004_WORKER_URL`: HTTPS URL of the isolated World 004 Cloudflare Worker, **not** the Vercel website, with no trailing slash required.
+- The workflow uses the verified isolated Worker host `https://nimo-world-004.moamrr.workers.dev` directly. Do not point it at World 003 or the Vercel website.
 - **Secret** `WORLD_004_INTERNAL_SECRET`: the same value already stored as the isolated Worker's `WORLD_INTERNAL_SECRET`. Cloudflare cannot reveal existing secret values; if you do not have it, rotate the isolated World 004 Worker secret and update the isolated website's matching secret. Do **not** copy World 003's token.
 - **Secret** `OPENAI_API_KEY`: dedicated API key with budget controls for the read-only Codex evaluator. Existing ChatGPT/Codex account connections do not automatically supply it to GitHub Actions.
 
