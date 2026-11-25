@@ -10,7 +10,8 @@ test("World 004 selection is grounded in the real dynamic action menu",()=>{
  assert.match(adapter,/world004Choices\(world,args\.hasVisitor\)/);
  assert.match(adapter,/\/v1\/decisions/);
  assert.match(adapter,/\/v1\/responses/);
- assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
+ assert.match(adapter,/world004BoundGeneratedDecision\(JSON\.parse\(raw\),choice,world\)/);
+ assert.match(adapter,/validateDecision\(bounded,args\.hasVisitor,true\)/);
  assert.match(adapter,/world004ActionMatches\(choice,result\)/);
 });
 test("World 004 is opt-in and has a hard stop plus 24-hour run cap",()=>{
@@ -37,7 +38,8 @@ test("Strategy E offers intentional journal writing and no automatic monologue",
  assert.match(adapter,/action==="WRITE_JOURNAL"/);
  assert.match(adapter,/const textAction=\["reply","request","write_journal"\]/);
  assert.match(adapter,/Set monologue to the empty string\. No running commentary/);
- assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
+ assert.match(adapter,/world004BoundGeneratedDecision\(JSON\.parse\(raw\),choice,world\)/);
+ assert.match(adapter,/validateDecision\(bounded,args\.hasVisitor,true\)/);
  assert.match(worker,/decisionResponseFormat\(menu, pendingMessage !== null, env\.WORLD_004_MODE==="strategy-e"\)/);
  assert.match(worker,/if\(d\.action==="WRITE_JOURNAL"\)/);
  assert.match(worker,/await log\(env\.DB,"journal",d\.monologue,"WRITE_JOURNAL"\)/);
