@@ -1,0 +1,159 @@
+name: Restore isolated World 004 memory consolidation after experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type RESTORE-004-MEMORY after the 25 Nov 14:30 UTC stop'
+        required: true
+        type: string
+      revision:
+        description: 'Exact reviewed head SHA of memory fix PR #134'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: nimo-world-004-deployment
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: ${{ inputs.confirm == 'RESTORE-004-MEMORY' && inputs.revision != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: world-004
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORLD_004_API_TOKEN }}
+      WORKER_SECRET: ${{ secrets.WORLD_004_INTERNAL_SECRET }}
+      WORKER_URL: https://nimo-world-004.moamrr.workers.dev
+      EXPERIMENT_START: 2026-11-25T13:30:00.000Z
+      EXPERIMENT_STOP: 2026-11-25T14:30:00.000Z
+    steps:
+      - name: Confirm the already deployed experiment has ended
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_SECRET"
+          python3 - <<'PY'
+          from datetime import datetime,timezone
+          from os import environ
+          stop=datetime.fromisoformat(environ['EXPERIMENT_STOP'].replace('Z','+00:00'))
+          assert datetime.now(timezone.utc)>stop, 'Do not change the Worker while the experiment is running'
+          PY
+          curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $WORKER_SECRET" \
+            "$WORKER_URL/experiment/status" > "$RUNNER_TEMP/status.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          status=json.loads((Path(os.environ['RUNNER_TEMP'])/'status.json').read_text())
+          assert status['mode']=='strategy-e'
+          assert status['start']==os.environ['EXPERIMENT_START'], 'Current Worker has a different experiment start'
+          assert status['stop']==os.environ['EXPERIMENT_STOP'], 'Current Worker has a different experiment stop'
+          print('Verified World 004 experiment is expired; existing decision window will remain expired')
+          PY
+
+      - name: Verify exact PR 134 revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ inputs.revision }}" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/pulls/134" > "$RUNNER_TEMP/pr.json"
+          test "$(jq -r '.head.sha' "$RUNNER_TEMP/pr.json")" = "${{ inputs.revision }}" || exit 1
+          test "$(jq -r '.base.ref' "$RUNNER_TEMP/pr.json")" = 'experiment/world-004-compact-response-context' || exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Typecheck and regression-test exact Worker code
+        working-directory: world-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm run check:world004
+          grep -q '^MEMORY_CONSOLIDATION_ENABLED = "true"$' wrangler.world-004.toml
+          grep -q '^WORLD_004_ENABLED = "false"$' wrangler.world-004.toml
+          ! grep -q '^crons = ' wrangler.world-004.toml
+
+      - name: Reproduce expired canary configuration without reopening decisions
+        working-directory: world-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          p=Path('wrangler.world-004.toml')
+          content=p.read_text()
+          changes={
+             'WORLD_004_ENABLED = "false"':'WORLD_004_ENABLED = "true"',
+             'WORLD_004_START_AT = "1970-01-01T00:00:00.000Z"': 'WORLD_004_START_AT = "'+os.environ['EXPERIMENT_START']+'"',
+             'WORLD_004_STOP_AT = "1970-01-01T00:00:00.000Z"': 'WORLD_004_STOP_AT = "'+os.environ['EXPERIMENT_STOP']+'"',
+          }
+          for original,replacement in changes.items():
+              assert content.count(original)==1, 'Unexpected configuration; refuse to deploy'
+              content=content.replace(original,replacement)
+          assert 'MEMORY_CONSOLIDATION_ENABLED = "true"' in content
+          assert 'database_name = "nimo-world-004"' in content
+          assert 'bucket_name = "nimo-world-004-archives"' in content
+          assert '[triggers]' not in content
+          content+='\n[triggers]\ncrons = ["* * * * *"]\n'
+          p.write_text(content)
+          PY
+          grep -q '^WORLD_004_STOP_AT = "2026-11-25T14:30:00.000Z"$' wrangler.world-004.toml
+          grep -q '^WORLD_004_ENABLED = "true"$' wrangler.world-004.toml
+
+      - name: Deploy World 004 only, with expired decision window
+        working-directory: world-worker
+        run: npx wrangler deploy --config wrangler.world-004.toml
+
+      - name: Confirm memory diagnostics and expired decision window
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --max-time 20 \
+            -H "Authorization: Bearer $WORKER_SECRET" \
+            "$WORKER_URL/experiment/status" > "$RUNNER_TEMP/after.json"
+          curl --fail --silent --show-error --retry 3 --max-time 20 \
+            -H "Authorization: Bearer $WORKER_SECRET" \
+            "$WORKER_URL/memories/consolidation/status" > "$RUNNER_TEMP/memory.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          exp=json.loads((root/'after.json').read_text())
+          mem=json.loads((root/'memory.json').read_text())
+          assert exp['stop']==os.environ['EXPERIMENT_STOP']
+          assert mem['enabled'] is True
+          assert mem['postExperimentCatchupAllowed'] is True
+          print('Memory catch-up enabled after experiment; decision hard stop preserved')
+          print('Pending historical hours:',mem['backlogHours'])
+          print('Active memories:',mem['activeMemories']['count'])
+          PY
+
+      - name: Summarize
+        shell: bash
+        run: |
+          {
+            echo '## World 004 memory recovery'
+            echo 'Previous experiment remains hard-stopped at 2026-11-25 14:30 UTC.'
+            echo 'Memory-only catch-up runs every 5 minutes, advancing up to 6 empty hours per slot.'
+            echo 'At most one non-empty hour is reviewed per slot; no autonomous decisions can restart.'
+            echo 'Owner-only diagnostics endpoint: /memories/consolidation/status'
+          } >> "$GITHUB_STEP_SUMMARY"
