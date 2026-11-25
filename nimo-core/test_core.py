@@ -21,6 +21,14 @@ class CoreTests(unittest.TestCase):
     def rows(self, sql, *params):
         return self.db.execute(sql, params).fetchall()
 
+    def test_crash_does_not_silently_resume_an_incomplete_decision(self):
+        self.db.execute("INSERT INTO decisions(started_at,context_json,offered_json,status) VALUES(?,?,?,'running')",
+                        (core.now(), "{}", "[]"))
+        self.db.commit()
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            core.run(self.db, self.ai, 1)
+        self.assertEqual(len(self.rows("SELECT * FROM decisions")), 1)
+
     def test_ten_decisions_guarantee_one_memory_even_with_failures(self):
         results = core.run(self.db, self.ai, 10)
         self.assertEqual(len(results), 10)
