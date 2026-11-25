@@ -43,3 +43,15 @@ test("Strategy E offers intentional journal writing and no automatic monologue",
  assert.match(worker,/await log\(env\.DB,"journal",d\.monologue,"WRITE_JOURNAL"\)/);
  assert.equal((worker.match(/kind IN \(\x27thought\x27,\x27decision\x27,\x27journal\x27,\x27tool\x27,\x27belief\x27,\x27identity\x27\)/g)||[]).length,2);
 });
+
+test("World 004 completes parameterised selections without a Responses call",()=>{
+ assert.match(adapter,/if\(choice\.toolCall\|\|choice\.id==="observe"\)/);
+ assert.match(adapter,/toolCall:choice\.toolCall\?\?null/);
+ assert.match(adapter,/args\.onUsage\(selectionUsage\);\s*return result;/);
+ assert.match(adapter,/const textAction=\["reply","request","write_journal"\]/);
+ assert.match(adapter,/behaviouralContext:\{/);
+ assert.match(adapter,/curiosityGuidance:clip\(w\.curiosityGuidance,2000\)/);
+ assert.match(adapter,/goalReview:\{existingGoal:/);
+ assert.match(adapter,/name==="travel_to"/);
+ assert.match(adapter,/name==="eat_fruit"\|\|name==="discard_fruit"/);
+});
