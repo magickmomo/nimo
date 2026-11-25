@@ -24,7 +24,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != 'schedule' ] || [ "$(date -u +%F)" = '2026-11-25' ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
   evaluate:
+    needs: eligibility
+    if: needs.eligibility.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: world-004
@@ -36,15 +52,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
-      - name: Restrict one-shot scheduled run to 25 November 2026
-        if: github.event_name == 'schedule'
-        shell: bash
-        run: |
-          test "$(date -u +%F)" = "2026-11-25" || {
-            echo 'This one-shot schedule is no longer active.'
-            exit 1
-          }
 
       - uses: actions/setup-node@v4
         with:
