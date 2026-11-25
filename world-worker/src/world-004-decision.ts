@@ -91,6 +91,8 @@ export function world004GenerationContext(w:R,choice:Selection,hasVisitor:boolea
  if(["draw_strokes","finish_sketch","start_sketch","inspect_artwork"].includes(action)){
    const count=Number(active.stroke_count??0);
    return {...common,creativeFreedom:"You decide the composition, style, content and how to continue. Existing goals and projects are optional, never mandatory.",
+    present:base.present,projects:rows(w.projects).slice(0,5),
+    recentWorldEvents:rows(asObj(w.experience).recentEvents).slice(0,5),
     sketchbook:{owned:sketch.owned,active:active.id?{
       id:active.id,title:active.title,intention:active.intention,status:active.status,
       strokeCount:count,remainingStrokes:Math.max(0,160-count),
@@ -115,6 +117,9 @@ export function world004GenerationContext(w:R,choice:Selection,hasVisitor:boolea
      constraints:{documentExtension:".txt",documentMaxChars:2000,maxWorkspaceFiles:100,
        projectsMaxActive:3,worldExpansionRequiresCreatorReview:true}};
  }
+ if(action==="request")return {...common,creatorRequests:rows(w.creatorRequests).slice(0,15),
+   projects:rows(w.projects).slice(0,8),present:base.present,
+   capabilityCatalogue:rows(w.capabilityCatalogue).slice(0,30)};
  if(action==="reply"||hasVisitor){
    return {...common,projects:rows(w.projects).slice(0,8),
      pendingVisitor:hasVisitor,creatorRequests:rows(w.creatorRequests).slice(0,8)};
