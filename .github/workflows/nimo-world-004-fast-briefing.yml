@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 25
     environment: world-004
     env:
-      REVISION: dd0af5a0f058802b86ddad2360d3384fe434484f
+      REVISION: d8dad0e316ee9bf387a7739bc5e530f239113822
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORLD_004_API_TOKEN }}
       CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
@@ -183,7 +183,7 @@ jobs:
             cat "$RUNNER_TEMP/canary-window.txt"
             echo ''
             echo 'Decision maximum: 120 in this fast-run window; prior decision/event rows retained.'
-            echo 'Treatment revision: dd0af5a0f058802b86ddad2360d3384fe434484f (PR #137).'
+            echo 'Treatment revision: d8dad0e316ee9bf387a7739bc5e530f239113822 (PR #137).'
             echo 'Worker: nimo-world-004; D1: nimo-world-004; archive: nimo-world-004-archives.'
             echo 'Model calls are blocked by the absolute start/stop guard outside the window.'
             echo 'Treatment: static world briefing for Decisions selector only; compact Responses generation unchanged.'
