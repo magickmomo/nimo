@@ -281,7 +281,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,goalReview:GoalReview,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,goalReview:GoalReview,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void,onSelection:(stage:NonNullable<DecisionInputAudit["selection"]>)=>void,onGeneration:(stage:NonNullable<DecisionInputAudit["generation"]>)=>void): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `${SEED}
 
@@ -399,8 +399,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     return decideWorld004({apiKey:env.OPENAI_API_KEY,model,originalMessages:messages,
       responseFormat:format as unknown as Record<string,unknown>,hasVisitor:pendingMessage!==null,
       onUsage,onRequest,
-      onSelection:stage=>{selectionStage=stage;},
-      onGeneration:stage=>{generationStage=stage;}});
+      onSelection,onGeneration});
   }
   // Capture the exact payload sent, including historical memory text, action
   // schemas and preceding experience. Never capture the authorization header.
@@ -623,7 +622,7 @@ async function tick(env: Env) {
     }
   };
   try {
-    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,goalReview,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();});
+    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,goalReview,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();},value=>{selectionStage=value;},value=>{generationStage=value;});
   }catch(error) {
     // Only an actual model/validation failure belongs in this handler.
     // A later trace-persistence error must never overwrite a selected R2
