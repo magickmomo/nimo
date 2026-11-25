@@ -345,6 +345,7 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     name==="buy_item"?{name,itemIds:menu.vendingItemIds}:
     name==="update_project"?{name,projectIds:menu.projectIds}:
     name==="draw_strokes"||name==="finish_sketch"?{name,sketchIds:menu.sketchIds}:
+    name==="inspect_artwork"?{name,sketchIds:menu.inspectArtworkIds}:
     name==="plant_seed"||name==="water_plot"||name==="harvest_crop"?{name,plotIds:menu.gardenPlotIds}:
     name==="sell_item"?{name,items:menu.saleItems}:{name});
   const experience = buildExperienceContext(history);
