@@ -9,7 +9,7 @@ export function consecutivePassiveDecisions(events:readonly DecisionEvent[]):num
   for(const event of events){
     if(event.kind==="visitor"||event.kind==="reply")break;
     if(event.kind==="tool")break;
-    if(event.kind!=="thought")continue;
+    if(event.kind!=="thought"&&event.kind!=="decision")continue;
     if(["THINK","OBSERVE","REMEMBER"].includes(event.action??""))count++;
     else break;
   }
