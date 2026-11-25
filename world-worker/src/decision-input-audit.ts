@@ -9,6 +9,11 @@ export type DecisionInputAudit={
   // Exact request body sent to the model, excluding Authorization headers.
   request:unknown;
   outcome:{status:"selected";decision:unknown}|{status:"failed";error:string};
+  // Strategy E's two API stages: selected action and generated parameters.
+  selection?:{request:unknown;response:unknown;selectedAction:string|null;durationMs:number};
+  generation?:{response:unknown;durationMs:number;httpStatus:number};
+  // Written after the authoritative executor records its verified result.
+  execution?:{status:"completed"|"failed"|"blocked"|"paused";action:string;tool:string|null;result:string|null;recordedAt:string;tickCount?:number};
 };
 export const decisionAuditKey=(capturedAt:string,traceId:number):string=>{
   if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(capturedAt)||
