@@ -203,7 +203,14 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
   if(name==="buy_item"){each(a,"itemIds","itemId",name);continue;}
   if(name==="sell_item"){each(a,"items","item",name);continue;}
   if(["plant_seed","water_plot","harvest_crop"].includes(name)){each(a,"plotIds","plotId",name);continue;}
-  if(name==="inspect_artwork"){each(a,"sketchIds","sketchId",name);continue;}
+  if(name==="inspect_artwork"){
+   // A large gallery must never exhaust the selector\x27s 255-choice ceiling.
+   // Keep any older eligible artwork reachable via the generative path.
+   actions.push({id:name,tool:name,description:"Inspect another eligible finished artwork."});
+   for(const sketchId of (Array.isArray(a.sketchIds)?a.sketchIds:[]).slice(0,24))
+    if(typeof sketchId==="number")add(name,{sketchId},"Inspect artwork "+sketchId);
+   continue;
+  }
   if(name==="finish_sketch"){
    for(const sketchId of Array.isArray(a.sketchIds)?a.sketchIds:[])
     for(const status of ["finished","abandoned"])add(name,{sketchId,status},"Finish sketch "+sketchId+" as "+status);
