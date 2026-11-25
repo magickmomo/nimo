@@ -12,7 +12,7 @@ import { recordExperience, recentExperiences, type VerifiedOutcome } from "./exp
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
 import {decideWorld004} from "./world-004-decision";
-import {world004Guard} from "./world-004-guards";
+import {world004Guard,world004PostExperimentMemoryCatchupAllowed} from "./world-004-guards";
 import { curiosityStep, curiosityGuidance, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
@@ -1073,14 +1073,32 @@ async function offlineWorldSnapshot(env:Env):Promise<Response> {
   return json({...cached.snapshot,offline:true,cachedAt:cached.capturedAt});
 }
 
+/** Advance empty historical hours in bounded batches, then review at most
+ * one non-empty hour. Never process concurrent hours or invent empty summaries.
+ * Every hour remains individually committed by the existing D1 cursor logic.
+ */
+async function catchUpPersonalMemories(env:Env):Promise<void>{
+  for(let i=0;i<6;i++){
+    const result=await consolidatePersonalExperiences(env);
+    if(result.scanned>0 ||
+       Date.parse(result.periodEnd)>Date.now())break;
+  }
+}
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // World 004 runs ONLY inside its absolute experiment window and total
-    // decision budget. This protects auxiliary scheduled tasks (Oracle research,
-    // snapshots and archiving) as well as the ordinary autonomous tick.
+    const now=new Date();
+    // World 004 decisions and other auxiliary work remain strictly inside the
+    // experiment window. Only memory consolidation may run AFTER the hard stop.
+    // That avoids modifying memory mid-experiment or accidentally restarting Nimo.
     if(env.WORLD_004_MODE==="strategy-e"){
-      const status=await world004Guard(env,new Date());
-      if(status)return;
+      const status=await world004Guard(env,now);
+      if(status){
+        if(world004PostExperimentMemoryCatchupAllowed(env,now) &&
+           now.getUTCMinutes()%5===0)
+          ctx.waitUntil(catchUpPersonalMemories(env).catch(error=>
+            console.error("World 004 memory catch-up failed",error)));
+        return;
+      }
     }
     // Cloudflare cron is minute-granular. Within each invocation poll active
     // journeys at shorter intervals; make LLM decisions only when idle and due.
@@ -1115,7 +1133,8 @@ export default {
     // At most one review runs per slot; a failure leaves the cursor for retry.
     // Once caught up, the routine check below is a no-op until another hour
     // has completed. Oracle research remains outside personal memory.
-    if(env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()%5===0) {
+    if(env.WORLD_004_MODE!=="strategy-e" &&
+       env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()%5===0) {
       ctx.waitUntil(consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error)));
     }
     // Research queued questions independently of the awake decision loop.
@@ -1170,6 +1189,25 @@ export default {
         }catch(error){
           return json({error:error instanceof Error?error.message:"Consolidation preview failed"},400);
         }
+      }
+      // Read-only visibility: distinguish disabled consolidation, review backlog,
+      // zero-memory hours and actual failures without spending any model tokens.
+      if(path==="/memories/consolidation/status" && request.method==="GET"){
+        const [cursor,latest,reviewTotals,active] = await Promise.all([
+          env.DB.prepare("SELECT last_event_id,last_completed_hour,updated_at FROM personal_memory_cursor WHERE id=1").first<{last_event_id:number;last_completed_hour:string|null;updated_at:string}>(),
+          env.DB.prepare("SELECT period_start,period_end,status,attempts,scanned,stored,review_summary,error FROM personal_memory_reviews ORDER BY period_start DESC LIMIT 24").all(),
+          env.DB.prepare("SELECT status,COUNT(*) AS hours,SUM(scanned) AS events,SUM(stored) AS memories FROM personal_memory_reviews GROUP BY status").all(),
+          env.DB.prepare("SELECT COUNT(*) AS count,MAX(updated_at) AS last_updated FROM consolidated_memories_v2 WHERE status NOT IN ('retired','contradicted') AND category!='knowledge'").first<{count:number;last_updated:string|null}>(),
+        ]);
+        const completedHourStart=new Date();
+        completedHourStart.setUTCMinutes(0,0,0);
+        const backlogHours=cursor?.last_completed_hour
+          ? Math.max(0,Math.floor((completedHourStart.getTime()-Date.parse(cursor.last_completed_hour))/3_600_000))
+          : null;
+        return json({enabled:env.MEMORY_CONSOLIDATION_ENABLED==="true",
+          postExperimentCatchupAllowed:world004PostExperimentMemoryCatchupAllowed(env,new Date()),
+          cursor,backlogHours,activeMemories:active,recentReviews:latest.results,
+          reviewTotals:reviewTotals.results,notes:"Review status does not prove an LLM used a particular memory."});
       }
       if (path === "/memories" && request.method === "GET") {
         const entries=await consolidatedMemories(env.DB);
