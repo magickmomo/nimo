@@ -376,11 +376,13 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
         value = generate(db, ai, None, "consolidate",
                          {"experiences": batch, "evidence_ids": evidence,
                           "previous_memories": recent_context(db)["recent_memories"]})
-        reflection = text_field(value, "reflection", 800, optional=True)
-        identity_note = text_field(value, "identity_note", 200, optional=True)
+        candidate_reflection = text_field(value, "reflection", 800, optional=True)
+        candidate_identity = text_field(value, "identity_note", 200, optional=True)
         ids = value.get("evidence_decision_ids", [])
         if (not isinstance(ids, list) or any(type(v) is not int or v not in evidence for v in ids)):
             raise ValueError("Reflection refers to invalid evidence IDs")
+        # Publish the interpretation only AFTER every evidence reference passes.
+        reflection, identity_note = candidate_reflection, candidate_identity
         status = "reflected"
     except Exception:
         # Failure is visible in model_calls; never hide or fabricate a reflection.
