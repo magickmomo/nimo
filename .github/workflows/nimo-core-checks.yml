@@ -1,0 +1,40 @@
+name: Nimo Core isolated checks
+
+on:
+  pull_request:
+    paths:
+      - 'nimo-core/**'
+      - '.github/workflows/nimo-core-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'nimo-core/**'
+      - '.github/workflows/nimo-core-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline tests (no model credentials)
+        working-directory: nimo-core
+        run: python -m unittest -v
+      - name: Run ten scripted decisions and check memory creation
+        working-directory: nimo-core
+        run: |
+          python nimo_core.py --db "$RUNNER_TEMP/core.sqlite3" run --mock --decisions 10
+          python - "$RUNNER_TEMP/core.sqlite3" <<'PY'
+          import sqlite3,sys
+          db=sqlite3.connect(sys.argv[1])
+          assert db.execute("SELECT COUNT(*) FROM decisions").fetchone()[0]==10
+          assert db.execute("SELECT COUNT(*) FROM experiences").fetchone()[0]==10
+          assert db.execute("SELECT COUNT(*) FROM memories WHERE cycle_end_decision=10").fetchone()[0]==1
+          print("Ten decisions, ten experiences, one mandatory memory: PASS")
+          PY
