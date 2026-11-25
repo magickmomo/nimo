@@ -21,25 +21,29 @@ class CoreTests(unittest.TestCase):
     def rows(self, sql, *params):
         return self.db.execute(sql, params).fetchall()
 
-    def test_plain_identity_and_no_capabilities_in_initial_want_request(self):
-        self.assertEqual(core.DEFAULT_IDENTITY, "I am Nimo.")
+    def test_capability_awareness_and_progress_selection(self):
+        self.assertIn("ask the Oracle questions", core.DEFAULT_IDENTITY)
+        self.assertIn("cannot physically inspect", core.DEFAULT_IDENTITY)
         initial = core.recent_context(self.db)
-        self.assertEqual(initial["identity"], "I am Nimo.")
-        self.assertIn("oracle_questions_remaining_today", initial)
+        self.assertEqual(initial["identity"], core.DEFAULT_IDENTITY)
         result = core.run_one(self.db, self.ai)
         self.assertEqual(result["status"], "completed")
         calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
         self.assertEqual([r["purpose"] for r in calls], ["express_want", "select", "think"])
         want = json.loads(calls[0]["request_json"])
         want_context = json.loads(want["input"][1]["content"])["context"]
-        self.assertEqual(want_context["identity"], "I am Nimo.")
-        self.assertNotIn("oracle_questions_remaining_today", want_context)
-        self.assertNotIn("draw", json.dumps(want_context))
-        self.assertNotIn("ask_oracle", json.dumps(want_context))
+        self.assertEqual(want_context["identity"], core.DEFAULT_IDENTITY)
+        self.assertIn("oracle_questions_remaining_today", want_context)
         selected = json.loads(calls[1]["request_json"])
         selector_context = selected["input"][1]["content"][0]["data"]
-        self.assertIn("oracle_questions_remaining_today", selector_context)
+        self.assertEqual(selector_context["expressed_want"], result["expressed_want"])
         self.assertEqual([c["value"] for c in selected["questions"][0]["choices"]], list(core.ACTIONS))
+        self.assertEqual(selected["questions"][0]["instructions"],
+                         "Which available action would make the most meaningful progress toward Nimo's expressed intention?")
+        oracle = next(c for c in selected["questions"][0]["choices"] if c["value"] == "ask_oracle")
+        self.assertIn("text answer", oracle["description"])
+        self.assertIn("cannot physically inspect", oracle["description"])
+        self.assertIn("three questions per UTC day", oracle["description"])
 
     def test_crash_does_not_silently_resume_an_incomplete_decision(self):
         self.db.execute("INSERT INTO decisions(started_at,context_json,offered_json,status) VALUES(?,?,?,'running')",
