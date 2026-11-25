@@ -14,6 +14,16 @@ import WorldNotesPanel from "./world-notes-panel";
 import "./world-artworks.css";
 import { groupJournalEvents } from "../../lib/world-journal";
 
+const WORLD_004 = process.env.NEXT_PUBLIC_WORLD_004 === "true";
+type ExperimentStatus = {
+  start:string;stop:string;enabled:boolean;maxDecisions:number;decisions:number;
+  traceCounts:Record<string,number>;
+  usage:{calls:number;inputTokens:number;cachedInputTokens:number;outputTokens:number};
+  tracesTruncated:boolean;
+  manualAutonomousEnabled?:boolean;
+  recentOutcomes?:{at:string;action:string|null;text:string}[];
+};
+
 type ObjectRecord = {
   id:string;kind:string;x:number;y:number;label:string;note:string;
   inspectionCount:number;latestComparison:string|null;
@@ -115,6 +125,8 @@ export default function World() {
   const [journalHasMore,setJournalHasMore]=useState(false);
   const [journalLoading,setJournalLoading]=useState(false);
   const [journalError,setJournalError]=useState("");
+  const [experiment,setExperiment]=useState<ExperimentStatus|null>(null);
+  const [experimentError,setExperimentError]=useState("");
   const journalRequest=useRef(0);
 
 
@@ -227,6 +239,35 @@ export default function World() {
     // A new range starts a fresh anchored pagination session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[journalWindow]);
+
+  // World 004: refresh visible journal entries without repeatedly fetching the
+  // expensive full snapshot. Older pages remain accessible by cursor.
+  useEffect(()=>{
+    if(!WORLD_004)return;
+    const timer=window.setInterval(()=>{
+      if(document.visibilityState==="visible")void loadJournal(journalWindow);
+    },20000);
+    return()=>window.clearInterval(timer);
+    // The loader uses the latest render's range; do not restart for every state update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[journalWindow]);
+
+  useEffect(()=>{
+    if(!WORLD_004 || !isOwner)return;
+    let active=true;
+    async function poll(){
+      if(document.visibilityState!=="visible")return;
+      try{
+        const response=await fetch("/api/world/experiment",{cache:"no-store"});
+        const body=await response.json() as ExperimentStatus & {error?:string};
+        if(!response.ok)throw Error(body.error||"Experiment status unavailable");
+        if(active){setExperiment(body);setExperimentError("");}
+      }catch(error){if(active)setExperimentError(error instanceof Error?error.message:"Experiment status unavailable");}
+    }
+    void poll();
+    const timer=window.setInterval(()=>{void poll();},60000);
+    return()=>{active=false;window.clearInterval(timer);};
+  },[isOwner]);
 
   async function changeRate(value:number) {
     if(settingRate)return;
@@ -447,6 +488,18 @@ export default function World() {
             </div>
       </div>}
 
+      {WORLD_004 && isOwner && <section className="world-card" aria-label="World 004 experiment diagnostics">
+        <h2>World 004 experiment</h2>
+        {experiment ? <>
+          <p><strong>{experiment.decisions} / {experiment.maxDecisions} decisions</strong> · {new Date(experiment.start).toLocaleString()}–{new Date(experiment.stop).toLocaleTimeString()}</p>
+          <p className="meta">Model calls: {experiment.usage.calls} · Input: {experiment.usage.inputTokens.toLocaleString()} tokens · Output: {experiment.usage.outputTokens.toLocaleString()} tokens · Failed traces: {Object.entries(experiment.traceCounts).filter(([name])=>name.endsWith(":failed")).reduce((total,[,count])=>total+count,0)}{experiment.tracesTruncated?" (trace summary truncated)":""}</p>
+          <p className="meta">Worker configured: {experiment.enabled?"yes":"no"} · Owner control: {experiment.manualAutonomousEnabled?"awake":"paused"} · Journal entries in selected range: {journalEvents.length}{journalEvents.length?` · Latest ${new Date(journalEvents[0].created_at).toLocaleTimeString()}`:""}</p>
+          {experiment.decisions>0 && journalEvents.length===0 && <p className="world-warning" role="status">Decisions are recorded, but no journal events were returned for the selected time range. Check the journal API, event timestamps, and selected history window.</p>}
+          {!!experiment.recentOutcomes?.length && <details><summary>Recent tool outcomes and errors ({experiment.recentOutcomes.length})</summary><ul>{experiment.recentOutcomes.slice(0,10).map((outcome,i)=><li key={i}>{new Date(outcome.at).toLocaleTimeString()} · {outcome.action??"event"}: {outcome.text}</li>)}</ul></details>}
+          <button type="button" disabled={exporting} onClick={()=>void exportWorld("/api/world/experiment/export")}>Download experiment JSON</button>
+        </> : <p className="meta">Loading experiment status…</p>}
+        {experimentError && <p role="alert" className="world-warning">{experimentError}</p>}
+      </section>}
       <section className="world-card world-journal">
         <div className="world-journal-head">
           <h2>Journal</h2>
