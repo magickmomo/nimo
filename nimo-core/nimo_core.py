@@ -131,13 +131,15 @@ class MockAI:
 
     def __init__(self):
         self.calls = 0
+        self.selections = 0
         self.model = "offline-mock"
 
     def call(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls += 1
         if endpoint == "decisions":
+            self.selections += 1
             choices = payload["questions"][0]["choices"]
-            preferred = ACTIONS[(self.calls - 1) % 4]
+            preferred = ACTIONS[(self.selections - 1) % 4]
             selected = preferred if any(x["value"] == preferred for x in choices) else choices[0]["value"]
             return {"answers": [{"name": "next_action", "type": "choice", "choice": selected}],
                     "usage": {"input_tokens": 0, "output_tokens": 0}}
