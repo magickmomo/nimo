@@ -4,7 +4,7 @@ import {validateStrokes} from "./sketchbook";
 import { WORLD_SIZE,objectById } from "../../web/lib/world-map";
 import {isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
-export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
+export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY" | "WRITE_JOURNAL";
 export type DecisionTool =
   | { name:"start_sketch";title:string;intention:string }
   | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
@@ -40,7 +40,7 @@ export type Decision = {
   intentDisposition: "keep" | "complete" | "abandon";
 };
 
-const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
+const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY", "WRITE_JOURNAL"];
 const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
@@ -48,13 +48,12 @@ const object = (v: unknown): v is Record<string, unknown> =>
 const string = (v: unknown, maximum: number): v is string =>
   typeof v === "string" && v.length <= maximum;
 
-export function validateDecision(input: unknown, hasPendingVisitor: boolean): Decision {
+export function validateDecision(input: unknown, hasPendingVisitor: boolean, intentionalJournal=false): Decision {
   function fail(reason: string): never { throw new Error(reason); }
   if (!object(input)) fail("expected JSON object");
   const d = input as Record<string, unknown>;
 
-  if (!string(d.monologue, 1800) || !d.monologue.trim())
-    fail("monologue must be nonempty and at most 1800 characters");
+  if (!string(d.monologue, 1800)) fail("monologue must be a string at most 1800 characters");
   if (!string(d.activity, 120)) fail("activity must be a string up to 120 characters");
   if (d.goal !== undefined && d.goal !== null && !string(d.goal, 250))
     fail("goal must be string (max 250), null or omitted");
@@ -78,7 +77,13 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   // thought, never an acknowledgement of a nonexistent visitor message.
   if (!hasPendingVisitor && action === "REPLY" && tool === null) action = "THINK";
 
-  if (!ACTIONS.includes(action)) fail("unsupported action");
+  if (!ACTIONS.includes(action) || (action === "WRITE_JOURNAL" && !intentionalJournal)) fail("unsupported action");
+  if (intentionalJournal) {
+    if (["REPLY","REQUEST","WRITE_JOURNAL"].includes(action) && !(d.monologue as string).trim())
+      fail("a reply, request or journal entry needs meaningful text");
+    if (!["REPLY","REQUEST","WRITE_JOURNAL"].includes(action) && (d.monologue as string).trim())
+      fail("ordinary decisions must not generate narration");
+  } else if (!(d.monologue as string).trim()) fail("monologue must be nonempty");
 
   if (hasPendingVisitor && action !== "REPLY")
     fail("pending visitor message requires REPLY without a tool");

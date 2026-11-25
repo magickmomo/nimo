@@ -11,7 +11,7 @@ export type ExperienceEvent = {
 const meaningful = (e: ExperienceEvent): boolean =>
   e.kind === "visitor" || e.kind === "reply" ||
   e.kind === "belief" || e.kind === "identity" ||
-  e.action === "REQUEST" ||
+  e.action === "REQUEST" || e.action === "WRITE_JOURNAL" ||
   ["WRITE_OK", "WRITE_ERROR", "INSPECT_OK", "INSPECT_ERROR", "MOVE_ERROR", "ERROR"]
     .includes(e.action ?? "");
 
@@ -47,7 +47,7 @@ export function buildExperienceContext(history: ExperienceEvent[]) {
   }
   const toolEvents = history.filter(e => e.kind === "tool");
   const countAction = (action: string) => toolEvents.filter(e => e.action === action).length;
-  const decisions = history.filter(e => e.kind === "thought" || e.kind === "reply");
+  const decisions = history.filter(e => e.kind === "thought" || e.kind === "decision" || e.kind === "journal" || e.kind === "reply");
   const activityCounts = {
     decisions: decisions.length,
     moves: countAction("MOVE_OK"),

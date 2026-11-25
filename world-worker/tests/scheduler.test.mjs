@@ -8,7 +8,9 @@ const wrangler = readFileSync(new URL("../wrangler.toml.example", import.meta.ur
 test("at most two decisions a minute using persistent, atomic cooldown", () => {
   assert.match(worker, /DECISION_INTERVAL_MS = 30_000/);
   assert.match(worker, /DECISION_CLAIM_LEASE_MS = 120_000/);
-  assert.match(worker, /Date\.now\(\) \+ DECISION_INTERVAL_MS/);
+  assert.match(worker, /Date\.now\(\) \+ \(fast\?0:DECISION_INTERVAL_MS\)/);
+  assert.match(worker, /const fast = env\.WORLD_004_MODE==="strategy-e" && env\.WORLD_004_FAST_MODE==="true"/);
+  assert.match(worker, /if \(!fast && Number\.isFinite\(lastDecision\)/);
   assert.match(worker, /UPDATE world SET next_tick=\? WHERE id=1 AND next_tick=\?/);
   assert.match(worker, /await releaseDecisionSlot\(\);\s*return \{ status: "model_error" \}/);
   assert.match(worker, /await releaseDecisionSlot\(\);\s*return \{ status: "ok"/);
@@ -31,7 +33,7 @@ test("journey arrival must not shorten an already persisted completion-based dea
   assert.ok(started + 30_000 <= arrived, "start-based cooldown has expired");
   assert.ok(arrived < persistedNextTick, "completion-based cooldown has not expired");
 
-  const arrivalSection = worker.split("const journey = await advanceJourney(env.DB, now);")[1]
+  const arrivalSection = worker.split("const journey = await advanceJourney(env.DB, syntheticArrival);")[1]
     .split("if (Date.parse(world.next_tick) > now.getTime())")[0];
   assert.doesNotMatch(arrivalSection, /UPDATE world SET next_tick/);
   assert.doesNotMatch(arrivalSection, /lastDecision \+ DECISION_INTERVAL_MS/);
@@ -46,4 +48,12 @@ test("tracked production Wrangler config preserves the every-minute schedule",()
     assert.match(settings,/binding\s*=\s*"DB"/);
   }
   assert.match(pkg.scripts.deploy,/check-wrangler-config\.mjs/);
+});
+
+test("fast mode retains guarded sequential decisions and normal travel verification", () => {
+  assert.match(worker,/const world004Status=await world004Guard\(env,now\)/);
+  assert.match(worker,/await advanceJourney\(env.DB, syntheticArrival\)/);
+  assert.match(worker,/await journeyRow\(env.DB\)/);
+  assert.match(worker,/if \(Date\.parse\(world\.next_tick\) > now\.getTime\(\)\) return \{ status: "not_due" \}/);
+  assert.match(worker,/if \(env\.WORLD_004_FAST_MODE==="true" && env\.WORLD_004_MODE==="strategy-e"\)/);
 });

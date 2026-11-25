@@ -311,17 +311,20 @@ export default function World() {
   const coins=data?.garden?.coins??data?.vending?.coins;
   const selectedObject = data?.objects?.find(o=>o.id===selectedObjectId);
   const selectedFood = data?.food?.trees.find(t=>t.id===selectedObjectId);
-  // Journal thoughts describe actual selected actions, unlike the technical trace,
-  // which is dominated by internal model-decision steps.
+  // The compact activity panel shows verified tool outcomes or silent choices.
+  // Legacy narrated ACT events remain available only as a fallback for older worlds.
   const recentActionToasts = (data?.events ?? [])
-    .filter(event => event.kind === "thought" && ["ACT","THINK","OBSERVE","REMEMBER"].includes(event.action ?? ""))
+    .filter(event => event.kind === "tool" || event.kind === "decision" ||
+      (event.kind === "thought" && ["ACT","THINK","OBSERVE","REMEMBER"].includes(event.action ?? "")))
     .slice(0,4)
     .map(event => ({
-      id:event.id,started_at:event.created_at,kind:event.action ?? "ACT",
+      id:event.id,started_at:event.created_at,kind:event.kind==="tool"?(event.action??"ACT"):(event.action??"ACT"),
       status:"completed",detail:event.content,result:null,
     }));
   const seconds = data && !data.offline ? Math.max(0, Math.ceil((Date.parse(data.world.next_tick) - clock) / 1000)) : 0;
   const visibleJournal = data?.offline && !journalEvents.length ? (data.events ?? []) : journalEvents;
+  const personalJournal = visibleJournal.filter(event=>event.kind==="journal");
+  const activityHistory = visibleJournal.filter(event=>event.kind!=="journal");
   const meters = state ? [
     { label: "Fullness", value: 1 - (state.emotions.hunger ?? 0.15), tone: "fullness", inactive:false },
     { label: "Curiosity", value: state.emotions.curiosity ?? 0.35, tone: "curiosity", inactive:false },
@@ -449,7 +452,7 @@ export default function World() {
 
       <section className="world-card world-journal">
         <div className="world-journal-head">
-          <h2>Journal</h2>
+          <h2>Activity & journal</h2>
           <div className="world-journal-controls">
             <div className="world-journal-filter">
               <label htmlFor="world-journal-window">History</label>
@@ -473,7 +476,7 @@ export default function World() {
             </div>
           </div>
         </div>
-        <p className="meta">Browse historic journal entries by time, then load older pages as needed. Private messages stay in Messages; creator requests are in Requests. The complete export requires owner access.</p>
+        <p className="meta">Activity records verified actions and silent decisions. Journal entries appear only when Nimo chooses to write. Older narrated activity remains available in history.</p>
         {exportError&&<p className="world-warning" role="alert">{exportError}</p>}
         {isOwner && exportLoginRequired&&<form className="world-journal-export-login" onSubmit={event=>void signInForExport(event)}>
           <label htmlFor="world-export-token">Owner access token</label>
@@ -484,7 +487,15 @@ export default function World() {
         </form>}
         {journalError&&!data?.offline&&<p className="world-warning" role="alert">{journalError}</p>}
         {data?.offline&&<p className="meta">Showing journal entries saved with the offline snapshot. Date-range filtering and older pages require D1.</p>}
-        {visibleJournal.length ? groupJournalEvents(visibleJournal).map(event => (
+        <h3>Personal journal</h3>
+        {personalJournal.length ? personalJournal.map(event=>(
+          <article key={event.id} className="world-event">
+            <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>JOURNAL</span></div>
+            <p className="world-event-narration">{event.content}</p>
+          </article>
+        )) : <p className="meta">No personal journal entries in this time range.</p>}
+        <h3>Activity history</h3>
+        {activityHistory.length ? groupJournalEvents(activityHistory).map(event => (
           <article key={event.id} className="world-event">
             <div><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time><span>{event.label}</span></div>
             {event.movement && (
@@ -493,7 +504,7 @@ export default function World() {
             {event.narration && <p className="world-event-narration"><strong>Nimo:</strong> {event.narration}</p>}
             {event.outcome && <p className="world-event-result"><strong>{event.narration ? "Result:" : "Event:"}</strong> {event.outcome}</p>}
           </article>
-        )) : <p className="meta">{journalLoading?"Loading journal…":"No journal events in this time range."}</p>}
+        )) : <p className="meta">{journalLoading?"Loading activity…":"No activity in this time range."}</p>}
         {journalHasMore&&!data?.offline&&<button type="button" className="world-journal-more" disabled={journalLoading}
           onClick={()=>void loadJournal(journalWindow,true)}>{journalLoading?"Loading…":"Load earlier events"}</button>}
       </section>
