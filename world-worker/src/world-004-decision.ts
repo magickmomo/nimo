@@ -191,6 +191,7 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
   for(const a of rows(w.availableActions)){
    const name=a.name;
    if(typeof name!=="string"||!/^[a-z_]{2,50}$/.test(name))continue;
+   if(name==="draw_strokes"&&Number(asObj(asObj(w.sketchbook).active).stroke_count??0)>=160)continue;
    const targets=Object.entries(a).filter(([key,value])=>key!=="name"&&Array.isArray(value))
     .map(([key,value])=>key+": "+JSON.stringify(value).slice(0,230)).join("; ");
    actions.push({id:name,tool:name,description:"Use "+name+(targets?"; eligible "+targets:"")});
@@ -208,6 +209,7 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
  for(const a of rows(w.availableActions)){
   const name=a.name;
   if(typeof name!=="string"||!/^[a-z_]{2,50}$/.test(name))continue;
+  if(name==="draw_strokes"&&Number(asObj(asObj(w.sketchbook).active).stroke_count??0)>=160)continue;
   if(["rest","take_can","fill_can"].includes(name)){add(name,{},name);continue;}
   if(["eat_fruit","discard_fruit"].includes(name)){each(a,"fruits","fruit",name);continue;}
   if(["inspect","plant_wildflower_seed"].includes(name)){each(a,"directions","direction",name);continue;}
@@ -269,6 +271,27 @@ const usageOf=(r:R)=>{const u=asObj(r.usage);const cached=asObj(u.input_tokens_d
 const responseText=(r:R)=>rows(r.output).flatMap(o=>rows(o.content))
  .filter(t=>t.type==="output_text").map(t=>clip(t.text,10000)).join("");
 
+export function world004BoundGeneratedDecision(input:unknown,choice:Selection,world:R):unknown{
+ if(!input||typeof input!=="object"||Array.isArray(input))return input;
+ const d={...(input as R)};
+ // Presentation metadata may be absent/oversized despite schema instructions.
+ if(typeof d.activity!=="string"||d.activity.length>120)
+  d.activity=(choice.tool??choice.id).replaceAll("_"," ").slice(0,120);
+ const tool=asObj(d.toolCall);
+ if(choice.tool==="draw_strokes"&&tool.name==="draw_strokes"&&Array.isArray(tool.strokes)){
+  const active=asObj(asObj(world.sketchbook).active);
+  const prior=Number(active.stroke_count);
+  if(Number.isSafeInteger(prior)&&prior>=0&&prior<160){
+   // Bound only the stroke count, preserving the model's chosen geometry.
+   // The normal validator and storage boundary still check every stroke.
+   const capacity=Math.min(8,160-prior);
+   if(tool.strokes.length>capacity)
+    d.toolCall={...tool,strokes:tool.strokes.slice(0,capacity)};
+  }
+ }
+ return d;
+}
+
 export async function decideWorld004(args:Args):Promise<Decision>{
  const source=args.originalMessages.find(m=>m.role==="user"&&m.content.trim().startsWith("{"));
  if(!source)throw Error("World 004 current world context is absent");
@@ -322,7 +345,7 @@ export async function decideWorld004(args:Args):Promise<Decision>{
    content:"World 004 has selected this action: "+choice.id+
     ". Generate ONLY the selected decision's required compatible fields, activity, goal, identityUpdate:null, replyIntent and intentDisposition. "+
     (textAction?"Generate monologue as the actual reply, creator request, or deliberate journal entry. ":"Set monologue to the empty string. No running commentary. ")+
-    (textAction?"Generate the reply, request, or journal entry in monologue. ":"Set monologue to the empty string. No running commentary. ")+
+    (choice.tool==="draw_strokes"?"Generate 1 to 8 strokes, NEVER more than remainingStrokes. The sketch limit is 160 strokes. ":"")+
     (choice.tool?"The ACT toolCall.name MUST be exactly "+choice.tool+".":"This is a non-tool "+choice.id+" action. toolCall MUST be null.")+
     " Obey the actual availableActions list. Do not invent outcomes or change the selection."
   }],
@@ -345,7 +368,8 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  if(!generated.ok)throw Error("World 004 generator returned HTTP "+generated.status+": "+clip(asObj(genResponse.error).message,150));
  const raw=responseText(genResponse);
  if(!raw)throw Error("World 004 generation returned empty output");
- const result=validateDecision(JSON.parse(raw),args.hasVisitor,true);
+ const bounded=world004BoundGeneratedDecision(JSON.parse(raw),choice,world);
+ const result=validateDecision(bounded,args.hasVisitor,true);
  if(!world004ActionMatches(choice,result))throw Error("World 004 generation diverged from selected choice: "+choice.id);
  return result;
 }
