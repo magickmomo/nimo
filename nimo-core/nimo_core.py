@@ -15,6 +15,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import Counter
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -464,6 +465,106 @@ def inspect(db: sqlite3.Connection, decision_id: int | None = None) -> dict[str,
                 "SELECT * FROM artifacts WHERE decision_id=?", (decision_id,))]}
 
 
+
+def write_report(db: sqlite3.Connection, output: str) -> None:
+    """Create an offline, read-only audit report; no model call or state mutation."""
+    decisions = [dict(r) for r in db.execute("SELECT * FROM decisions ORDER BY id")]
+    memories = [dict(r) for r in db.execute("SELECT * FROM memories ORDER BY id")]
+    calls = [dict(r) for r in db.execute("SELECT * FROM model_calls ORDER BY id")]
+    artifacts = [dict(r) for r in db.execute("SELECT * FROM artifacts ORDER BY id")]
+    state = dict(db.execute("SELECT * FROM state WHERE id=1").fetchone())
+
+    def pretty(raw: str | None) -> str:
+        if raw is None:
+            return "None"
+        try:
+            return json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
+        except (ValueError, TypeError):
+            return str(raw)
+
+    def pre(label: str, value: str | None) -> str:
+        return ("<details><summary>" + escape(label) +
+                "</summary><pre>" + escape(pretty(value)) + "</pre></details>")
+
+    parts = [
+        '<!doctype html><html lang="en"><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width,initial-scale=1">',
+        '<title>Nimo Core audit</title>',
+        '<style>body{font:15px/1.6 system-ui,Arial,sans-serif;max-width:960px;margin:35px auto;padding:0 20px;color:#202a25;background:#fafbf8}'
+        'h1,h2,h3{line-height:1.3;color:#163c2b}article{background:white;border:1px solid #dce4dd;border-radius:12px;padding:18px;margin:15px 0}'
+        'summary{cursor:pointer;font-weight:600;padding:5px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f2f6f2;border-radius:8px;padding:12px;max-height:380px;overflow:auto}'
+        '.muted{color:#596960}.ok{color:#16633e}.bad{color:#9a302e}small{color:#647369}code{font-family:ui-monospace,monospace}</style>',
+        "<h1>Nimo Core — inspectable experiment</h1>",
+        "<p class='muted'>Local, read-only report. Exact requests and responses are presented as observations, "
+        "not as proof of hidden model reasoning.</p>",
+        f"<p><strong>{len(decisions)} attempted decisions</strong> · {len(artifacts)} artifacts · "
+        f"{len(memories)} consolidated memories · {len(calls)} model calls</p>",
+        pre("Agent state (exact snapshot)", compact(state)),
+        "<h2>Decisions and verified outcomes</h2>",
+    ]
+    calls_by_decision: dict[int, list[dict[str, Any]]] = {}
+    for call in calls:
+        if call["decision_id"] is not None:
+            calls_by_decision.setdefault(call["decision_id"], []).append(call)
+    artifacts_by_decision: dict[int, list[dict[str, Any]]] = {}
+    for art in artifacts:
+        artifacts_by_decision.setdefault(art["decision_id"], []).append(art)
+    for d in decisions:
+        valid = d["status"] == "completed"
+        state_class = "ok" if valid else "bad"
+        parts += [
+            f"<article><h3>Decision #{d['id']} — {escape(d['selected'] or 'not selected')}</h3>",
+            f"<p><strong class='{state_class}'>{escape(d['status'])}</strong> · "
+            f"<small>{escape(d['started_at'])}</small></p>",
+            f"<p>{escape(d['result'] or 'No verified outcome recorded')}</p>",
+            pre("Exact context visible to the selector", d["context_json"]),
+            pre("All offered action choices", d["offered_json"]),
+        ]
+        for call in calls_by_decision.get(d["id"], []):
+            parts += [
+                f"<h4>Model call #{call['id']}: {escape(call['purpose'])}</h4>",
+                pre("Exact API request (no authentication header)", call["request_json"]),
+                pre("Exact raw API response", call["response_json"]),
+                pre("Token usage", call["usage_json"]),
+            ]
+            if call["error"]:
+                parts.append(f"<p class='bad'>Model error: {escape(call['error'])}</p>")
+        for art in artifacts_by_decision.get(d["id"], []):
+            parts += [
+                f"<p><strong>Artifact #{art['id']}:</strong> "
+                f"{escape(art['kind'])} — {escape(art['title'])}</p>",
+                pre("Saved artifact content", art["content"]),
+            ]
+        parts.append("</article>")
+    parts.append("<h2>Memories at every ten decisions</h2>")
+    for memory in memories:
+        parts += [
+            f"<article><h3>After decision #{memory['cycle_end_decision']}</h3>",
+            f"<p>Status: <strong>{escape(memory['status'])}</strong></p>",
+            f"<p>{escape(memory['objective_summary'])}</p>",
+            "<p><strong>Reflection:</strong> " + escape(memory["reflection"] or "(none; objective fallback)") + "</p>",
+            "<p><strong>Tentative identity note:</strong> " +
+            escape(memory["tentative_identity_note"] or "(none)") + "</p>",
+            pre("Evidence decision IDs", memory["evidence_decision_ids_json"]),
+            "</article>",
+        ]
+    parts.append("<h2>Memory-consolidation model calls</h2>")
+    for call in calls:
+        if call["purpose"] != "consolidate":
+            continue
+        parts += [
+            f"<article><h3>Consolidation call #{call['id']}</h3>",
+            pre("Exact consolidation request", call["request_json"]),
+            pre("Raw consolidation response", call["response_json"]),
+            pre("Usage", call["usage_json"]),
+        ]
+        if call["error"]:
+            parts.append("<p class='bad'>" + escape(call["error"]) + "</p>")
+        parts.append("</article>")
+    parts.append("</html>")
+    Path(output).write_text("\n".join(parts), encoding="utf8")
+
+
 def main() -> None:
     cli = argparse.ArgumentParser(description="Nimo Core — isolated auditable prototype")
     cli.add_argument("--db", default="nimo-core.sqlite3")
@@ -478,6 +579,8 @@ def main() -> None:
     export = cmd.add_parser("export")
     export.add_argument("--artifact", type=int, required=True)
     export.add_argument("--out", required=True)
+    report = cmd.add_parser("report", help="Write a static, read-only HTML audit report")
+    report.add_argument("--out", default="nimo-core-report.html")
     args = cli.parse_args()
     db = open_db(args.db)
     if args.command == "run":
@@ -486,6 +589,9 @@ def main() -> None:
             print(compact(item))
     elif args.command == "inspect":
         print(json.dumps(inspect(db, args.decision), indent=2, ensure_ascii=False))
+    elif args.command == "report":
+        write_report(db, args.out)
+        print(args.out)
     elif args.command == "export":
         row = db.execute("SELECT kind,content FROM artifacts WHERE id=?", (args.artifact,)).fetchone()
         if not row:
