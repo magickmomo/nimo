@@ -285,7 +285,6 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  // Existing real-world output schema and validator remain authoritative.
  // This is a structured generation step, not a second unconstrained selection.
  const textAction=["reply","request","write_journal"].includes(choice.id);
- const textAction=["reply","request","write_journal"].includes(choice.id);
  const generationPayload={
   model:args.model,
   input:[
