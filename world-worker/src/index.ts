@@ -1291,10 +1291,10 @@ export default {
           return json({error:"Both start and stop must be supplied"},400);
         const since=custom?query.get("start")??"":env.WORLD_004_START_AT??"";
         const until=custom?query.get("stop")??"":env.WORLD_004_STOP_AT??"";
-        if(custom && (since!==new Date(Date.parse(since)).toISOString()||
-           until!==new Date(Date.parse(until)).toISOString()))
-          return json({error:"Use UTC ISO 8601 start and stop times"},400);
         const start=Date.parse(since),stop=Date.parse(until);
+        if(custom && (!Number.isFinite(start)||!Number.isFinite(stop)||
+          since!==new Date(start).toISOString()||until!==new Date(stop).toISOString()))
+          return json({error:"Use UTC ISO 8601 start and stop times"},400);
         if(!Number.isFinite(start)||!Number.isFinite(stop)||
           start<Date.parse("2026-11-24T00:00:00.000Z")||
           stop<=start||stop-start>86400000)
