@@ -32,6 +32,15 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(json.loads(memories[0]["evidence_decision_ids_json"]), list(range(1, 11)))
         self.assertEqual(self.rows("SELECT attempted FROM state")[0]["attempted"], 10)
 
+    def test_offline_demo_exercises_all_four_choices_and_creates_artifacts(self):
+        results = core.run(self.db, self.ai, 4)
+        self.assertEqual([r["selected"] for r in results], list(core.ACTIONS))
+        self.assertTrue(all(r["status"] == "completed" for r in results))
+        self.assertEqual([r["kind"] for r in self.rows(
+            "SELECT kind FROM artifacts ORDER BY id")], ["journal", "drawing", "oracle"])
+        drawing = self.rows("SELECT content FROM artifacts WHERE kind='drawing'")[0]
+        self.assertIn("<svg", json.loads(drawing["content"])["svg"])
+
     def test_every_model_request_and_response_is_inspectable(self):
         core.run(self.db, self.ai, 3)
         rows = self.rows("SELECT purpose,request_json,response_json,error FROM model_calls")
