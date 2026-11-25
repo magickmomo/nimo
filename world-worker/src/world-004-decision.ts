@@ -2,8 +2,8 @@
  * World 004 autonomous decision adapter.
  *
  * Select using Strategy E on a compact view of the *current* Worker inputs,
- * then generate a legacy-compatible structured Decision for the existing,
- * authoritative World 003 executor. No additional D1/R2 reads or writes.
+ * execute parameter-complete choices directly, and generate content only
+ * for open-ended actions. The existing executor remains authoritative.
  *
  * Rollout is gated by WORLD_004_MODE and WORLD_004_ENABLED in index.ts.
  */
@@ -211,7 +211,7 @@ export function world004Choices(w:R,hasVisitor:boolean):Selection[]{
   }
   if(name==="travel_to"){
    const pos=asObj(p.position);
-   const tiles=rows(p.visibleTiles).filter(t=>t.object==null&&Number.isInteger(t.x)&&Number.isInteger(t.y)&&
+   const tiles=rows(p.visibleTiles).filter(t=>t.object==null&&Number.isInteger(Number(t.x))&&Number.isInteger(Number(t.y))&&
     Number(t.x)>=1&&Number(t.x)<=16&&Number(t.y)>=1&&Number(t.y)<=16&&(t.x!==pos.x||t.y!==pos.y)).slice(0,65);
    for(const t of tiles)add(name,{x:t.x,y:t.y},"Travel to ("+t.x+","+t.y+")");
    continue;
@@ -297,7 +297,7 @@ export async function decideWorld004(args:Args):Promise<Decision>{
    content:"World 004 has selected this action: "+choice.id+
     ". Generate ONLY the selected decision's required compatible fields, activity, goal, identityUpdate:null, replyIntent and intentDisposition. "+
     (textAction?"Generate monologue as the actual reply, creator request, or deliberate journal entry. ":"Set monologue to the empty string. No running commentary. ")+
-    (textAction?"Generate the reply, request, or journal entry in monologue. ":"Use an empty monologue; no running narration. ")+
+    (textAction?"Generate the reply, request, or journal entry in monologue. ":"Set monologue to the empty string. No running commentary. ")+
     (choice.tool?"The ACT toolCall.name MUST be exactly "+choice.tool+".":"This is a non-tool "+choice.id+" action. toolCall MUST be null.")+
     " Obey the actual availableActions list. Do not invent outcomes or change the selection."
   }],
