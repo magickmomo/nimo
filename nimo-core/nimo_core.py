@@ -432,6 +432,14 @@ def run_one(db: sqlite3.Connection, ai: Any) -> dict[str, Any]:
 def run(db: sqlite3.Connection, ai: Any, count: int) -> list[dict[str, Any]]:
     if not 1 <= count <= 10:
         raise ValueError("Run length must be 1-10; no unbounded autonomous loop")
+    # A crash may leave a partially executed action in the database. Refuse
+    # to silently replay or count it until a human inspects the audit record.
+    incomplete = db.execute("SELECT id FROM decisions WHERE status='running' LIMIT 1").fetchone()
+    if incomplete:
+        raise RuntimeError(f"Decision #{incomplete['id']} is incomplete; inspect before resuming")
+    attempted = db.execute("SELECT attempted FROM state WHERE id=1").fetchone()["attempted"]
+    if db.execute("SELECT COUNT(*) n FROM experiences").fetchone()["n"] != attempted:
+        raise RuntimeError("State and experience counts differ; inspect before resuming")
     return [run_one(db, ai) for _ in range(count)]
 
 
