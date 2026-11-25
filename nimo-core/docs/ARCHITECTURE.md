@@ -107,6 +107,15 @@ Artifact IDs are references, not personality claims. A memory record is append-o
 
 Inspect a decision's complete chain:
 
+For an easier overview, generate a **static, read-only HTML audit** (no web server, model call or state mutation):
+
+```bash
+python nimo_core.py --db ./trial.sqlite3 report --out ./audit.html
+```
+
+Open `audit.html` locally. Each decision expands to show the exact context, offered actions, selector and generation payloads, responses, usage, outcome and artifacts. Consolidation calls and memories appear in their own section.
+
+
 \`\`\`bash
 cd nimo-core
 python nimo_core.py --db ./trial.sqlite3 inspect --decision 4
