@@ -21,6 +21,26 @@ class CoreTests(unittest.TestCase):
     def rows(self, sql, *params):
         return self.db.execute(sql, params).fetchall()
 
+    def test_plain_identity_and_no_capabilities_in_initial_want_request(self):
+        self.assertEqual(core.DEFAULT_IDENTITY, "I am Nimo.")
+        initial = core.recent_context(self.db)
+        self.assertEqual(initial["identity"], "I am Nimo.")
+        self.assertIn("oracle_questions_remaining_today", initial)
+        result = core.run_one(self.db, self.ai)
+        self.assertEqual(result["status"], "completed")
+        calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
+        self.assertEqual([r["purpose"] for r in calls], ["express_want", "select", "think"])
+        want = json.loads(calls[0]["request_json"])
+        want_context = json.loads(want["input"][1]["content"])["context"]
+        self.assertEqual(want_context["identity"], "I am Nimo.")
+        self.assertNotIn("oracle_questions_remaining_today", want_context)
+        self.assertNotIn("draw", json.dumps(want_context))
+        self.assertNotIn("ask_oracle", json.dumps(want_context))
+        selected = json.loads(calls[1]["request_json"])
+        selector_context = selected["input"][1]["content"][0]["data"]
+        self.assertIn("oracle_questions_remaining_today", selector_context)
+        self.assertEqual([c["value"] for c in selected["questions"][0]["choices"]], list(core.ACTIONS))
+
     def test_crash_does_not_silently_resume_an_incomplete_decision(self):
         self.db.execute("INSERT INTO decisions(started_at,context_json,offered_json,status) VALUES(?,?,?,'running')",
                         (core.now(), "{}", "[]"))

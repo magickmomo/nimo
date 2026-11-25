@@ -218,3 +218,13 @@ A failed or empty want is a **failed attempted decision**: do not invoke the sel
 
 To compare fairly with the earlier experiment, use a **fresh SQLite database** and run exactly 10 live decisions. No live run starts automatically.
 
+
+## 15. Controlled experiment: plain identity (new)
+
+For a fresh database, `state.identity` is now exactly **"I am Nimo."** rather than explicitly listing `think`, `write`, `draw`, and `ask_oracle` as capabilities.
+
+The `express_want` Responses call still receives the same question ("Nimo, what would you like to do?"), the three objects, recent experiences, memories, and current intention. It no longer receives `oracle_questions_remaining_today` (a tool-availability hint) at that stage. The four-option Decisions selector still receives this quota and the unchanged full menu **only after** Nimo has expressed a want.
+
+**Important limitation:** after decision 1, the recent-experience history contains names of previously executed actions. Nimo can infer abilities from what he has done; this version removes explicit upfront capability instructions, not his memory of actual experience. No prior memories or identity values are rewritten in existing databases. To test the plain identity, start with a **new SQLite file**.
+
+All tools, model prompts other than the seeded identity text, validation, memory consolidation after ten decisions, and run controls remain unchanged. This is an input-context experiment, not evidence of emergent capabilities.
