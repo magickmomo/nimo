@@ -154,7 +154,9 @@ class MockAI:
             return {"answers": [{"name": "next_action", "type": "choice", "choice": selected}],
                     "usage": {"input_tokens": 0, "output_tokens": 0}}
         purpose = json.loads(payload["input"][1]["content"])["purpose"]
-        if purpose == "draw":
+        if purpose == "express_want":
+            value = {"want": "I would like to explore something I have noticed."}
+        elif purpose == "draw":
             value = {"title": "A short line study", "intention": "Try three connected marks.",
                      "strokes": [{"points": [[10, 10], [60, 60], [110, 30]], "color": "#296655", "width": 3}]}
         elif purpose == "think":
@@ -213,6 +215,7 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
         "Write concise content. Keep your intentions distinct from verified outcomes."
     )
     shapes: dict[str, dict[str, Any]] = {
+        "express_want": {"want": "string (1-300 chars): answer what you would like to do or pursue, in your own words, without choosing a tool"},
         "think": {"text": "string (1-500 chars)", "intention": "string (0-200 chars) or null"},
         "write_journal": {"title": "string (1-100 chars)", "text": "string (1-1200 chars)"},
         "draw": {"title": "string (1-100 chars)", "intention": "string (1-300 chars)",
@@ -299,6 +302,14 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
             "recent_experiences": [dict(row) for row in reversed(experiences)],
             "recent_memories": [dict(row) for row in reversed(memories)],
             "oracle_questions_remaining_today": max(0, 3-oracle_calls_today(db))}
+
+
+def express_want(db: sqlite3.Connection, ai: Any, decision_id: int,
+                 context: dict[str, Any]) -> str:
+    """Nimo answers freely before any action is selected."""
+    response = generate(db, ai, decision_id, "express_want",
+                        {"question": "Nimo, what would you like to do?", **context})
+    return text_field(response, "want", 300)
 
 
 def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
@@ -421,6 +432,10 @@ def run_one(db: sqlite3.Connection, ai: Any) -> dict[str, Any]:
     db.commit()
     selected, status, outcome, artifact_id = "selection_error", "failed", "", None
     try:
+        want = express_want(db, ai, decision_id, context)
+        context = {**context, "expressed_want": want}
+        db.execute("UPDATE decisions SET context_json=? WHERE id=?", (compact(context), decision_id))
+        db.commit()
         selected = choose(db, ai, decision_id, context, options)
         db.execute("UPDATE decisions SET selected=? WHERE id=?", (selected, decision_id))
         db.commit()
@@ -438,7 +453,8 @@ def run_one(db: sqlite3.Connection, ai: Any) -> dict[str, Any]:
     # A memory is mandatory at exactly 10,20,30... regardless of success.
     if index % 10 == 0:
         consolidation(db, ai, index)
-    return {"decision": index, "decision_id": decision_id, "selected": selected,
+    return {"decision": index, "decision_id": decision_id,
+            "expressed_want": context.get("expressed_want"), "selected": selected,
             "status": status, "outcome": outcome, "artifact_id": artifact_id}
 
 
