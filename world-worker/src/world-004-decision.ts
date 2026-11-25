@@ -20,10 +20,8 @@ const score=(haystack:string,terms:Set<string>)=>{let n=0;const v=haystack.toLow
 
 /**
  * Static knowledge of relationships between systems in Nimo's world.
- * For the A/B experiment, this is the ONLY change to model decision inputs:
- * no extra model calls, no new tools, no enforced objectives, and no
- * changes to generation or execution. Keep this identical each request
- * so the selector may benefit from prefix caching if supported.
+ * Stable world mechanics shared by every selector request. The dynamic
+ * behavioural signals live in world004Context, not in this static prefix.
  */
 export const WORLD_004_STATIC_BRIEFING = `You are Nimo, living independently in a persistent 16x16 world. You choose your interests, goals, and projects; you may reflect, rest, persist or change direction. More tool variety is not inherently better.
 Your world has connected opportunities:
@@ -34,6 +32,7 @@ Your world has connected opportunities:
 - Oracle: The Oracle can research wider subjects such as art, science, nature and technology. Questions cost 10 coins, up to three per day, and require being near the monument. You can earn coins by selling items; a submitted answer arrives asynchronously and can be used later.
 - Creative life: Your sketchbook, documents and projects can capture and develop ideas across days. Projects can be started, updated, paused, completed or abandoned.
 - Growth: If a worthwhile idea needs a missing capability, you can request help or propose a world expansion; changes require creator review.
+Fullness is a wellbeing meter: 100% means comfortably fed and 0% means starving. It decreases over time; eating a previously verified helpful fruit restores it. Low fullness deserves immediate consideration even during an interesting activity, and existing plans can be resumed afterward. Curiosity can motivate exploration but must not override essential needs. Do not assume every fruit helps: rely on verified evidence.
 A tool absent from the current available-action menu cannot be executed now, but you can independently travel, learn or prepare toward a future opportunity. Treat past memories as evidence, not commands. Choose actions because they make sense to you, not to satisfy a checklist.`;
 
 /** A deliberately lean, deterministic Strategy E view. Original factual world context
@@ -41,6 +40,7 @@ A tool absent from the current available-action menu cannot be executed now, but
 export function world004Context(w:R){
  const state=asObj(w.state),p=asObj(w.perception),food=asObj(w.food),garden=asObj(w.garden);
  const exp=asObj(w.experience),sketch=asObj(w.sketchbook);
+ const goalReview=asObj(w.goalReview);
  const recent=rows(exp.recentEvents).slice(0,5);
  const goal=clip(state.currentGoal,250);
  const terms=tokenSet([goal,clip(state.currentActivity),...rows(p.visibleObjects).map(o=>clip(o.type))].join(" "));
@@ -61,6 +61,14 @@ export function world004Context(w:R){
   continuity:{projects,memories,unfinishedSketch:sketch.active?{id:asObj(sketch.active).id,title:asObj(sketch.active).title}:null,
    recentExperience:recent.map(e=>({kind:e.kind,action:e.action,content:clip(e.content,170)})),
    lastVerifiedOutcome:latestVerified?{action:latestVerified.action,description:clip(latestVerified.content,170)}:null},
+  behaviouralContext:{
+   fullnessMeaning:"100% is comfortably fed; 0% is starving. Consider food before less urgent interests when fullness is low.",
+   curiosityGuidance:clip(w.curiosityGuidance,2000),
+   goalReview:{existingGoal:goalReview.existingGoal??null,
+    passiveDecisionStreak:goalReview.passiveDecisionStreak??0,
+    evidence:Array.isArray(goalReview.evidence)?goalReview.evidence.slice(0,8):[],
+    guidance:clip(goalReview.guidance,1000)},
+  },
   adaptiveKnowledge:{retrieval:"Relevant memories, unfinished work, and verified recent events. No forced activity diversification."},
   availableActions:rows(w.availableActions).map(o=>({...o})),
   visitorMessage:w.pendingVisitorMessage??null,
@@ -217,7 +225,8 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  const selectionPayload={
   model:args.model,
   input:[
-   {role:"developer",content:[{type:"input_text",text:WORLD_004_STATIC_BRIEFING+"\nChoose independently from the actual available world actions. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
+   {role:"developer",content:[{type:"input_text",text:WORLD_004_STATIC_BRIEFING+"
+Choose independently from the actual available world actions. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
    {role:"user",content:[{type:"input_json",data:context}]}
   ],
   questions:[{type:"choice",name:"next_action",instructions:"Choose one next action based on current interests, needs, verified world state, and real executable choices. Only offered actions may execute.",choices:options.map(o=>({value:o.id,description:o.description}))}]
