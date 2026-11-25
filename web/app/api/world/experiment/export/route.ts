@@ -3,9 +3,8 @@ import {hasOwnerSession} from "../../../../../lib/world-owner-session";
 
 export const dynamic="force-dynamic";
 
-/** One-click full isolated experiment export: past experiment windows supported. */
+/** Owner-only export; authoritative Worker verifies Strategy E instead of relying on a potentially unset Next.js build-time flag. */
 export async function GET(req:NextRequest){
-  if(process.env.NEXT_PUBLIC_WORLD_004!=="true")return NextResponse.json({error:"Not an experiment site"},{status:404});
   if(!(await hasOwnerSession(req)))return NextResponse.json({error:"Owner login required"},{status:401});
   const worker=process.env.WORLD_WORKER_URL,secret=process.env.WORLD_INTERNAL_SECRET;
   if(!worker||!secret)return NextResponse.json({error:"Worker not configured"},{status:503});
