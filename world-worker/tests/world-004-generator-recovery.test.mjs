@@ -18,7 +18,7 @@ const choices=(stroke_count,pendingIntent=null)=>adapter.world004Choices({
 },false);
 const drawing={id:"draw_strokes",tool:"draw_strokes",description:"Draw"};
 const strokes=Array.from({length:12},(_,i)=>({points:[[i,1],[i+1,2]],color:"#123456",width:1}));
-const generated=(activity="Drawing")=>({
+const generated=(activity)=>({
  action:"ACT",activity,toolCall:{name:"draw_strokes",sketchId:299,strokes},
  goal:"Finish my sketch",monologue:"",intentDisposition:"keep"
 });
