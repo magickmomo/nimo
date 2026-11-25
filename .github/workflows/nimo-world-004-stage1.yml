@@ -1,0 +1,109 @@
+name: World 004 Stage 1 evidence and Codex evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Experiment start, exact UTC ISO timestamp e.g. 2026-11-25T09:30:00.000Z'
+        required: true
+        type: string
+      stop:
+        description: 'Experiment stop, exact UTC ISO timestamp e.g. 2026-11-25T11:30:00.000Z'
+        required: true
+        type: string
+  # One-time scheduled collection for the initial two-hour 25 Nov canary.
+  # Guard below prevents recurring downloads after this date.
+  schedule:
+    - cron: '45 11 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-world-004-stage1-evidence
+  cancel-in-progress: false
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != 'schedule' ] || [ "$(date -u +%F)" = '2026-11-25' ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  evaluate:
+    needs: eligibility
+    if: needs.eligibility.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: world-004
+    env:
+      EXPERIMENT_START: ${{ github.event_name == 'schedule' && '2026-11-25T09:30:00.000Z' || inputs.start }}
+      EXPERIMENT_STOP: ${{ github.event_name == 'schedule' && '2026-11-25T11:30:00.000Z' || inputs.stop }}
+      EXPERIMENT_OUTPUT: experiment-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Collect raw ledger and every archived context page
+        env:
+          WORLD_004_WORKER_URL: https://nimo-world-004.moamrr.workers.dev
+          WORLD_004_INTERNAL_SECRET: ${{ secrets.WORLD_004_INTERNAL_SECRET }}
+        run: node experiments/stage1/collect.mjs
+
+      - name: Store original API responses and SHA-256 manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimo-world-004-stage1-raw-${{ github.run_id }}
+          path: experiment-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: false
+
+      - name: Check evaluation credential
+        env:
+          CODEX_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: test -n "$CODEX_KEY" || { echo 'Missing OPENAI_API_KEY in world-004 environment or repository secrets'; exit 1; }
+
+      - name: Run independent read-only Codex analysis
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ':read-only'
+          prompt-file: experiments/stage1/CODEX_PROMPT.md
+          output-file: experiment-evidence/improvement-analysis.md
+
+      - name: Store Codex findings separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimo-world-004-stage1-analysis-${{ github.run_id }}
+          path: experiment-evidence/improvement-analysis.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Private workflow summary, no raw excerpts
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## World 004 Stage 1'
+            echo "Window: ${EXPERIMENT_START} to ${EXPERIMENT_STOP}"
+            echo 'Raw export and Codex evaluation are separate workflow artifacts.'
+            echo 'Raw evidence files contain model prompts, decisions and journal content; do not publish them in a public Issue.'
+            echo 'The collector fails if a paginated export cannot be completed or a table is truncated.'
+            echo 'No code changes, deployments or further experiments were triggered by this workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"
