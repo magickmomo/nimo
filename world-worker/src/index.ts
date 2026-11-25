@@ -48,6 +48,7 @@ type Env = {
   WORLD_004_START_AT?: string;
   WORLD_004_STOP_AT?: string;
   WORLD_004_MAX_RUN_DECISIONS?: string;
+  WORLD_004_FAST_MODE?: string;
   WORLD_INTERNAL_SECRET: string;
 };
 type EventRow = ExperienceEvent;
@@ -462,6 +463,9 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
 }
 async function tick(env: Env) {
   const now = new Date();
+  // Fast canary mode changes pacing only. All model calls, tool validation,
+  // persistence, capacity limits and World 004 safety guards are unchanged.
+  const fast = env.WORLD_004_MODE==="strategy-e" && env.WORLD_004_FAST_MODE==="true";
   const world004Status=await world004Guard(env,now);
   if(world004Status)return {status:world004Status};
   // Sleep stops decisions *before* any model call or usage quota reservation.
@@ -470,7 +474,13 @@ async function tick(env: Env) {
   await drainAgentInbox(env);
   // Complete or advance an existing journey before considering another LLM call.
   // No AI decisions occur while the physical action remains in progress.
-  const journey = await advanceJourney(env.DB, now);
+  // Resolve each timed waypoint through the ordinary authoritative journey
+  // executor, using simulated elapsed travel time instead of sleeping.
+  const journeyState = fast ? await journeyRow(env.DB) : null;
+  const syntheticArrival = journeyState?.status==="travelling" && journeyState.started_at
+    ? new Date(Math.max(now.getTime(), Date.parse(journeyState.started_at)+
+        Math.max(0,JSON.parse(journeyState.path).length-1)*journeyState.step_ms+1)) : now;
+  const journey = await advanceJourney(env.DB, syntheticArrival);
   if (journey.status === "travelling" || journey.status === "paused")
     return {status:"action_in_progress"};
   const world = await getWorld(env.DB);
@@ -479,7 +489,7 @@ async function tick(env: Env) {
   // records its start and must never be used to shorten that cooldown.
   if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
   const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
-  if (Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
+  if (!fast && Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
     return { status: "not_due" };
 
   // Atomically reserve a lease longer than a typical model call, so simultaneous
@@ -491,7 +501,7 @@ async function tick(env: Env) {
   if (claimed.meta.changes !== 1) return { status: "already_claimed" };
   const releaseDecisionSlot = async () => {
     // Minimum 30s after finishing, not simply 30s after starting the LLM call.
-    const eligibleAt = new Date(Date.now() + DECISION_INTERVAL_MS).toISOString();
+    const eligibleAt = new Date(Date.now() + (fast?0:DECISION_INTERVAL_MS)).toISOString();
     await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?")
       .bind(eligibleAt,leaseUntil).run();
   };
@@ -1115,7 +1125,12 @@ export default {
         try {
           const result = await tick(env);
           if (result.status === "sleeping") break;
-          if (result.status === "action_in_progress") interval = 2000;
+          if (env.WORLD_004_FAST_MODE==="true" && env.WORLD_004_MODE==="strategy-e") {
+            // The next decision begins immediately after the previous one.
+            // A fast-run failure stops this invocation rather than hammering an API.
+            if (result.status !== "ok" && result.status !== "action_in_progress") break;
+            interval = 0;
+          } else if (result.status === "action_in_progress") interval = 2000;
         } catch (e) {
           await log(env.DB, "system", `Tick error: ${String(e).slice(0, 180)}`, "ERROR");
         }
