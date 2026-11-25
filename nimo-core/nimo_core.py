@@ -20,7 +20,7 @@ from typing import Any
 
 ACTIONS = ("think", "write_journal", "draw", "ask_oracle")
 DEFAULT_IDENTITY = "I am Nimo. I can think, write, draw, and ask the Oracle questions. My interests are mine to discover."
-MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6")
+MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
 
 
@@ -157,7 +157,7 @@ class MockAI:
             value = {"reflection": "I explored several ways of creating and thinking.",
                      "identity_note": None,
                      "evidence_decision_ids": payload["input"][1]["content"] and
-                     json.loads(payload["input"][1]["content"])["evidence_ids"][:2]}
+                     json.loads(payload["input"][1]["content"])["context"]["evidence_ids"][:2]}
         else:
             raise ValueError("Unsupported mock purpose: " + purpose)
         return {"output": [{"type": "message", "content": [{"type": "output_text", "text": compact(value)}]}],
