@@ -30,3 +30,24 @@ test("World 004 starts with segregated storage and no autonomous trigger",()=>{
  assert.doesNotMatch(config,/^crons\s*=/m);
  assert.doesNotMatch(config,/adf7b04a-0a03-40b7-8389-b02d7339a31f/);
 });
+
+test("World 004 selector receives existing hunger, curiosity and goal guidance",()=>{
+ assert.match(adapter,/fullnessMeaning:/);
+ assert.match(adapter,/curiosityGuidance:clip\(w\.curiosityGuidance,2000\)/);
+ assert.match(adapter,/const goalReview=asObj\(w\.goalReview\)/);
+ assert.match(adapter,/passiveDecisionStreak:goalReview\.passiveDecisionStreak/);
+ assert.match(adapter,/evidence:Array\.isArray\(goalReview\.evidence\)/);
+ assert.match(adapter,/guidance:clip\(goalReview\.guidance,1000\)/);
+ assert.match(adapter,/0% means starving/);
+ assert.match(adapter,/Curiosity can motivate exploration but must not override essential needs/);
+ assert.match(worker,/const curiosityPrompt=curiosityGuidance\(/);
+ assert.match(worker,/const goalReview=goalReviewContext\(/);
+ assert.match(worker,/curiosityGuidance:curiosityPrompt,goalReview/);
+ assert.match(adapter,/const context=world004Context\(world\)/);
+ assert.match(adapter,/data:context/);
+});
+test("World 004 behavioural guidance stays advisory and does not alter execution",()=>{
+ assert.match(adapter,/Choose independently from the actual available world actions/);
+ assert.match(adapter,/world004ActionMatches\(choice,result\)/);
+ assert.doesNotMatch(adapter,/if\s*\([^)]*fullness[^)]*\)\s*return\s+[^;]*eat_fruit/);
+});
