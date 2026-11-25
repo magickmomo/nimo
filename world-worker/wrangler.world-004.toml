@@ -22,5 +22,6 @@ WORLD_004_MAX_RUN_DECISIONS = "120"
 # Fill start and stop UTC timestamps for one 24-hour canary before activation.
 WORLD_004_START_AT = "1970-01-01T00:00:00.000Z"
 WORLD_004_STOP_AT = "1970-01-01T00:00:00.000Z"
-# Hourly memory consolidation stays disabled until clone/migrations are verified.
-MEMORY_CONSOLIDATION_ENABLED = "false"
+# Memory reviews run ONLY after the guarded experiment stop, never during.
+# The prior cursor remains authoritative; no retroactive memory creation before stop.
+MEMORY_CONSOLIDATION_ENABLED = "true"
