@@ -31,8 +31,6 @@ jobs:
     env:
       EXPERIMENT_START: ${{ github.event_name == 'schedule' && '2026-11-25T09:30:00.000Z' || inputs.start }}
       EXPERIMENT_STOP: ${{ github.event_name == 'schedule' && '2026-11-25T11:30:00.000Z' || inputs.stop }}
-      WORLD_004_WORKER_URL: ${{ vars.WORLD_004_WORKER_URL }}
-      WORLD_004_INTERNAL_SECRET: ${{ secrets.WORLD_004_INTERNAL_SECRET }}
       EXPERIMENT_OUTPUT: experiment-evidence
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +51,9 @@ jobs:
           node-version: '22'
 
       - name: Collect raw ledger and every archived context page
+        env:
+          WORLD_004_WORKER_URL: ${{ vars.WORLD_004_WORKER_URL }}
+          WORLD_004_INTERNAL_SECRET: ${{ secrets.WORLD_004_INTERNAL_SECRET }}
         run: node experiments/stage1/collect.mjs
 
       - name: Store original API responses and SHA-256 manifest
