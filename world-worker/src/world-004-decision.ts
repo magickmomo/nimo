@@ -39,7 +39,8 @@ A tool absent from the current available-action menu cannot be executed now, but
  * remains available ONLY to the selected-action generation handoff. */
 export function world004Context(w:R){
  const state=asObj(w.state),p=asObj(w.perception),food=asObj(w.food),garden=asObj(w.garden);
- const exp=asObj(w.experience),sketch=asObj(w.sketchbook);\n const goalReview=asObj(w.goalReview);
+ const exp=asObj(w.experience),sketch=asObj(w.sketchbook);
+ const goalReview=asObj(w.goalReview);
  const recent=rows(exp.recentEvents).slice(0,5);
  const goal=clip(state.currentGoal,250);
  const terms=tokenSet([goal,clip(state.currentActivity),...rows(p.visibleObjects).map(o=>clip(o.type))].join(" "));
@@ -60,7 +61,15 @@ export function world004Context(w:R){
   continuity:{projects,memories,unfinishedSketch:sketch.active?{id:asObj(sketch.active).id,title:asObj(sketch.active).title}:null,
    recentExperience:recent.map(e=>({kind:e.kind,action:e.action,content:clip(e.content,170)})),
    lastVerifiedOutcome:latestVerified?{action:latestVerified.action,description:clip(latestVerified.content,170)}:null},
-  behaviouralContext:{\n   fullnessMeaning:"100% is comfortably fed; 0% is starving. Consider food before less urgent interests when fullness is low.",\n   curiosityGuidance:clip(w.curiosityGuidance,2000),\n   goalReview:{existingGoal:goalReview.existingGoal??null,\n    passiveDecisionStreak:goalReview.passiveDecisionStreak??0,\n    evidence:Array.isArray(goalReview.evidence)?goalReview.evidence.slice(0,8):[],\n    guidance:clip(goalReview.guidance,1000)},\n  },\n  adaptiveKnowledge:{retrieval:"Relevant memories, unfinished work, and verified recent events. No forced activity diversification."},
+  behaviouralContext:{
+   fullnessMeaning:"100% is comfortably fed; 0% is starving. Consider food before less urgent interests when fullness is low.",
+   curiosityGuidance:clip(w.curiosityGuidance,2000),
+   goalReview:{existingGoal:goalReview.existingGoal??null,
+    passiveDecisionStreak:goalReview.passiveDecisionStreak??0,
+    evidence:Array.isArray(goalReview.evidence)?goalReview.evidence.slice(0,8):[],
+    guidance:clip(goalReview.guidance,1000)},
+  },
+  adaptiveKnowledge:{retrieval:"Relevant memories, unfinished work, and verified recent events. No forced activity diversification."},
   availableActions:rows(w.availableActions).map(o=>({...o})),
   visitorMessage:w.pendingVisitorMessage??null,
  };
@@ -216,7 +225,8 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  const selectionPayload={
   model:args.model,
   input:[
-   {role:"developer",content:[{type:"input_text",text:WORLD_004_STATIC_BRIEFING+"\nChoose independently from the actual available world actions. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
+   {role:"developer",content:[{type:"input_text",text:WORLD_004_STATIC_BRIEFING+"
+Choose independently from the actual available world actions. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
    {role:"user",content:[{type:"input_json",data:context}]}
   ],
   questions:[{type:"choice",name:"next_action",instructions:"Choose one next action based on current interests, needs, verified world state, and real executable choices. Only offered actions may execute.",choices:options.map(o=>({value:o.id,description:o.description}))}]
