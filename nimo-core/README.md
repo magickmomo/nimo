@@ -46,7 +46,9 @@ python nimo_core.py --db ./trial.sqlite3 inspect --decision 4
 python nimo_core.py --db ./trial.sqlite3 export --artifact 1 --out ./artifact.svg
 \`\`\`
 
-Open `audit.html` in a browser for a read-only, expandable view of every choice, exact API request/response, validated outcome, artifact, and ten-decision memory. This is a static local file; it does not start a server or an agent.\n\nArtifact 1 may be a journal or Oracle result rather than a drawing; inspect the artifact's kind first and use a suitable extension. For drawing records, export writes a standalone SVG. Model API requests and returned responses are stored in \`model_calls\` without the Authorization header.
+Open `audit.html` in a browser for a read-only, expandable view of every choice, exact API request/response, validated outcome, artifact, and ten-decision memory. This is a static local file; it does not start a server or an agent.
+
+Artifact 1 may be a journal or Oracle result rather than a drawing; inspect the artifact's kind first and use a suitable extension. For drawing records, export writes a standalone SVG. Model API requests and returned responses are stored in \`model_calls\` without the Authorization header.
 
 ### Boundaries
 
