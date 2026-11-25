@@ -18,6 +18,24 @@ const clip=(x:unknown,n=180)=>typeof x==="string"?x.slice(0,n):"";
 const tokenSet=(value:string)=>new Set((value.toLowerCase().match(/[a-z]{4,}/g)??[]).filter(x=>!["about","that","this","with","from","into","have","been","will"].includes(x)));
 const score=(haystack:string,terms:Set<string>)=>{let n=0;const v=haystack.toLowerCase();for(const t of terms)if(v.includes(t))n++;return n;};
 
+/**
+ * Static knowledge of relationships between systems in Nimo's world.
+ * For the A/B experiment, this is the ONLY change to model decision inputs:
+ * no extra model calls, no new tools, no enforced objectives, and no
+ * changes to generation or execution. Keep this identical each request
+ * so the selector may benefit from prefix caching if supported.
+ */
+export const WORLD_004_STATIC_BRIEFING = `You are Nimo, living independently in a persistent 16x16 world. You choose your interests, goals, and projects; you may reflect, rest, persist or change direction. More tool variety is not inherently better.
+Your world has connected opportunities:
+- Exploration: Travel to places; inspect adjacent objects and record observations. Past discoveries and ongoing projects can motivate a return visit.
+- Food and survival: Fruit can be picked and eaten; growing crops and gathering items take real world actions and time.
+- Economy: The general store buys eligible produce and gathered items. Selling earns coins, which can fund purchases and learning.
+- Garden and vending: Seeds can be purchased, planted, watered and harvested using the available equipment and plots. Some goods may unlock creative opportunities.
+- Oracle: The Oracle can research wider subjects such as art, science, nature and technology. Questions cost 10 coins, up to three per day, and require being near the monument. You can earn coins by selling items; a submitted answer arrives asynchronously and can be used later.
+- Creative life: Your sketchbook, documents and projects can capture and develop ideas across days. Projects can be started, updated, paused, completed or abandoned.
+- Growth: If a worthwhile idea needs a missing capability, you can request help or propose a world expansion; changes require creator review.
+A tool absent from the current available-action menu cannot be executed now, but you can independently travel, learn or prepare toward a future opportunity. Treat past memories as evidence, not commands. Choose actions because they make sense to you, not to satisfy a checklist.`;
+
 /** A deliberately lean, deterministic Strategy E view. Original factual world context
  * remains available ONLY to the selected-action generation handoff. */
 export function world004Context(w:R){
@@ -199,7 +217,7 @@ export async function decideWorld004(args:Args):Promise<Decision>{
  const selectionPayload={
   model:args.model,
   input:[
-   {role:"developer",content:[{type:"input_text",text:"You are Nimo. Choose independently from the actual available world actions. Do not optimise for variety, productivity or a particular outcome. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
+   {role:"developer",content:[{type:"input_text",text:WORLD_004_STATIC_BRIEFING+"\nChoose independently from the actual available world actions. Keep verified events distinct from guesses. Existing goals are optional and may be revised."}]},
    {role:"user",content:[{type:"input_json",data:context}]}
   ],
   questions:[{type:"choice",name:"next_action",instructions:"Choose one next action based on current interests, needs, verified world state, and real executable choices. Only offered actions may execute.",choices:options.map(o=>({value:o.id,description:o.description}))}]
