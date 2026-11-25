@@ -26,3 +26,21 @@ export async function world004Guard(env:World004GuardConfig,now:Date):Promise<st
  if((used?.n??0)>=cap)return "world_004_daily_cap";
  return null;
 }
+
+/**
+ * World 004's memory backlog may be processed after its experiment hard stop.
+ * This never authorizes ticks or any other auxiliary cron work. Keeping reviews
+ * out of the active window preserves the controlled experiment's memory inputs.
+ */
+export function world004PostExperimentMemoryCatchupAllowed(
+ env:World004GuardConfig & {MEMORY_CONSOLIDATION_ENABLED?:string},
+ now:Date
+):boolean{
+ if(env.WORLD_004_MODE!=="strategy-e"||
+    env.WORLD_004_ENABLED!=="true"||
+    env.MEMORY_CONSOLIDATION_ENABLED!=="true")return false;
+ const start=Date.parse(env.WORLD_004_START_AT??"");
+ const stop=Date.parse(env.WORLD_004_STOP_AT??"");
+ return Number.isFinite(start)&&Number.isFinite(stop)&&stop>start&&
+   stop-start<=86_400_000 && now.getTime()>=stop;
+}
