@@ -144,7 +144,7 @@ jobs:
           PY
           grep -q '^WORLD_004_ENABLED = "true"$' wrangler.world-004.toml
           sed -i 's/^WORLD_004_MAX_RUN_DECISIONS = "120"$/WORLD_004_MAX_RUN_DECISIONS = "30"/' wrangler.world-004.toml
-          grep -q '^WORLD_004_MAX_RUN_DECISIONS = "30"
+          grep -q '^WORLD_004_MAX_RUN_DECISIONS = "30"$' wrangler.world-004.toml
           grep -q '^crons = \["\* \* \* \* \*"\]$' wrangler.world-004.toml
 
       - name: Deploy only World 004 with scheduled hard stop
