@@ -398,7 +398,9 @@ toolCall (null or one of the exact currently offered tool shapes). Keep monologu
     // Only the selection/generation layer is replaced; no simulator is involved.
     return decideWorld004({apiKey:env.OPENAI_API_KEY,model,originalMessages:messages,
       responseFormat:format as unknown as Record<string,unknown>,hasVisitor:pendingMessage!==null,
-      onUsage,onRequest});
+      onUsage,onRequest,
+      onSelection:stage=>{selectionStage=stage;},
+      onGeneration:stage=>{generationStage=stage;}});
   }
   // Capture the exact payload sent, including historical memory text, action
   // schemas and preceding experience. Never capture the authorization header.
@@ -603,14 +605,16 @@ async function tick(env: Env) {
     {model:env.OPENAI_MODEL || "gpt-6-luna"});
   let sentRequest:unknown=null;
   let requestCapturedAt=now.toISOString();
+  let selectionStage:DecisionInputAudit["selection"];
+  let generationStage:DecisionInputAudit["generation"];
   // One R2 write per model attempt, including malformed/failed responses.
   // The existing action_trace UPDATE retains its original D1 write count.
-  const archiveDecision=async(outcome:DecisionInputAudit["outcome"]):Promise<string|null>=>{
+  const archiveDecision=async(outcome:DecisionInputAudit["outcome"],execution?:DecisionInputAudit["execution"]):Promise<string|null>=>{
     if(sentRequest===null)return null;
     try {
       return await saveDecisionInputAudit(env.ARCHIVES,{
         format:"nimo-decision-input-v1",traceId:modelTrace,capturedAt:requestCapturedAt,
-        request:sentRequest,outcome,
+        request:sentRequest,outcome,selection:selectionStage,generation:generationStage,...(execution?{execution}:{}),
       });
     }catch(error){
       // Observability must never block Nimo's decision or distort its outcome.
@@ -653,12 +657,14 @@ async function tick(env: Env) {
   const priorityBlock = priorityBlockReason(priority,d.toolCall,priorityTarget);
   if (priorityBlock) {
     await log(env.DB,"system",`Priority gate blocked proposed action: ${priorityBlock}`,"PRIORITY_BLOCK");
+    if(env.WORLD_004_MODE==="strategy-e")await archiveDecision({status:"selected",decision:d},{status:"blocked",action:d.action,tool:d.toolCall?.name??null,result:priorityBlock,recordedAt:new Date().toISOString()});
     await releaseDecisionSlot();
     return {status:"priority_blocked"};
   }
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
   if (!(await autonomousEnabled(env.DB))) {
+    if(env.WORLD_004_MODE==="strategy-e")await archiveDecision({status:"selected",decision:d},{status:"paused",action:d.action,tool:d.toolCall?.name??null,result:"Paused during decision",recordedAt:new Date().toISOString()});
     await releaseDecisionSlot();
     return { status: "paused_during_decision" };
   }
@@ -920,6 +926,13 @@ async function tick(env: Env) {
     }
   }
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
+  if(env.WORLD_004_MODE==="strategy-e"){
+    await archiveDecision({status:"selected",decision:d},{
+      status:toolFailed?"failed":"completed",action:d.action,
+      tool:d.toolCall?.name??null,result:toolOutcome,
+      recordedAt:new Date().toISOString(),tickCount:next.tickCount,
+    });
+  }
   await releaseDecisionSlot();
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
