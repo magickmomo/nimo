@@ -199,3 +199,22 @@ The objects are deliberately **constant across decisions and runs**, to test wha
 - What is a safe model failure retry budget and cost ceiling?
 
 These are **not** already implemented. They are questions we can answer with actual audited runs.
+
+## 14. Controlled experiment: intention before action (new)
+
+**Only behavioural pipeline change:** for each attempted decision, Nimo receives the **existing context** in a new Responses request asking **"Nimo, what would you like to do?"** He answers in a short free-text field `want` (1–300 characters). This is **not** a selection from the tool menu, and Nimo does not see a tool menu in this new request.
+
+1. `express_want` Responses call sees the unchanged identity, three known objects, ongoing intention, four recent experiences, three recent cycle memories and quota.
+2. Validate `want`, then add `expressed_want` to the decision's context snapshot, stored in `decisions.context_json`.
+3. Send that augmented context to the **existing** Decisions API selector and its **unchanged** four options.
+4. The existing chosen tool executor sees the same augmented context for generation.
+5. The normal experience log and exactly-one-memory-per-ten-attempts rule remain unchanged. This one-shot want is **not** automatically promoted to persistent state or memory; only the executed outcomes are consolidated as before.
+
+All model requests and responses remain in `model_calls` in call order: `express_want`, `select`, then the selected tool generation. The audit HTML shows all three calls and the augmented context. The terminal response also includes `expressed_want`.
+
+A failed or empty want is a **failed attempted decision**: do not invoke the selector or force a fallback action. It still contributes to the ten-attempt memory counter, as failures already do.
+
+**Limitations:** This adds one Responses call per decision, increasing API cost and latency. It may produce vague or repetitive wants; the experiment measures that rather than silently fixing it. It does not turn the selector's output into a guaranteed expression of Nimo's preferences. The underlying `think` action can still update `state.current_intention` as in prior versions. The separate new `expressed_want` is ephemeral for that decision.
+
+To compare fairly with the earlier experiment, use a **fresh SQLite database** and run exactly 10 live decisions. No live run starts automatically.
+
