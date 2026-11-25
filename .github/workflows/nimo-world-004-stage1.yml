@@ -57,6 +57,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Test export response handling
+        run: node --test experiments/stage1/read-json-response.test.mjs
+
       - name: Collect raw ledger and every archived context page
         env:
           WORLD_004_WORKER_URL: https://nimo-world-004.moamrr.workers.dev
