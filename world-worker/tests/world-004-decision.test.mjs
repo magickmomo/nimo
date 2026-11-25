@@ -10,7 +10,7 @@ test("World 004 selection is grounded in the real dynamic action menu",()=>{
  assert.match(adapter,/world004Choices\(world,args\.hasVisitor\)/);
  assert.match(adapter,/\/v1\/decisions/);
  assert.match(adapter,/\/v1\/responses/);
- assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor\)/);
+ assert.match(adapter,/validateDecision\(JSON\.parse\(raw\),args\.hasVisitor,true\)/);
  assert.match(adapter,/world004ActionMatches\(choice,result\)/);
 });
 test("World 004 is opt-in and has a hard stop plus 24-hour run cap",()=>{
