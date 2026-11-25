@@ -40,6 +40,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(json.loads(memories[0]["evidence_decision_ids_json"]), list(range(1, 11)))
         self.assertEqual(self.rows("SELECT attempted FROM state")[0]["attempted"], 10)
 
+    def test_html_report_contains_decisions_model_calls_and_memory(self):
+        core.run(self.db, self.ai, 10)
+        destination = Path(self.temp.name) / "audit.html"
+        core.write_report(self.db, str(destination))
+        html = destination.read_text()
+        self.assertIn("Decision #1", html)
+        self.assertIn("After decision #10", html)
+        self.assertIn("Exact API request", html)
+        self.assertIn("Memory-consolidation model calls", html)
+        self.assertIn("Oracle", html)
+        self.assertIn("&quot;", html)
+
     def test_offline_demo_exercises_all_four_choices_and_creates_artifacts(self):
         results = core.run(self.db, self.ai, 4)
         self.assertEqual([r["selected"] for r in results], list(core.ACTIONS))
