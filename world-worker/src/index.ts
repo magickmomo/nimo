@@ -1234,6 +1234,51 @@ export default {
           return offlineWorldSnapshot(env);
         }
       }
+      // Owner-authenticated, bounded experiment diagnostics. This makes
+      // decisions, failures, usage and activity inspectable while a trial runs.
+      if(path==="/experiment/status" && request.method==="GET"){
+        if(env.WORLD_004_MODE!=="strategy-e")return json({error:"Not a World 004 experiment"},404);
+        const start=env.WORLD_004_START_AT??"";
+        const stop=env.WORLD_004_STOP_AT??"";
+        if(!Number.isFinite(Date.parse(start))||!Number.isFinite(Date.parse(stop)) ||
+          Date.parse(stop)<=Date.parse(start))return json({error:"Experiment not configured"},409);
+        const [counts,traces,recent]=await Promise.all([
+          env.DB.prepare(`SELECT COUNT(*) AS decisions FROM decisions WHERE created_at>=? AND created_at<?`).bind(start,stop).first<{decisions:number}>(),
+          env.DB.prepare(`SELECT id,started_at,kind,status,detail,result,metadata FROM action_trace
+            WHERE started_at>=? AND started_at<? ORDER BY id DESC LIMIT 500`).bind(start,stop).all<{
+              id:number;started_at:string;kind:string;status:string;detail:string;result:string|null;metadata:string|null
+            }>(),
+          env.DB.prepare(`SELECT id,created_at,kind,action,content FROM events
+            WHERE created_at>=? AND created_at<? AND (kind='tool' OR action='ERROR')
+            ORDER BY id DESC LIMIT 20`).bind(start,stop).all<EventRow>(),
+        ]);
+        const tally:Record<string,number>={};
+        const usage={calls:0,inputTokens:0,cachedInputTokens:0,outputTokens:0};
+        for(const trace of traces.results){
+          const key=trace.kind+":"+trace.status;
+          tally[key]=(tally[key]??0)+1;
+          if(trace.kind==="decide"&&trace.metadata){
+            try{
+              const meta=JSON.parse(trace.metadata) as {usage?:{input_tokens?:number;cached_input_tokens?:number;output_tokens?:number}};
+              if(meta.usage){
+                usage.calls++;
+                usage.inputTokens+=meta.usage.input_tokens??0;
+                usage.cachedInputTokens+=meta.usage.cached_input_tokens??0;
+                usage.outputTokens+=meta.usage.output_tokens??0;
+              }
+            }catch{}
+          }
+        }
+        return json({
+          mode:"strategy-e",start,stop,enabled:env.WORLD_004_ENABLED==="true",
+          manualAutonomousEnabled:await manualAutonomousEnabled(env.DB),
+          maxDecisions:Number(env.WORLD_004_MAX_RUN_DECISIONS??120),
+          decisions:counts?.decisions??0,traceCounts:tally,usage,
+          tracesTruncated:traces.results.length===500,
+          recentOutcomes:recent.results.map(e=>({at:e.created_at,action:e.action,
+            text:e.content.slice(0,180)})),
+        });
+      }
       // Isolated, owner-authenticated export of the complete bounded World 004
       // experiment window. Unlike the historical ledger, this filters by time,
       // so thousands of copied World 003 events cannot hide the canary results.
