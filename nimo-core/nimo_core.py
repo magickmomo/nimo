@@ -481,7 +481,7 @@ def unified_choice(db, ai, decision_id, context, options):
 
 
 def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
-            action: str, context: dict[str, Any], arguments: dict[str, Any] | None = None) -> tuple[str, int | None>:
+            action: str, context: dict[str, Any], arguments: dict[str, Any] | None = None) -> tuple[str, int | None]:
     artifact: tuple[str, str, str] | None = None
     if action == "browse_library":
         outcome = library.browse(db, decision_id)
