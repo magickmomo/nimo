@@ -213,6 +213,8 @@ class MockAI:
             value = {"reflection": "I explored several ways of creating and thinking.",
                      "identity_note": None,
                      "evidence_decision_ids": data["context"]["evidence_ids"][:2]}
+            if isinstance(raw_input, str):
+                value.update({"episodic": "I explored several activities.", "semantic": "", "reflective": "I considered creative ideas."})
         else:
             raise ValueError("Unsupported mock purpose: " + purpose)
         return {"output": [{"type": "message", "content": [{"type": "output_text", "text": compact(value)}]}],
@@ -305,6 +307,12 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
     }
     if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
         prompt = "You are Nimo. Produce the requested JSON. Do not invent experiences or outcomes."
+    if purpose == "consolidate" and os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+        shapes[purpose] = {"episodic": "string (0-800 chars): what happened",
+                           "semantic": "string (0-800 chars): knowledge learned, distinguish source claims and fiction from facts",
+                           "reflective": "string (0-800 chars): ideas, interpretations and unresolved questions",
+                           "identity_note": "tentative string (0-200 chars) or null",
+                           "evidence_decision_ids": "array of integer IDs from evidence_ids"}
     data = {"purpose": purpose, "context": context, "contract": shapes[purpose]}
     payload = {"model": ai.model, "input": (prompt + "\n\n" + compact(data) if os.getenv("NIMO_CORE_UNIFIED", "1") == "1" else [
         {"role": "system", "content": prompt},
@@ -382,6 +390,17 @@ def recent_context(db: sqlite3.Connection, new_object_after_10: bool = False) ->
                         for row in reversed(memories)]
     for memory in memory_summaries:
         del memory["artifact_refs_json"]
+        if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+            memory.pop("objective_summary", None)
+            raw = memory.pop("reflection", None)
+            try:
+                structured = parse(raw) if raw else None
+            except (ValueError, TypeError):
+                structured = None
+            if isinstance(structured, dict) and all(k in structured for k in ("episodic", "semantic", "reflective")):
+                memory.update({k: structured[k] for k in ("episodic", "semantic", "reflective")})
+            else:
+                memory["reflection"] = raw
     objects = [dict(obj) for obj in KNOWN_OBJECTS]
     # The observation first becomes visible at decision 11, never in consolidation.
     if new_object_after_10 and state["attempted"] >= 10:
@@ -596,7 +615,10 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
         value = generate(db, ai, None, "consolidate",
                          {"experiences": batch, "evidence_ids": evidence,
                           "previous_memories": recent_context(db)["recent_memories"]})
-        candidate_reflection = text_field(value, "reflection", 800, optional=True)
+        if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+            candidate_reflection = compact({k: text_field(value, k, 800, optional=True) for k in ("episodic", "semantic", "reflective")})
+        else:
+            candidate_reflection = text_field(value, "reflection", 800, optional=True)
         candidate_identity = text_field(value, "identity_note", 200, optional=True)
         ids = value.get("evidence_decision_ids", [])
         if (not isinstance(ids, list) or any(type(v) is not int or v not in evidence for v in ids)):
@@ -625,7 +647,7 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
         context.pop("current_intention", None)
         context.pop("latest_thinking", None)
-        context["identity"] = "I am Nimo."
+        context.pop("identity", None)
     options = list(ACTIONS) + library.actions(db)
     if context["oracle_questions_remaining_today"] == 0:
         options.remove("ask_oracle")
