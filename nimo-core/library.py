@@ -128,20 +128,23 @@ def strip_gutenberg_notice(content: str) -> str:
 
 
 def split_text(content: str) -> list[str]:
-    # Preserve paragraph order; keep sections near 1,000 words.
-    blocks = re.split(r"\n\s*\n", content.replace("\r\n","\n"))
+    """Bound passage size without flattening code, indentation or line breaks."""
+    blocks = re.split(r"\n[ \t]*\n", content.replace("\r\n", "\n"))
     segments, buffer, count = [], [], 0
     for block in blocks:
-        block = block.strip()
-        if not block:
+        if not block.strip():
             continue
-        words = block.split()
-        # Very long paragraphs are split by words so the API budget is bounded.
-        chunks = [" ".join(words[i:i+WORDS_PER_SEGMENT])
-                  for i in range(0,len(words),WORDS_PER_SEGMENT)]
+        matches = list(re.finditer(r"\S+", block))
+        # Preserve original source bytes within blocks, including code indentation.
+        chunks = []
+        for i in range(0, len(matches), WORDS_PER_SEGMENT):
+            stop = min(i + WORDS_PER_SEGMENT, len(matches))
+            start_offset = 0 if i == 0 else matches[i].start()
+            end_offset = matches[stop].start() if stop < len(matches) else len(block)
+            chunks.append(block[start_offset:end_offset])
         for chunk in chunks:
             n = len(chunk.split())
-            if buffer and count+n > WORDS_PER_SEGMENT:
+            if buffer and count + n > WORDS_PER_SEGMENT:
                 segments.append("\n\n".join(buffer))
                 buffer, count = [], 0
             buffer.append(chunk)
@@ -197,7 +200,7 @@ def read(db: sqlite3.Connection, decision_id: int, book_id: str, move: str) -> s
     if not row:
         raise ValueError("No segment at requested position")
     db.execute("UPDATE library_reading SET next_segment=?,last_segment=?,active=1 WHERE book_id=?",
-               (max(state["next_segment"],position+1),position,book_id))
+               (position+1,position,book_id))
     title = BOOKS[book_id]["title"]
     record(db,decision_id,"read_book",{"book_id":book_id,"title":title,
                                      "segment":position,"text":row["content"]})
