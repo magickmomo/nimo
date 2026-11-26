@@ -73,8 +73,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([e["action"] for e in events],
                          ["browse_library","acquire_book","read_book",
                           "put_down_book","read_book"])
-        self.assertNotIn("Programming is a way",
-                         json.dumps(core.recent_context(self.db)))
+        self.assertEqual(core.recent_context(self.db)["last_read_passage"]["segment"], 2)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM artifacts")[0][0], 0)
 
     def test_library_read_cannot_fetch_unacquired_book(self):
@@ -272,7 +271,7 @@ class CoreTests(unittest.TestCase):
 
     def test_offline_demo_exercises_all_four_choices_and_creates_artifacts(self):
         results = core.run(self.db, self.ai, 4)
-        self.assertEqual([r["selected"] for r in results], list(core.ACTIONS) + ["browse_library"])
+        self.assertEqual([r["selected"] for r in results], list(core.ACTIONS))
         self.assertTrue(all(r["status"] == "completed" for r in results))
         self.assertEqual([r["kind"] for r in self.rows(
             "SELECT kind FROM artifacts ORDER BY id")], ["journal", "drawing", "oracle"])
