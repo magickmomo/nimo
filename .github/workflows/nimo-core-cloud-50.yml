@@ -1,0 +1,85 @@
+name: Nimo Core 50-decision isolated cloud experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/nimo-core-cloud-50-20261126
+    paths:
+      - .github/workflows/nimo-core-cloud-50.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-core-cloud-50
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    name: Run 50 decisions on fresh ephemeral runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # Repository secret, not the live World 004 worker configuration.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      EXPERIMENT_DIR: ${{ runner.temp }}/nimo-core-cloud-50
+      DB: ${{ runner.temp }}/nimo-core-cloud-50/experiment.sqlite3
+    steps:
+      - name: Checkout exact experiment commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare isolated run directory
+        run: mkdir -p "$EXPERIMENT_DIR"
+
+      - name: Offline tests (no model expense)
+        working-directory: nimo-core
+        run: python -m unittest -v
+
+      - name: Check API credential before making any paid calls
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Missing repository secret OPENAI_API_KEY. Set it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Run 50 live decisions in five capped batches
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          test ! -e "$DB" || { echo "::error::Experiment DB must start fresh"; exit 1; }
+          for batch in 1 2 3 4 5; do
+            echo "===== Nimo Core server batch $batch/5 =====" | tee -a "$EXPERIMENT_DIR/terminal.log"
+            python -u nimo_core.py --db "$DB" run --live --decisions 10 2>&1 | tee -a "$EXPERIMENT_DIR/terminal.log"
+          done
+
+      - name: Create complete auditable report and machine-readable summary
+        if: always()
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          if [ -f "$DB" ]; then
+            python nimo_core.py --db "$DB" report --out "$EXPERIMENT_DIR/audit.html"
+            python export_server_experiment.py --db "$DB" --out "$EXPERIMENT_DIR/summary.json" | tee "$EXPERIMENT_DIR/summary-brief.log"
+          else
+            echo "No experiment database was created (offline tests or credential check failed)." > "$EXPERIMENT_DIR/NO_RUN.txt"
+          fi
+
+      - name: Preserve SQLite, full HTML audit, decision log, and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimo-core-cloud-50-audit
+          path: ${{ env.EXPERIMENT_DIR }}/
+          retention-days: 14
+          if-no-files-found: error
