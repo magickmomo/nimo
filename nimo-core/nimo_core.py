@@ -37,7 +37,7 @@ NEW_OBJECT = {
     "name": "Mechanical music box",
     "description": "A small mechanical music box rests on a shelf. Its winding key is missing.",
 }
-DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
+DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. I can browse a library, acquire books, and read them at my own pace. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
 
@@ -115,7 +115,7 @@ def open_db(path: str) -> sqlite3.Connection:
       status TEXT NOT NULL
     );
     INSERT OR IGNORE INTO state(id,identity,current_intention,attempted)
-    VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
+    VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. I can browse a library, acquire books, and read them at my own pace. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
     """)
     # Preserve existing experiment databases; new cycles get artifact references.
     existing_columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}
