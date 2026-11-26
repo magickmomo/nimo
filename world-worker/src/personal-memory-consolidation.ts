@@ -45,6 +45,7 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
   const existing=new Map(memories.map(m=>[m.subject,m]));
   const used=new Set<string>();
   const valid=list.map(value=>{
+    try {
     if(!value||typeof value!=="object")throw Error("Invalid memory proposal");
     const m=value as Partial<MemoryProposal>;
     if(m.operation!=="create"&&m.operation!=="update")throw Error("Invalid memory operation");
@@ -58,7 +59,7 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
       (!old&&!/^([a-z][a-z0-9_-]*:){1,3}[a-z0-9_-]+$/.test(m.subject)))
       throw Error("Invalid memory subject");
     if(used.has(m.subject))throw Error("Duplicate subject");
-    used.add(m.subject);
+
     if(typeof m.statement!=="string"||m.statement.trim().length<15||m.statement.length>450)
       throw Error("Invalid memory statement");
     if(!["experience","object","food","place"].includes(m.category??""))
@@ -80,7 +81,9 @@ export function validatedProposals(raw:unknown, events:VerifiedEvent[], memories
       return NON_EXPERIENTIAL.has(e.action)||
         (e.kind==="thought"&&/\boracle\b/i.test(e.content));
     });
+    used.add(m.subject);
     return onlyOracle?null:{...m,operation:old?"update":"create"} as MemoryProposal;
+    } catch(error) { console.warn("Skipped invalid memory proposal",String(error)); return null; }
   }).filter((m):m is MemoryProposal=>m!==null);
   // The model occasionally ignores the requested maximum even with
   // structured output. Keep only the first three eligible candidates,
