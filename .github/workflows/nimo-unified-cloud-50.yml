@@ -1,0 +1,92 @@
+name: Nimo Unified Responses 50-decision experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/nimo-unified-responses
+    paths:
+      - .github/workflows/nimo-unified-cloud-50.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-unified-cloud-50
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    name: Run 50 decisions on fresh ephemeral runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # The existing OPENAI_API_KEY is scoped to this GitHub Actions environment.
+    # It only provides the key; the experiment remains an isolated local SQLite run.
+    environment: world-004
+    env:
+      NIMO_CORE_UNIFIED: '1'
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      EXPERIMENT_DIR: ${{ github.workspace }}/nimo-unified-cloud-50
+      DB: ${{ github.workspace }}/nimo-unified-cloud-50/experiment.sqlite3
+    steps:
+      - name: Checkout exact experiment commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare isolated run directory
+        run: mkdir -p "$EXPERIMENT_DIR"
+
+      - name: Offline tests (no model expense)
+        working-directory: nimo-core
+        run: NIMO_CORE_UNIFIED=0 python -m unittest -v
+
+      - name: Unified offline smoke test
+        working-directory: nimo-core
+        run: python -u nimo_core.py --db "$EXPERIMENT_DIR/smoke.sqlite3" run --decisions 10
+
+      - name: Check API credential before making any paid calls
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Missing OPENAI_API_KEY in GitHub Actions environment world-004 or repository secrets."
+            exit 1
+          fi
+
+      - name: Run 50 live decisions in five capped batches
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          test ! -e "$DB" || { echo "::error::Experiment DB must start fresh"; exit 1; }
+          for batch in 1 2 3 4 5; do
+            echo "===== Nimo Core server batch $batch/5 =====" | tee -a "$EXPERIMENT_DIR/terminal.log"
+            python -u nimo_core.py --db "$DB" run --live --decisions 10 2>&1 | tee -a "$EXPERIMENT_DIR/terminal.log"
+          done
+
+      - name: Create complete auditable report and machine-readable summary
+        if: always()
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          if [ -f "$DB" ]; then
+            python nimo_core.py --db "$DB" report --out "$EXPERIMENT_DIR/audit.html"
+            python export_server_experiment.py --db "$DB" --out "$EXPERIMENT_DIR/summary.json" | tee "$EXPERIMENT_DIR/summary-brief.log"
+          else
+            echo "No experiment database was created (offline tests or credential check failed)." > "$EXPERIMENT_DIR/NO_RUN.txt"
+          fi
+
+      - name: Preserve SQLite, full HTML audit, decision log, and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimo-unified-cloud-50-audit
+          path: ${{ env.EXPERIMENT_DIR }}/
+          retention-days: 14
+          if-no-files-found: error
