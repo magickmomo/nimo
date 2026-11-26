@@ -10,8 +10,8 @@ test("world prompt does not give away the garden and economy",()=>{
   assert.doesNotMatch(prompt,/A small allotment, well and general store exist/i);
   assert.doesNotMatch(prompt,/Planting consumes a seed packet/i);
   assert.doesNotMatch(prompt,/general store purchases|vending machine sells seed packets/i);
-  assert.match(prompt,/Learn about them from what you can actually perceive, examine, try and remember/);
-  assert.match(prompt,/Curiosity increases when you repeat action types/);
+  assert.match(prompt,/Learn from perception, verified outcomes and memories/);
+  assert.match(prompt,/curiosity is a soft motivation/);
   assert.match(prompt,/never prohibits productive routines or overrides essential needs/);
 });
 
