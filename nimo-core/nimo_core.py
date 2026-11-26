@@ -111,6 +111,11 @@ def open_db(path: str) -> sqlite3.Connection:
       evidence_decision_ids_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS memory_searches (
+      decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
+      query TEXT NOT NULL,
+      results_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS memories (
       id INTEGER PRIMARY KEY,
       cycle_end_decision INTEGER UNIQUE NOT NULL,
@@ -462,6 +467,25 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
     return answer
 
 
+def search_memory(db, query):
+    """Search consolidated memories with bounded, literal keyword matching."""
+    import re
+    terms = list(dict.fromkeys(re.findall(r"[^\W_]+", query, flags=re.UNICODE)))[:12]
+    if not terms:
+        return []
+    # A temporary FTS index avoids stale copies and persistent schema changes.
+    db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.memory_search USING fts5(cycle UNINDEXED, text)")
+    db.execute("DELETE FROM temp.memory_search")
+    db.execute("INSERT INTO temp.memory_search(cycle,text) SELECT cycle_end_decision,reflection FROM memories WHERE reflection IS NOT NULL")
+    match = " OR ".join('"' + term + '"' for term in terms)
+    rows = db.execute("SELECT cycle FROM temp.memory_search WHERE memory_search MATCH ? ORDER BY rank,cycle DESC LIMIT 3", (match,)).fetchall()
+    results = []
+    for row in rows:
+        m = db.execute("SELECT cycle_end_decision,reflection,evidence_decision_ids_json FROM memories WHERE cycle_end_decision=?", (row[0],)).fetchone()
+        results.append({"cycle_end_decision": m[0], "memory": parse(m[1]), "evidence_decision_ids": parse(m[2])})
+    return results
+
+
 def unified_choice(db, ai, decision_id, context, options):
     """Choose exactly one available action and generate its arguments together."""
     string = {"type": "string"}
@@ -470,6 +494,7 @@ def unified_choice(db, ai, decision_id, context, options):
                 "required": list(properties), "additionalProperties": False}
     schemas = {
         "think": obj({"thought": string}),
+        "search_memory": obj({"query": string}),
         "write_journal": obj({"title": string, "text": string}),
         "draw": obj({"title": string, "strokes": {"type": "array", "items": obj({
             "points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
@@ -481,6 +506,7 @@ def unified_choice(db, ai, decision_id, context, options):
     }
     descriptions = {
         "think": "Record a thought (1-500 characters).",
+        "search_memory": "Search previous consolidated memories by keywords (1-200 characters). Returns up to three memories with evidence IDs.",
         "write_journal": "Write a personal entry. Title up to 100 characters, text up to 1200.",
         "draw": "Create one complete vector artwork. Title up to 100 characters. 1-8 strokes, each 2-24 integer coordinate pairs, x 0..240, y 0..180, color #RRGGBB, width 1..8.",
         "ask_oracle": "Ask a question up to 300 characters. Oracle answers are not independently verified and cannot physically inspect objects.",
@@ -507,7 +533,13 @@ def unified_choice(db, ai, decision_id, context, options):
 def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
             action: str, context: dict[str, Any], arguments: dict[str, Any] | None = None) -> tuple[str, int | None]:
     artifact: tuple[str, str, str] | None = None
-    if action == "browse_library":
+    if action == "search_memory":
+        query = text_field(arguments, "query", 200)
+        results = search_memory(db, query)
+        outcome = "Memory search: " + query + " (" + str(len(results)) + " matches)"
+        db.execute("INSERT INTO memory_searches(decision_id,query,results_json) VALUES(?,?,?)",
+                   (decision_id, query, compact(results)))
+    elif action == "browse_library":
         outcome = library.browse(db, decision_id)
     elif action == "acquire_book":
         value = arguments if arguments is not None else generate(db, ai, decision_id, "library_acquire", context)
@@ -669,6 +701,12 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
         context.pop("latest_thinking", None)
         context.pop("identity", None)
     options = list(ACTIONS) + library.actions(db)
+    if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+        if db.execute("SELECT 1 FROM memories WHERE reflection IS NOT NULL LIMIT 1").fetchone():
+            options.append("search_memory")
+        recalled = db.execute("SELECT query,results_json FROM memory_searches WHERE decision_id=?", (index-1,)).fetchone()
+        if recalled:
+            context["memory_search_results"] = {"query": recalled[0], "matches": parse(recalled[1])}
     if context["oracle_questions_remaining_today"] == 0:
         options.remove("ask_oracle")
     cursor = db.execute("INSERT INTO decisions(started_at,context_json,offered_json,status) "
