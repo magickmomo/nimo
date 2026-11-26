@@ -160,3 +160,5 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/world.sql" "$RUNNER_TEMP/control-db" "$RUNNER_TEMP/compact-db" "$RUNNER_TEMP/control" "$RUNNER_TEMP/"*-worker.log "$RUNNER_TEMP/"*-import.log "$RUNNER_TEMP/export.log"
 
 # Run requested matched experiment against verified compact cognition revision 230a1ec.
+
+# Profile E012-inspired working context f9539ea
