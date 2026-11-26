@@ -190,7 +190,8 @@ class MockAI:
                 value.pop("intention", None)
             return {"output": [{"type": "function_call", "name": action, "arguments": compact(value)}],
                     "usage": {"input_tokens": 0, "output_tokens": 0}}
-        purpose = json.loads(payload["input"][1]["content"])["purpose"]
+        data = json.loads(payload["input"][-1]["content"].split("\n\n", 1)[-1])
+        purpose = data["purpose"]
         if purpose == "express_want":
             value = {"want": "I would like to explore something I have noticed."}
         elif purpose == "draw":
@@ -210,8 +211,7 @@ class MockAI:
         elif purpose == "consolidate":
             value = {"reflection": "I explored several ways of creating and thinking.",
                      "identity_note": None,
-                     "evidence_decision_ids": payload["input"][1]["content"] and
-                     json.loads(payload["input"][1]["content"])["context"]["evidence_ids"][:2]}
+                     "evidence_decision_ids": data["context"]["evidence_ids"][:2]}
         else:
             raise ValueError("Unsupported mock purpose: " + purpose)
         return {"output": [{"type": "message", "content": [{"type": "output_text", "text": compact(value)}]}],
@@ -306,7 +306,9 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
         prompt = "You are Nimo. Produce the requested JSON. Do not invent experiences or outcomes."
     data = {"purpose": purpose, "context": context, "contract": shapes[purpose]}
     payload = {"model": ai.model, "input": [
-        {"role": "developer", "content": prompt + "\n\n" + compact(data)},
+        *([{"role": "developer", "content": prompt + "\n\n" + compact(data)}]
+          if os.getenv("NIMO_CORE_UNIFIED", "1") == "1" else
+          [{"role": "system", "content": prompt}, {"role": "user", "content": compact(data)}]),
     ], "reasoning": {"effort": "low"},
         "text": {"format": {"type": "json_object"}}, "max_output_tokens": 1800}
     response = call_logged(db, ai, purpose, "responses", payload, decision_id)
