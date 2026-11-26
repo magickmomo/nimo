@@ -314,8 +314,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   });
   // Retrieval is an explicit decision; the verified result is visible on the next turn.
   const retrieval = await env.DB.prepare("SELECT content FROM events WHERE action='RETRIEVAL_OK' ORDER BY id DESC LIMIT 1").first<{content:string}>();
-  const latestEvent = history[0];
-  const retrieved = latestEvent && history.slice(0,4).some(e=>e.action==="RETRIEVAL_OK") ? retrieval?.content : undefined;
+  const retrieved = history.slice(0,4).some(e=>e.action==="RETRIEVAL_OK") ? retrieval?.content : undefined;
   const messages = [
         { role: "system", content: system },
         { role: "user", content: JSON.stringify({ retrieved, state:{currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:undefined})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-4)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count,visualFeedback:d.inspection??null}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
@@ -328,10 +327,10 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
-  const variants = format.json_schema.schema.properties.toolCall.anyOf as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
+  const variants = format.json_schema.schema.properties.toolCall.anyOf as unknown as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
   const nativeTools = variants.filter(v=>v.properties?.name).map(v=>{
     const {name,...properties}=v.properties!;
-    return {type:"function",name:name.enum![0],description:"Execute "+name.enum![0],strict:true,parameters:{type:"object",properties:{...properties,intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"intentDisposition"],additionalProperties:false}};
+    return {type:"function",name:name.enum![0],description:"Execute "+name.enum![0],strict:true,parameters:{type:"object",properties:{...properties,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"goal","intentDisposition"],additionalProperties:false}};
   });
   const mental = (name:string,properties:Record<string,unknown>)=>({type:"function",name,description:name==="reply"?"Reply to the waiting visitor":name,strict:true,parameters:{type:"object",properties,required:Object.keys(properties),additionalProperties:false}});
   const disposition={type:"string",enum:["keep","abandon"]};
@@ -349,6 +348,8 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   // Capture the exact payload sent, including historical memory text, action
   // schemas and preceding experience. Never capture the authorization header.
   onRequest(payload);
+  const contextFields=JSON.parse(messages[1].content) as Record<string,unknown>;
+  console.log("NIMO_CONTEXT_PROFILE",JSON.stringify({fields:Object.fromEntries(Object.entries(contextFields).map(([k,v])=>[k,JSON.stringify(v).length])),instructions:system.length,schema:JSON.stringify(reasoningModel?tools:format).length}));
   const res = await fetch("https://api.openai.com/v1/" + (reasoningModel ? "responses" : "chat/completions"), {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -377,9 +378,9 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   const calls=data.output?.filter(o=>o.type==="function_call")??[];
   if(reasoningModel&&calls.length!==1)throw Error("Expected exactly one function call");
   const raw = reasoningModel
-    ? (()=>{const call=calls[0];const args=JSON.parse(call.arguments??"{}");const {intentDisposition,text,replyIntent,...parameters}=args;
+    ? (()=>{const call=calls[0];const args=JSON.parse(call.arguments??"{}");const {intentDisposition,text,replyIntent,goal,...parameters}=args;
       const mentalAction=["think","observe","remember","request","reply"].includes(call.name??"");
-      return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?text:call.name,activity:call.name,goal:state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
+      return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?text:call.name,activity:call.name,goal:goal??state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
     : data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision" + (data.incomplete_details?.reason ? ": " + data.incomplete_details.reason : ""));
   let parsed: unknown;
@@ -632,8 +633,8 @@ async function tick(env: Env) {
       } else if (call.name === "search_memory") {
         const terms=call.query.toLowerCase().match(/[a-z0-9_-]+/g)?.slice(0,6)??[];
         if(!terms.length)throw Error("Search needs words");
-        const rows=await env.DB.prepare("SELECT subject,statement,status FROM consolidated_memories_v2 ORDER BY updated_at DESC LIMIT 500").all<{subject:string;statement:string;status:string}>();
-        const candidates=[...rows.results.map(m=>({source:"memory",text:JSON.stringify(m)})),...oracleHistory.map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)}))];
+        const rows=await env.DB.prepare("SELECT subject,statement,status FROM consolidated_memories_v2 ORDER BY updated_at DESC").all<{subject:string;statement:string;status:string}>();
+        const candidates=[...rows.results.map(m=>({source:"memory",text:JSON.stringify(m)})),...(await recentOracle(env.DB,100)).map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)}))];
         const hits=candidates.map(c=>({...c,score:terms.filter(t=>c.text.toLowerCase().includes(t)).length})).filter(c=>c.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(c=>({source:c.source,text:c.text.slice(0,850)}));
         toolOutcome=JSON.stringify({query:call.query,hits});
         await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
