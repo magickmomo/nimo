@@ -311,7 +311,6 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
         shapes[purpose] = {"episodic": "string (0-800 chars): what happened",
                            "semantic": "string (0-800 chars): knowledge learned, distinguish source claims and fiction from facts",
                            "reflective": "string (0-800 chars): ideas, interpretations and unresolved questions",
-                           "identity_note": "tentative string (0-200 chars) or null",
                            "evidence_decision_ids": "array of integer IDs from evidence_ids"}
     data = {"purpose": purpose, "context": context, "contract": shapes[purpose]}
     payload = {"model": ai.model, "input": (prompt + "\n\n" + compact(data) if os.getenv("NIMO_CORE_UNIFIED", "1") == "1" else [
@@ -392,6 +391,7 @@ def recent_context(db: sqlite3.Connection, new_object_after_10: bool = False) ->
         del memory["artifact_refs_json"]
         if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
             memory.pop("objective_summary", None)
+            memory.pop("tentative_identity_note", None)
             raw = memory.pop("reflection", None)
             try:
                 structured = parse(raw) if raw else None
@@ -619,7 +619,8 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
             candidate_reflection = compact({k: text_field(value, k, 800, optional=True) for k in ("episodic", "semantic", "reflective")})
         else:
             candidate_reflection = text_field(value, "reflection", 800, optional=True)
-        candidate_identity = text_field(value, "identity_note", 200, optional=True)
+        candidate_identity = (None if os.getenv("NIMO_CORE_UNIFIED", "1") == "1"
+                              else text_field(value, "identity_note", 200, optional=True))
         ids = value.get("evidence_decision_ids", [])
         if (not isinstance(ids, list) or any(type(v) is not int or v not in evidence for v in ids)):
             raise ValueError("Reflection refers to invalid evidence IDs")
