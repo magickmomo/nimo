@@ -120,8 +120,8 @@ def download_part(url: str) -> str:
 
 def strip_gutenberg_notice(content: str) -> str:
     """Only remove a recognised Gutenberg distribution notice, not book prose."""
-    start = re.search(r"(?im)^\\*{3} START OF THE PROJECT GUTENBERG EBOOK.*\\*{3}\\s*$", content)
-    end = re.search(r"(?im)^\\*{3} END OF THE PROJECT GUTENBERG EBOOK.*\\*{3}\\s*$", content)
+    start = re.search(r"(?im)^\*{3} START OF THE PROJECT GUTENBERG EBOOK.*\*{3}\s*$", content)
+    end = re.search(r"(?im)^\*{3} END OF THE PROJECT GUTENBERG EBOOK.*\*{3}\s*$", content)
     if start and end and end.start() > start.end():
         return content[start.end():end.start()].strip()
     return content
