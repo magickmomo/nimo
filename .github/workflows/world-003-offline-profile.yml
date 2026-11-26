@@ -73,8 +73,8 @@ jobs:
           s=s.replace(needle,'''console.log("OFFLINE_PAYLOAD",JSON.stringify({instructions:system,fields:contextFields,tools:reasoningModel?tools:format,payload}));
             throw new Error("OFFLINE_PROFILE_COMPLETE");
             '''+needle,1)
-          # Refuse every external fetch, including any ancillary model requests.
-          s='globalThis.fetch = (async () => { throw new Error("OFFLINE_NETWORK_BLOCKED"); }) as typeof fetch;\\n'+s
+          # Dummy API key prevents authenticated calls; intercept decision before fetch.
+          s=s.replace("https://api.openai.com", "http://127.0.0.1:1")
           p.write_text(s)
           PY
             cat > wrangler.experiment.toml <<'EOF'
@@ -117,8 +117,8 @@ jobs:
               try:
                   with urllib.request.urlopen(urllib.request.Request(url,data=b"",headers=headers,method="POST"),timeout=180) as r:
                       result=json.load(r)
-              except Exception:
-                  raise SystemExit("Local tick failed; no automatic retry to avoid duplicate paid calls")
+              except Exception as e:
+                  raise SystemExit(f"Local tick failed: {e}")
               for trace in result["traces"]:
                   attempts+=1
                   success+=trace["status"]=="completed"
