@@ -111,6 +111,14 @@ def open_db(path: str) -> sqlite3.Connection:
       evidence_decision_ids_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS artifact_revisions (
+      artifact_id INTEGER PRIMARY KEY REFERENCES artifacts(id),
+      parent_id INTEGER NOT NULL REFERENCES artifacts(id)
+    );
+    CREATE TABLE IF NOT EXISTS artifact_reads (
+      decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
+      artifact_id INTEGER NOT NULL REFERENCES artifacts(id)
+    );
     CREATE TABLE IF NOT EXISTS memory_searches (
       decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
       query TEXT NOT NULL,
@@ -495,6 +503,8 @@ def unified_choice(db, ai, decision_id, context, options):
     schemas = {
         "think": obj({"thought": string}),
         "search_memory": obj({"query": string}),
+        "read_creation": obj({"artifact_id": {"type": "integer"}}),
+        "revise_document": obj({"artifact_id": {"type": "integer"}, "title": string, "text": string}),
         "write_journal": obj({"title": string, "text": string}),
         "draw": obj({"title": string, "strokes": {"type": "array", "items": obj({
             "points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
@@ -507,6 +517,8 @@ def unified_choice(db, ai, decision_id, context, options):
     descriptions = {
         "think": "Record a thought (1-500 characters).",
         "search_memory": "Search previous consolidated memories by keywords (1-200 characters). Returns up to three memories with evidence IDs.",
+        "read_creation": "Read a previous journal or drawing using its artifact ID.",
+        "revise_document": "Create a revised version of a journal you just read, preserving the original. Title up to 100 characters, text up to 1200.",
         "write_journal": "Write a personal entry. Title up to 100 characters, text up to 1200.",
         "draw": "Create one complete vector artwork. Title up to 100 characters. 1-8 strokes, each 2-24 integer coordinate pairs, x 0..240, y 0..180, color #RRGGBB, width 1..8.",
         "ask_oracle": "Ask a question up to 300 characters. Oracle answers are not independently verified and cannot physically inspect objects.",
@@ -533,7 +545,24 @@ def unified_choice(db, ai, decision_id, context, options):
 def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
             action: str, context: dict[str, Any], arguments: dict[str, Any] | None = None) -> tuple[str, int | None]:
     artifact: tuple[str, str, str] | None = None
-    if action == "search_memory":
+    if action == "read_creation":
+        aid = arguments.get("artifact_id")
+        if type(aid) is not int or not db.execute("SELECT 1 FROM artifacts WHERE id=? AND kind IN ('journal','drawing')", (aid,)).fetchone():
+            raise ValueError("Unknown creation")
+        db.execute("INSERT INTO artifact_reads VALUES(?,?)", (decision_id, aid))
+        return f"Read creation #{aid}", None
+    elif action == "revise_document":
+        aid = arguments.get("artifact_id")
+        opened = context.get("opened_creation", {})
+        if type(aid) is not int or opened.get("id") != aid or opened.get("kind") != "journal":
+            raise ValueError("Read the journal before revising it")
+        title = text_field(arguments, "title", 100)
+        body = text_field(arguments, "text", 1200)
+        cursor = db.execute("INSERT INTO artifacts(decision_id,kind,title,content,created_at) VALUES(?,?,?,?,?)",
+                            (decision_id, "journal", title, body, now()))
+        db.execute("INSERT INTO artifact_revisions VALUES(?,?)", (cursor.lastrowid, aid))
+        return f"Revised document #{aid}: {title}", cursor.lastrowid
+    elif action == "search_memory":
         query = text_field(arguments, "query", 200)
         results = search_memory(db, query)
         outcome = "Memory search: " + query + " (" + str(len(results)) + " matches)"
@@ -704,6 +733,16 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
         if db.execute("SELECT 1 FROM memories WHERE reflection IS NOT NULL LIMIT 1").fetchone():
             options.append("search_memory")
+        if os.getenv("NIMO_CORE_CREATIONS") == "1":
+            creations = [dict(r) for r in db.execute("SELECT a.id,a.kind,a.title,r.parent_id FROM artifacts a LEFT JOIN artifact_revisions r ON r.artifact_id=a.id WHERE a.kind IN ('journal','drawing') ORDER BY a.id DESC LIMIT 30")]
+            if creations:
+                context["creations"] = creations
+                options.append("read_creation")
+            opened = db.execute("SELECT a.id,a.kind,a.title,a.content FROM artifact_reads r JOIN artifacts a ON a.id=r.artifact_id WHERE r.decision_id=?", (index-1,)).fetchone()
+            if opened:
+                context["opened_creation"] = dict(opened)
+                if opened["kind"] == "journal":
+                    options.append("revise_document")
         recalled = db.execute("SELECT query,results_json FROM memory_searches WHERE decision_id=?", (index-1,)).fetchone()
         if recalled:
             context["memory_search_results"] = {"query": recalled[0], "matches": parse(recalled[1])}
