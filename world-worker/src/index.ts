@@ -1,4 +1,4 @@
-import { SEED, INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
+import { INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
 import {cachedWorldSnapshot,saveWorldSnapshot} from "./world-snapshot-cache";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
@@ -297,15 +297,6 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     name==="plant_seed"||name==="water_plot"||name==="harvest_crop"?{name,plotIds:menu.gardenPlotIds}:
     name==="sell_item"?{name,items:menu.saleItems}:{name});
   const experience = buildExperienceContext(history);
-  const knownRecentIds = new Set([
-    ...experience.recentEvents.map(e => e.id),
-    ...experience.meaningfulEvents.map(e => e.id),
-  ]);
-  const olderLandmarks = landmarks.filter(e => !knownRecentIds.has(e.id))
-    .slice(0, 5).map(e => ({
-      id: e.id, when: e.created_at, kind: e.kind, action: e.action,
-      content: e.content.slice(0, 400),
-    }));
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Your normal movement tools are temporarily unavailable during a REPLY, but they return on your next autonomous turn. If you choose to accept an actionable request, store what you intend to do in replyIntent; do not claim you already did it. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
