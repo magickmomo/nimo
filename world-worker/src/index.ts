@@ -327,7 +327,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
-  const variants = format.json_schema.schema.properties.toolCall.anyOf as unknown as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
+  const variants = (format.json_schema.schema.properties.toolCall as {anyOf:unknown[]}).anyOf as unknown as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
   const nativeTools = variants.filter(v=>v.properties?.name).map(v=>{
     const {name,...properties}=v.properties!;
     return {type:"function",name:name.enum![0],description:"Execute "+name.enum![0],strict:true,parameters:{type:"object",properties:{...properties,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"goal","intentDisposition"],additionalProperties:false}};
