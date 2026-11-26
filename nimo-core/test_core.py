@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import nimo_core as core
 
@@ -21,6 +22,66 @@ class CoreTests(unittest.TestCase):
     def rows(self, sql, *params):
         return self.db.execute(sql, params).fetchall()
 
+    def test_library_browse_acquire_read_resume_with_verbatim_passage(self):
+        steps = ["browse_library", "acquire_book", "read_book",
+                 "put_down_book", "read_book"]
+        class ReadingAI(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint == "decisions":
+                    action = steps.pop(0)
+                    choices = [c["value"] for c in payload["questions"][0]["choices"]]
+                    assert action in choices, (action, choices)
+                    return {"answers":[{"name":"next_action","type":"choice","choice":action}],
+                            "usage":{}}
+                data = json.loads(payload["input"][1]["content"])
+                if data["purpose"] == "library_acquire":
+                    value = {"book_id":"programming"}
+                elif data["purpose"] == "library_read":
+                    value = {"book_id":"programming","move":"next"}
+                else:
+                    return super().call(endpoint, payload)
+                return {"output":[{"content":[{"type":"output_text","text":json.dumps(value)}]}],
+                        "usage":{}}
+        body = ("Programming is a way to describe algorithms. " * 260 + "\\n\\n" +
+                "A variable stores a value for a program. " * 230)
+        real_acquire = core.library.acquire
+        def offline_acquire(db, decision_id, book_id, timestamp=""):
+            return real_acquire(db,decision_id,book_id,
+                                fetch=lambda url: body, timestamp=timestamp)
+        with patch.object(core.library, "acquire", side_effect=offline_acquire):
+            result = core.run(self.db, ReadingAI(), 5)
+        self.assertEqual([r["selected"] for r in result],
+                         ["browse_library","acquire_book","read_book",
+                          "put_down_book","read_book"])
+        self.assertTrue(all(r["status"] == "completed" for r in result), result)
+        initial = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=1")[0]["context_json"])
+        self.assertNotIn("library_catalogue", initial)
+        browsed = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=2")[0]["context_json"])
+        self.assertEqual(len(browsed["library_catalogue"]), 4)
+        first_read = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=4")[0]["context_json"])
+        self.assertEqual(first_read["last_read_passage"]["segment"], 1)
+        self.assertIn("Programming is a way", first_read["last_read_passage"]["text"])
+        after_pause = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=5")[0]["context_json"])
+        self.assertNotIn("last_read_passage", after_pause)
+        self.assertEqual(self.rows(
+            "SELECT next_segment FROM library_reading WHERE book_id='programming'")[0][0], 3)
+        events = self.rows("SELECT action,data_json FROM library_events ORDER BY decision_id")
+        self.assertEqual([e["action"] for e in events],
+                         ["browse_library","acquire_book","read_book",
+                          "put_down_book","read_book"])
+        self.assertNotIn("Programming is a way",
+                         json.dumps(core.recent_context(self.db)))
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM artifacts")[0][0], 0)
+
+    def test_library_read_cannot_fetch_unacquired_book(self):
+        with self.assertRaisesRegex(ValueError,"not been acquired"):
+            core.library.read(self.db, 1, "time_machine", "next")
+        self.assertEqual(len(core.library.catalogue()), 4)
+
     def test_capability_awareness_and_progress_selection(self):
         self.assertIn("ask the Oracle questions", core.DEFAULT_IDENTITY)
         self.assertIn("cannot physically inspect", core.DEFAULT_IDENTITY)
@@ -37,7 +98,7 @@ class CoreTests(unittest.TestCase):
         selected = json.loads(calls[1]["request_json"])
         selector_context = selected["input"][1]["content"][0]["data"]
         self.assertEqual(selector_context["expressed_want"], result["expressed_want"])
-        self.assertEqual([c["value"] for c in selected["questions"][0]["choices"]], list(core.ACTIONS))
+        self.assertEqual([c["value"] for c in selected["questions"][0]["choices"]], list(core.ACTIONS) + ["browse_library"])
         self.assertEqual(selected["questions"][0]["instructions"],
                          "Which available action would make the most meaningful progress toward Nimo's expressed intention?")
         oracle = next(c for c in selected["questions"][0]["choices"] if c["value"] == "ask_oracle")
@@ -61,7 +122,7 @@ class CoreTests(unittest.TestCase):
         record = self.rows("SELECT context_json,offered_json FROM decisions WHERE id=1")[0]
         context = json.loads(record["context_json"])
         self.assertEqual(context["known_objects"], expected)
-        self.assertEqual(json.loads(record["offered_json"]), list(core.ACTIONS))
+        self.assertEqual(json.loads(record["offered_json"]), list(core.ACTIONS) + ["browse_library"])
         calls = self.rows("SELECT purpose,request_json FROM model_calls WHERE decision_id=1 ORDER BY id")
         self.assertEqual([c["purpose"] for c in calls], ["express_want", "select", "think"])
         intention_payload = json.loads(calls[0]["request_json"])
@@ -119,7 +180,7 @@ class CoreTests(unittest.TestCase):
         selector_context = selector_request["input"][1]["content"][0]["data"]
         self.assertEqual(selector_context["expressed_want"], result["expressed_want"])
         self.assertEqual([x["value"] for x in selector_request["questions"][0]["choices"]],
-                         list(core.ACTIONS))
+                         list(core.ACTIONS) + ["browse_library"])
 
     def test_failed_intention_generation_prevents_selection_and_records_failure(self):
         class BadIntention(core.MockAI):
@@ -211,7 +272,7 @@ class CoreTests(unittest.TestCase):
 
     def test_offline_demo_exercises_all_four_choices_and_creates_artifacts(self):
         results = core.run(self.db, self.ai, 4)
-        self.assertEqual([r["selected"] for r in results], list(core.ACTIONS))
+        self.assertEqual([r["selected"] for r in results], list(core.ACTIONS) + ["browse_library"])
         self.assertTrue(all(r["status"] == "completed" for r in results))
         self.assertEqual([r["kind"] for r in self.rows(
             "SELECT kind FROM artifacts ORDER BY id")], ["journal", "drawing", "oracle"])
