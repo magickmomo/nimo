@@ -537,7 +537,8 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
 
 
 def run(db: sqlite3.Connection, ai: Any, count: int,
-        new_object_after_10: bool = False) -> list[dict[str, Any]]:
+        new_object_after_10: bool = False,
+        stream_results: bool = False) -> list[dict[str, Any]]:
     if not 1 <= count <= 10:
         raise ValueError("Run length must be 1-10; no unbounded autonomous loop")
     # A crash may leave a partially executed action in the database. Refuse
@@ -548,7 +549,13 @@ def run(db: sqlite3.Connection, ai: Any, count: int,
     attempted = db.execute("SELECT attempted FROM state WHERE id=1").fetchone()["attempted"]
     if db.execute("SELECT COUNT(*) n FROM experiences").fetchone()["n"] != attempted:
         raise RuntimeError("State and experience counts differ; inspect before resuming")
-    return [run_one(db, ai, new_object_after_10=new_object_after_10) for _ in range(count)]
+    results = []
+    for _ in range(count):
+        result = run_one(db, ai, new_object_after_10=new_object_after_10)
+        results.append(result)
+        if stream_results:
+            print(compact(result), flush=True)
+    return results
 
 
 def inspect(db: sqlite3.Connection, decision_id: int | None = None) -> dict[str, Any]:
@@ -703,9 +710,9 @@ def main() -> None:
     db = open_db(args.db)
     if args.command == "run":
         ai = MockAI() if args.mock else OpenAI(os.getenv("OPENAI_API_KEY", ""))
-        for item in run(db, ai, args.decisions,
-                        new_object_after_10=args.new_object_after_10):
-            print(compact(item))
+        run(db, ai, args.decisions,
+            new_object_after_10=args.new_object_after_10,
+            stream_results=True)
     elif args.command == "inspect":
         print(json.dumps(inspect(db, args.decision), indent=2, ensure_ascii=False))
     elif args.command == "report":
