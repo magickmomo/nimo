@@ -76,6 +76,17 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(core.recent_context(self.db)["last_read_passage"]["segment"], 2)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM artifacts")[0][0], 0)
 
+    def test_gutenberg_book_content_starts_after_distribution_notice(self):
+        sample = ("Intro distribution notice\\n" +
+                  "*** START OF THE PROJECT GUTENBERG EBOOK A BOOK ***\\n" +
+                  "CHAPTER ONE\\n\\nThe narrative begins here.\\n" +
+                  "*** END OF THE PROJECT GUTENBERG EBOOK A BOOK ***\\n" +
+                  "End distribution notice")
+        result = core.library.strip_gutenberg_notice(sample)
+        self.assertTrue(result.startswith("CHAPTER ONE"))
+        self.assertNotIn("distribution notice", result)
+        self.assertEqual(core.library.strip_gutenberg_notice("plain text"), "plain text")
+
     def test_library_read_cannot_fetch_unacquired_book(self):
         with self.assertRaisesRegex(ValueError,"not been acquired"):
             core.library.read(self.db, 1, "time_machine", "next")
