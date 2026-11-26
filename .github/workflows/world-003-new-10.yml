@@ -1,0 +1,142 @@
+name: World 003 new architecture 10-decision experiment
+on:
+  push:
+    branches: [experiment/world-003-compact-cognition]
+    paths: ['.github/workflows/world-003-new-10.yml']
+  workflow_dispatch:
+concurrency:
+  group: world-003-new-10-experiment
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  snapshot-and-run:
+    runs-on: ubuntu-latest
+    environment: world-004
+    timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install and validate credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$OPENAI_API_KEY" && test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          npm install --prefix world-worker --no-audit --no-fund
+      - name: Export live D1 read-only (never upload snapshot)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd world-worker
+          npx wrangler d1 export nimo-world --remote --output="$RUNNER_TEMP/world.sql" > "$RUNNER_TEMP/export.log" 2>&1 || { echo "::error::D1 export failed; check export permission"; exit 1; }
+          test -s "$RUNNER_TEMP/world.sql"
+      - name: Run new architecture only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/results"
+          for arm in compact; do
+            root="$GITHUB_WORKSPACE"
+            cd "$root/world-worker"
+            npm install --no-audit --no-fund
+            python3 - <<'PY'
+          from pathlib import Path
+          p=Path("src/index.ts")
+          s=p.read_text()
+          # Only in disposable runner checkout: bypass scheduled sleep and decision cooldown equally.
+          assert "const DECISION_INTERVAL_MS = 30_000;" in s
+          s=s.replace("const DECISION_INTERVAL_MS = 30_000;","const DECISION_INTERVAL_MS = 0;")
+          s=s.replace("return !scheduledAsleep(new Date()) && await manualAutonomousEnabled(db);","return await manualAutonomousEnabled(db);")
+          marker='if (path === "/tick" && request.method === "POST") return json(await tick(env));'
+          assert marker in s
+          s=s.replace(marker,'''if (path === "/tick" && request.method === "POST") {
+            const before=await env.DB.prepare("SELECT COALESCE(MAX(id),0) AS id FROM action_trace").first<{id:number}>();
+            await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1").bind(new Date(0).toISOString()).run();
+            await resumeJourney(env.DB,new Date());
+            const result=await tick(env);
+            const traces=await env.DB.prepare("SELECT status,metadata FROM action_trace WHERE kind='decide' AND id>? ORDER BY id").bind(before?.id??0).all<{status:string;metadata:string|null}>();
+            // Poll research as the live scheduler does, without invoking extra decisions.
+            // Ancillary Oracle research disabled for this capped decision smoke test.
+            return json({status:result.status,action:"action" in result?result.action:null,traces:traces.results.map(t=>({status:t.status,usage:t.metadata?JSON.parse(t.metadata).usage:null}))});
+          }''')
+          p.write_text(s)
+          PY
+            cat > wrangler.experiment.toml <<'EOF'
+          name = "nimo-local-experiment"
+          main = "src/index.ts"
+          compatibility_date = "2026-10-01"
+          [[d1_databases]]
+          binding = "DB"
+          database_name = "nimo-experiment"
+          database_id = "00000000-0000-4000-8000-000000000001"
+          [vars]
+          OPENAI_MODEL = "gpt-6-luna"
+          WORLD_INTERNAL_SECRET = "local-experiment-only"
+          EOF
+            persist="$RUNNER_TEMP/$arm-db"
+            npx wrangler d1 execute nimo-experiment --local --config wrangler.experiment.toml --persist-to "$persist" --file "$RUNNER_TEMP/world.sql" > "$RUNNER_TEMP/$arm-import.log" 2>&1 || { echo "::error::Local snapshot import failed"; exit 1; }
+            npx wrangler d1 execute nimo-experiment --local --config wrangler.experiment.toml --persist-to "$persist" --command "UPDATE world_control SET autonomous_enabled=1 WHERE id=1;" >/dev/null
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" > .dev.vars
+            npx wrangler dev --local --config wrangler.experiment.toml --persist-to "$persist" --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/$arm-worker.log" 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true; rm -f .dev.vars' EXIT
+            python3 - "$arm" "$RUNNER_TEMP/results" <<'PY'
+          import collections,json,sys,time,urllib.request,urllib.error,pathlib
+          arm,out=sys.argv[1:]
+          url="http://127.0.0.1:8787/tick"
+          headers={"Authorization":"Bearer local-experiment-only"}
+          for _ in range(60):
+              try:
+                  urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8787/",headers=headers),timeout=2)
+                  break
+              except urllib.error.HTTPError:
+                  break
+              except OSError:
+                  time.sleep(2)
+          counts=collections.Counter()
+          usage=collections.Counter()
+          attempts=success=0
+          deadline=time.monotonic()+1500
+          while attempts<10 and time.monotonic()<deadline:
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,data=b"",headers=headers,method="POST"),timeout=180) as r:
+                      result=json.load(r)
+              except Exception:
+                  raise SystemExit("Local tick failed; no automatic retry to avoid duplicate paid calls")
+              for trace in result["traces"]:
+                  attempts+=1
+                  success+=trace["status"]=="completed"
+                  usage.update(trace.get("usage") or {})
+                  counts[result.get("action") or result["status"]]+=1
+                  print(f"{arm}: {attempts}/10 attempts, {success} valid",flush=True)
+              if attempts<10 and not result["traces"]: time.sleep(1)
+          summary=dict(arm=arm,attempts=attempts,valid=success,actions=dict(counts),usage=dict(usage))
+          pathlib.Path(out,arm+".json").write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary),flush=True)
+          if attempts!=10: raise SystemExit("Experiment did not reach 10 attempts")
+          PY
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            rm -f .dev.vars
+            trap - EXIT
+          done
+      - name: Preserve aggregate results only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-003-new-10-summary
+          path: ${{ runner.temp }}/results/*.json
+          if-no-files-found: ignore
+      - name: Remove private snapshot and local databases
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/world.sql" "$RUNNER_TEMP/control-db" "$RUNNER_TEMP/compact-db" "$RUNNER_TEMP/control" "$RUNNER_TEMP/"*-worker.log "$RUNNER_TEMP/"*-import.log "$RUNNER_TEMP/export.log"
+
+# New architecture only; ten decision attempts.
