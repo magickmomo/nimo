@@ -1,0 +1,138 @@
+name: Nimo E07 Memory Context 50-decision experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/nimo-e07-identity-only
+    paths:
+      - .github/workflows/nimo-e07-cloud-50.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimo-e07-cloud-50
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    name: Run 50 decisions on fresh ephemeral runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # The existing OPENAI_API_KEY is scoped to this GitHub Actions environment.
+    # It only provides the key; the experiment remains an isolated local SQLite run.
+    environment: world-004
+    env:
+      NIMO_CORE_UNIFIED: '1'
+      NIMO_CORE_RICH_CONSOLIDATION: '1'
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      EXPERIMENT_DIR: ${{ github.workspace }}/nimo-e07-cloud-50
+      DB: ${{ github.workspace }}/nimo-e07-cloud-50/experiment.sqlite3
+    steps:
+      - name: Checkout exact experiment commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare isolated run directory
+        run: mkdir -p "$EXPERIMENT_DIR"
+
+      - name: Offline tests (no model expense)
+        working-directory: nimo-core
+        run: |
+          python -m compileall -q .
+          NIMO_CORE_RICH_CONSOLIDATION=0 NIMO_CORE_UNIFIED=0 python -m unittest -v
+
+      - name: Unified offline smoke test
+        working-directory: nimo-core
+        run: |
+          python -u nimo_core.py --db "$EXPERIMENT_DIR/smoke.sqlite3" run --mock --decisions 10
+          python - <<'PY'
+          import os, sqlite3, json
+          db = sqlite3.connect(os.path.join(os.environ["EXPERIMENT_DIR"], "smoke.sqlite3"))
+          assert db.execute("select count(*) from decisions where status='completed'").fetchone()[0] == 10
+          assert db.execute("select count(*) from memories").fetchone()[0] == 1
+          for (raw,) in db.execute("select context_json from decisions"):
+              assert "current_intention" not in json.loads(raw)
+              assert "latest_thinking" not in json.loads(raw)
+              assert "identity" not in json.loads(raw)
+          for (raw,) in db.execute("select reflection from memories"):
+              assert set(json.loads(raw)) == {"episodic", "semantic", "reflective"}
+          for (raw,) in db.execute("select request_json from model_calls"):
+              assert "objective_summary" not in json.loads(raw)["input"]
+              assert "identity_note" not in json.loads(raw)["input"]
+          assert db.execute("select count(*) from memories where tentative_identity_note is not null").fetchone()[0] == 0
+          for (raw,) in db.execute("select request_json from model_calls"):
+              messages = json.loads(raw)["input"]
+              assert isinstance(messages, str) and messages.startswith("You are Nimo.")
+              if "tools" in json.loads(raw):
+                  assert messages.split("\n\n", 1)[0] == "You are Nimo."
+          assert db.execute("select count(*) from think_notes where purpose='thought' and next_step is null").fetchone()[0] > 0
+          PY
+
+      - name: Check API credential before making any paid calls
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Missing OPENAI_API_KEY in GitHub Actions environment world-004 or repository secrets."
+            exit 1
+          fi
+
+      - name: Run 50 live decisions in five capped batches
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          test ! -e "$DB" || { echo "::error::Experiment DB must start fresh"; exit 1; }
+          for batch in 1 2 3 4 5; do
+            echo "===== Nimo Core server batch $batch/5 =====" | tee -a "$EXPERIMENT_DIR/terminal.log"
+            python -u nimo_core.py --db "$DB" run --live --decisions 10 2>&1 | tee -a "$EXPERIMENT_DIR/terminal.log"
+          done
+
+      - name: Create complete auditable report and machine-readable summary
+        if: always()
+        shell: bash
+        working-directory: nimo-core
+        run: |
+          set -euo pipefail
+          if [ -f "$DB" ]; then
+            python nimo_core.py --db "$DB" report --out "$EXPERIMENT_DIR/audit.html"
+            python export_server_experiment.py --db "$DB" --out "$EXPERIMENT_DIR/summary.json" | tee "$EXPERIMENT_DIR/summary-brief.log"
+          else
+            echo "No experiment database was created (offline tests or credential check failed)." > "$EXPERIMENT_DIR/NO_RUN.txt"
+          fi
+
+      - name: Print memory contents and token usage for review
+        if: always()
+        working-directory: nimo-core
+        run: |
+          python - <<'PY'
+          import os, sqlite3, json
+          if os.path.exists(os.environ["DB"]):
+              db = sqlite3.connect(os.environ["DB"])
+              db.row_factory = sqlite3.Row
+              for row in db.execute("select * from memories order by cycle_end_decision"):
+                  print("E07_MEMORY=" + json.dumps(dict(row), ensure_ascii=False))
+              for row in db.execute("select purpose,usage_json from model_calls"):
+                  print("E07_USAGE=" + json.dumps(dict(row)))
+              for row in db.execute("select kind,title,content from artifacts where kind != 'drawing'"):
+                  print("E07_ARTIFACT=" + json.dumps(dict(row), ensure_ascii=False))
+          PY
+
+      - name: Preserve SQLite, full HTML audit, decision log, and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimo-e07-cloud-50-audit
+          path: ${{ env.EXPERIMENT_DIR }}/
+          retention-days: 14
+          if-no-files-found: error
+
+
+
