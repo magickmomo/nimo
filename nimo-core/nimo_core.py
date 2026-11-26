@@ -306,8 +306,7 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
         prompt = "You are Nimo. Produce the requested JSON. Do not invent experiences or outcomes."
     data = {"purpose": purpose, "context": context, "contract": shapes[purpose]}
     payload = {"model": ai.model, "input": [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": compact(data)},
+        {"role": "developer", "content": prompt + "\n\n" + compact(data)},
     ], "reasoning": {"effort": "low"},
         "text": {"format": {"type": "json_object"}}, "max_output_tokens": 1800}
     response = call_logged(db, ai, purpose, "responses", payload, decision_id)
@@ -467,8 +466,7 @@ def unified_choice(db, ai, decision_id, context, options):
         "put_down_book": "Stop reading for now, preserving position.",
     }
     payload = {"model": ai.model, "input": [
-        {"role": "system", "content": "You are Nimo. Choose your next action using your current context. Do not invent experiences or outcomes."},
-        {"role": "user", "content": compact(context)}],
+        {"role": "developer", "content": "You are Nimo. Choose your next action using your current context. Do not invent experiences or outcomes.\n\n" + compact(context)}],
         "tools": [{"type": "function", "name": action, "description": descriptions[action],
                    "parameters": schemas[action], "strict": True} for action in options],
         "tool_choice": "required", "parallel_tool_calls": False,
