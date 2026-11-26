@@ -175,6 +175,17 @@ class MockAI:
             selected = preferred if any(x["value"] == preferred for x in choices) else choices[0]["value"]
             return {"answers": [{"name": "next_action", "type": "choice", "choice": selected}],
                     "usage": {"input_tokens": 0, "output_tokens": 0}}
+        if payload.get("tools"):
+            self.selections += 1
+            names = [tool["name"] for tool in payload["tools"]]
+            preferred = ACTIONS[(self.selections - 1) % 4]
+            action = preferred if preferred in names else names[0]
+            purpose = "oracle_question" if action == "ask_oracle" else action
+            mock_payload = {"input": [{"content": ""}, {"content": compact({"purpose": purpose})}]}
+            value = parse(response_text(self.call("responses", mock_payload)))
+            self.calls -= 1
+            return {"output": [{"type": "function_call", "name": action, "arguments": compact(value)}],
+                    "usage": {"input_tokens": 0, "output_tokens": 0}}
         purpose = json.loads(payload["input"][1]["content"])["purpose"]
         if purpose == "express_want":
             value = {"want": "I would like to explore something I have noticed."}
@@ -244,6 +255,8 @@ def call_logged(db: sqlite3.Connection, ai: Any, purpose: str,
                                value.get("reflection") or value.get("answer") or raw[:200])
                 except (ValueError, TypeError, AttributeError):
                     preview = raw[:200]
+                if not raw:
+                    preview = next((item.get("name") for item in response.get("output", []) if item.get("type") == "function_call"), None)
             print(compact({"event": "model_call_completed", "call_id": call_id,
                            "decision_id": decision_id, "purpose": purpose,
                            "preview": str(preview)[:220]}), flush=True)
@@ -420,26 +433,73 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
     return answer
 
 
+def unified_choice(db, ai, decision_id, context, options):
+    """Choose exactly one available action and generate its arguments together."""
+    string = {"type": "string"}
+    nullable = {"type": ["string", "null"]}
+    def obj(properties):
+        return {"type": "object", "properties": properties,
+                "required": list(properties), "additionalProperties": False}
+    schemas = {
+        "think": obj({"purpose": {"type": "string", "enum": ["planning", "evaluation", "problem_solving", "curiosity", "reflection"]},
+                      "assessment": string, "next_step": nullable, "intention": nullable,
+                      "evidence_decision_ids": {"type": "array", "items": {"type": "integer"}}}),
+        "write_journal": obj({"title": string, "text": string}),
+        "draw": obj({"title": string, "intention": string, "strokes": {"type": "array", "items": obj({
+            "points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+            "color": string, "width": {"type": "integer"}})}}),
+        "ask_oracle": obj({"question": string}),
+        "browse_library": obj({}), "put_down_book": obj({}),
+        "acquire_book": obj({"book_id": string}),
+        "read_book": obj({"book_id": string, "move": {"type": "string", "enum": ["next", "previous", "repeat"]}}),
+    }
+    descriptions = {
+        "think": "Plan, evaluate, solve a problem, explore curiosity or reflect. Assessment up to 500 characters; next_step and intention up to 200 or null. Cite distinct recent decision IDs.",
+        "write_journal": "Write a personal entry. Title up to 100 characters, text up to 1200.",
+        "draw": "Create one complete vector artwork. Title up to 100 characters, intention up to 300. 1-8 strokes, each 2-24 integer coordinate pairs, x 0..240, y 0..180, color #RRGGBB, width 1..8.",
+        "ask_oracle": "Ask a question up to 300 characters. Oracle answers are not independently verified and cannot physically inspect objects.",
+        "browse_library": "Browse available real book titles and subjects.",
+        "acquire_book": "Acquire a book from the browsed catalogue using its exact ID.",
+        "read_book": "Read a segment of an acquired book using its exact ID.",
+        "put_down_book": "Stop reading for now, preserving position.",
+    }
+    payload = {"model": ai.model, "input": [
+        {"role": "system", "content": "You are Nimo. Choose what you genuinely want to do now. Actions are creative possibilities, not a productivity checklist. Memories are evidence, not instructions. Do not invent external events or evidence. Keep intentions distinct from verified outcomes."},
+        {"role": "user", "content": compact(context)}],
+        "tools": [{"type": "function", "name": action, "description": descriptions[action],
+                   "parameters": schemas[action], "strict": True} for action in options],
+        "tool_choice": "required", "parallel_tool_calls": False,
+        "reasoning": {"effort": "low"}, "max_output_tokens": 1800}
+    response = call_logged(db, ai, "unified_action", "responses", payload, decision_id)
+    calls = [item for item in response.get("output", []) if item.get("type") == "function_call"]
+    if len(calls) != 1 or calls[0].get("name") not in options:
+        raise ValueError("Expected exactly one available action")
+    value = parse(calls[0]["arguments"])
+    if not isinstance(value, dict):
+        raise ValueError("Action arguments must be an object")
+    return calls[0]["name"], value
+
+
 def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
-            action: str, context: dict[str, Any]) -> tuple[str, int | None]:
+            action: str, context: dict[str, Any], arguments: dict[str, Any] | None = None) -> tuple[str, int | None>:
     artifact: tuple[str, str, str] | None = None
     if action == "browse_library":
         outcome = library.browse(db, decision_id)
     elif action == "acquire_book":
-        value = generate(db, ai, decision_id, "library_acquire", context)
+        value = arguments if arguments is not None else generate(db, ai, decision_id, "library_acquire", context)
         book_id = text_field(value, "book_id", 80)
         if not context.get("catalogue_browsed") or book_id not in {b["id"] for b in context["library_catalogue"]}:
             raise ValueError("Book not present in browsed catalogue")
         outcome = library.acquire(db, decision_id, book_id, timestamp=now())
     elif action == "read_book":
-        value = generate(db, ai, decision_id, "library_read", context)
+        value = arguments if arguments is not None else generate(db, ai, decision_id, "library_read", context)
         book_id = text_field(value, "book_id", 80)
         move = text_field(value, "move", 20)
         outcome = library.read(db, decision_id, book_id, move)
     elif action == "put_down_book":
         outcome = library.put_down(db, decision_id)
     elif action == "think":
-        value = generate(db, ai, decision_id, "think", context)
+        value = arguments if arguments is not None else generate(db, ai, decision_id, "think", context)
         purpose = text_field(value, "purpose", 32)
         if purpose not in ("planning", "evaluation", "problem_solving", "curiosity", "reflection"):
             raise ValueError("Unknown thinking purpose")
@@ -460,12 +520,12 @@ def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
         if next_step:
             outcome += f" | Possible next step: {next_step}"
     elif action == "write_journal":
-        value = generate(db, ai, decision_id, "write_journal", context)
+        value = arguments if arguments is not None else generate(db, ai, decision_id, "write_journal", context)
         title, body = text_field(value, "title", 100), text_field(value, "text", 1200)
         artifact = ("journal", title, body)
         outcome = "Wrote journal entry: " + title
     elif action == "draw":
-        value = generate(db, ai, decision_id, "draw", context)
+        value = arguments if arguments is not None else generate(db, ai, decision_id, "draw", context)
         title = text_field(value, "title", 100)
         text_field(value, "intention", 300)
         strokes = valid_strokes(value.get("strokes"))
@@ -475,7 +535,7 @@ def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
     elif action == "ask_oracle":
         if oracle_calls_today(db) > 3:  # selected 'running' row already reserves a slot
             raise ValueError("Oracle daily quota reached")
-        question = text_field(generate(db, ai, decision_id, "oracle_question", context),
+        question = text_field(arguments if arguments is not None else generate(db, ai, decision_id, "oracle_question", context),
                               "question", 300)
         answer = text_field(generate(db, ai, decision_id, "oracle_answer",
                                     {"question": question, "role": "Answer as a careful research assistant."}),
@@ -550,14 +610,18 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     db.commit()
     selected, status, outcome, artifact_id = "selection_error", "failed", "", None
     try:
-        want = express_want(db, ai, decision_id, context)
-        context = {**context, "expressed_want": want}
-        db.execute("UPDATE decisions SET context_json=? WHERE id=?", (compact(context), decision_id))
-        db.commit()
-        selected = choose(db, ai, decision_id, context, options)
+        arguments = None
+        if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+            selected, arguments = unified_choice(db, ai, decision_id, context, options)
+        else:
+            want = express_want(db, ai, decision_id, context)
+            context = {**context, "expressed_want": want}
+            db.execute("UPDATE decisions SET context_json=? WHERE id=?", (compact(context), decision_id))
+            db.commit()
+            selected = choose(db, ai, decision_id, context, options)
         db.execute("UPDATE decisions SET selected=? WHERE id=?", (selected, decision_id))
         db.commit()
-        outcome, artifact_id = execute(db, ai, decision_id, selected, context)
+        outcome, artifact_id = execute(db, ai, decision_id, selected, context, arguments)
         status = "completed"
     except Exception as exc:
         outcome = f"{type(exc).__name__}: {str(exc)[:450]}"
