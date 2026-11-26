@@ -103,11 +103,16 @@ def open_db(path: str) -> sqlite3.Connection:
       reflection TEXT,
       tentative_identity_note TEXT,
       evidence_decision_ids_json TEXT NOT NULL,
+      artifact_refs_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL
     );
     INSERT OR IGNORE INTO state(id,identity,current_intention,attempted)
     VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
     """)
+    # Preserve existing experiment databases; new cycles get artifact references.
+    existing_columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}
+    if "artifact_refs_json" not in existing_columns:
+        db.execute("ALTER TABLE memories ADD COLUMN artifact_refs_json TEXT NOT NULL DEFAULT '[]'")
     db.commit()
     return db
 
@@ -295,12 +300,17 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
     state = db.execute("SELECT * FROM state WHERE id=1").fetchone()
     experiences = db.execute("SELECT decision_id,action,status,outcome FROM experiences "
                              "ORDER BY decision_id DESC LIMIT 4").fetchall()
-    memories = db.execute("SELECT cycle_end_decision,objective_summary,reflection,tentative_identity_note "
+    memories = db.execute("SELECT cycle_end_decision,objective_summary,reflection,tentative_identity_note,artifact_refs_json "
                           "FROM memories ORDER BY cycle_end_decision DESC LIMIT 3").fetchall()
+    # The context includes only verified artifact metadata, never artifact contents.
+    memory_summaries = [{**dict(row), "artifacts": parse(row["artifact_refs_json"])}
+                        for row in reversed(memories)]
+    for memory in memory_summaries:
+        del memory["artifact_refs_json"]
     return {"identity": state["identity"], "current_intention": state["current_intention"],
             "known_objects": [dict(obj) for obj in KNOWN_OBJECTS],
             "recent_experiences": [dict(row) for row in reversed(experiences)],
-            "recent_memories": [dict(row) for row in reversed(memories)],
+            "recent_memories": memory_summaries,
             "oracle_questions_remaining_today": max(0, 3-oracle_calls_today(db))}
 
 
@@ -393,6 +403,11 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
                f"; successes={sum(x['status']=='completed' for x in batch)}; " +
                f"failures={sum(x['status']=='failed' for x in batch)}.")
     evidence = [x["decision_id"] for x in batch]
+    # Artifacts are looked up from committed rows, not invented by the model.
+    artifact_refs = [dict(row) for row in db.execute(
+        "SELECT id,decision_id,kind,title FROM artifacts "
+        "WHERE decision_id>? AND decision_id<=? ORDER BY decision_id,id",
+        (cycle_end-10, cycle_end))]
     reflection, identity_note, status = None, None, "fallback"
     try:
         value = generate(db, ai, None, "consolidate",
@@ -410,9 +425,10 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
         # Failure is visible in model_calls; never hide or fabricate a reflection.
         status = "fallback"
     db.execute("INSERT OR IGNORE INTO memories(cycle_end_decision,created_at,objective_summary,"
-               "reflection,tentative_identity_note,evidence_decision_ids_json,status) "
-               "VALUES(?,?,?,?,?,?,?)",
-               (cycle_end, now(), summary, reflection, identity_note, compact(evidence), status))
+               "reflection,tentative_identity_note,evidence_decision_ids_json,artifact_refs_json,status) "
+               "VALUES(?,?,?,?,?,?,?,?)",
+               (cycle_end, now(), summary, reflection, identity_note, compact(evidence),
+                compact(artifact_refs), status))
     db.commit()
 
 
@@ -572,6 +588,7 @@ def write_report(db: sqlite3.Connection, output: str) -> None:
             "<p><strong>Tentative identity note:</strong> " +
             escape(memory["tentative_identity_note"] or "(none)") + "</p>",
             pre("Evidence decision IDs", memory["evidence_decision_ids_json"]),
+            pre("Verified artifact references (metadata only)", memory["artifact_refs_json"]),
             "</article>",
         ]
     parts.append("<h2>Memory-consolidation model calls</h2>")
