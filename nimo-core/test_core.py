@@ -108,6 +108,56 @@ class CoreTests(unittest.TestCase):
                          ["express_want"])
         self.assertEqual(len(self.rows("SELECT * FROM experiences")), 1)
 
+    def test_memory_references_match_persisted_artifacts_without_content(self):
+        core.run(self.db, self.ai, 10)
+        memory = self.rows("SELECT artifact_refs_json FROM memories WHERE cycle_end_decision=10")[0]
+        refs = json.loads(memory["artifact_refs_json"])
+        actual = [dict(row) for row in self.rows(
+            "SELECT id,decision_id,kind,title FROM artifacts ORDER BY decision_id,id")]
+        self.assertEqual(refs, actual)
+        self.assertGreater(len(refs), 0)
+        self.assertTrue(all(set(ref) == {"id", "decision_id", "kind", "title"} for ref in refs))
+        context = core.recent_context(self.db)
+        self.assertEqual(context["recent_memories"][0]["artifacts"], actual)
+        self.assertNotIn("content", json.dumps(context))
+        self.assertNotIn("svg", json.dumps(context))
+        self.assertEqual(len(self.rows("SELECT * FROM memories")), 1)
+
+    def test_reference_is_kept_when_reflection_fails(self):
+        class NoReflection(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint == "responses" and '"consolidate"' in payload["input"][1]["content"]:
+                    raise RuntimeError("Reflection unavailable")
+                return super().call(endpoint, payload)
+        core.run(self.db, NoReflection(), 10)
+        memory = self.rows("SELECT status,artifact_refs_json FROM memories")[0]
+        self.assertEqual(memory["status"], "fallback")
+        self.assertEqual(json.loads(memory["artifact_refs_json"]),
+                         [dict(r) for r in self.rows(
+                             "SELECT id,decision_id,kind,title FROM artifacts ORDER BY decision_id,id")])
+
+    def test_existing_database_migrates_without_rewriting_old_memories(self):
+        path = str(Path(self.temp.name) / "previous.db")
+        old = sqlite3.connect(path)
+        old.execute("""CREATE TABLE memories (
+            id INTEGER PRIMARY KEY, cycle_end_decision INTEGER UNIQUE NOT NULL,
+            created_at TEXT NOT NULL, objective_summary TEXT NOT NULL,
+            reflection TEXT, tentative_identity_note TEXT,
+            evidence_decision_ids_json TEXT NOT NULL, status TEXT NOT NULL)""")
+        old.execute("""INSERT INTO memories
+            (cycle_end_decision,created_at,objective_summary,evidence_decision_ids_json,status)
+            VALUES (10,'yesterday','existing memory','[1,2,3,4,5,6,7,8,9,10]','reflected')""")
+        old.commit()
+        old.close()
+        migrated = core.open_db(path)
+        try:
+            row = migrated.execute("SELECT objective_summary,artifact_refs_json FROM memories").fetchone()
+            self.assertEqual(row["objective_summary"], "existing memory")
+            self.assertEqual(json.loads(row["artifact_refs_json"]), [])
+            self.assertEqual(core.recent_context(migrated)["recent_memories"][0]["artifacts"], [])
+        finally:
+            migrated.close()
+
     def test_ten_decisions_guarantee_one_memory_even_with_failures(self):
         results = core.run(self.db, self.ai, 10)
         self.assertEqual(len(results), 10)
@@ -128,6 +178,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn("After decision #10", html)
         self.assertIn("Exact API request", html)
         self.assertIn("Memory-consolidation model calls", html)
+        self.assertIn("Verified artifact references (metadata only)", html)
         self.assertIn("Oracle", html)
         self.assertIn("&quot;", html)
 
