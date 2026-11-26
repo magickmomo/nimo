@@ -624,10 +624,7 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     context = recent_context(db, new_object_after_10=new_object_after_10)
     if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
         context.pop("current_intention", None)
-        old_thought = context.get("latest_thinking")
-        if old_thought:
-            context["latest_thinking"] = {"thought": old_thought["assessment"],
-                                          "decision_id": old_thought["decision_id"]}
+        context.pop("latest_thinking", None)
         context["identity"] = "I am Nimo."
     options = list(ACTIONS) + library.actions(db)
     if context["oracle_questions_remaining_today"] == 0:
