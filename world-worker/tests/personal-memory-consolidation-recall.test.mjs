@@ -177,8 +177,8 @@ test("retrospective preview uses exact hour and never writes memories or cursor"
 test("one hourly LLM pass, bounded input, and cursor advanced only with writes",()=>{
  const source=read("../src/personal-memory-consolidation.ts");
  assert.match(source,/ORDER BY id ASC LIMIT 401/);
- assert.match(source,/max_tokens:950/);
- assert.match(source,/validatedProposals\(parsed,result.results,existing.results\)/);
+ assert.match(source,/max_tokens:1800/);
+ assert.match(source,/validatedProposals\(parsed,result.results,existing.results,reason=>/);
  assert.match(source,/db\.batch\(statements\)/);
  assert.match(source,/pruneOverflowSql/);
  const worker=read("../src/index.ts");
@@ -303,4 +303,13 @@ test("memory revisions use proposed confidence and recompute established/tentati
  const src=read("../src/personal-memory-consolidation.ts");
  assert.match(src,/statement=excluded.statement,\s*confidence=excluded.confidence,\s*status=excluded.status/);
  assert.doesNotMatch(src,/confidence=MAX\(consolidated_memories_v2.confidence,excluded.confidence\)/);
+});
+
+test("independent validation preserves valid proposals and reports rejected evidence",async()=>{
+ const {validatedProposals}=await loadTs("../src/personal-memory-consolidation.ts");
+ const events=[{id:1,kind:"tool",action:"EAT_OK",content:"Ate fruit"}];
+ const good={operation:"create",subject:"fruit:amber",statement:"Amber fruit was eaten successfully.",category:"food",confidence:0.7,evidenceIds:[1]};
+ const rejected=[];
+ assert.deepEqual(validatedProposals({memories:[{...good,evidenceIds:[999]},good]},events,[],reason=>rejected.push(reason)),[good]);
+ assert.match(rejected[0],/999/);
 });
