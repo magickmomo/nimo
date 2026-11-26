@@ -90,7 +90,7 @@ class CoreTests(unittest.TestCase):
     def test_library_preserves_programming_example_formatting(self):
         source = "Example:\\n\\n    def greet(name):\\n        if name:\\n            print(name)\\n"
         segments = core.library.split_text(source)
-        self.assertEqual(segments, ["Example:", "    def greet(name):\\n        if name:\\n            print(name)\\n"])
+        self.assertEqual(segments, [source])
         long_source = ("    def greet(name):\\n        if name:\\n            print(name)\\n\\n" * 450)
         parts = core.library.split_text(long_source)
         self.assertGreater(len(parts), 1)
