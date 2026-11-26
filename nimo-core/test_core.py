@@ -1,9 +1,11 @@
 """Run with: cd nimo-core && python -m unittest -v"""
+import io
 import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import nimo_core as core
@@ -111,6 +113,29 @@ class CoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"not been acquired"):
             core.library.read(self.db, 1, "time_machine", "next")
         self.assertEqual(len(core.library.catalogue()), 4)
+
+    def test_live_transport_streams_call_progress_without_changing_audit(self):
+        class SimulatedLive(core.OpenAI):
+            def __init__(self):
+                self.model = "offline-simulated-live"
+                self.mock = core.MockAI()
+
+            def call(self, endpoint, payload):
+                return self.mock.call(endpoint, payload)
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = core.run_one(self.db, SimulatedLive())
+        self.assertEqual(result["status"], "completed")
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([event["event"] for event in events],
+                         ["model_call_started", "model_call_completed"] * 3)
+        self.assertEqual([event["purpose"] for event in events[::2]],
+                         ["express_want", "select", "think"])
+        self.assertEqual(events[1]["preview"],
+                         "I would like to explore something I have noticed.")
+        self.assertEqual(events[3]["preview"], "think")
+        self.assertEqual(len(self.rows("SELECT * FROM model_calls")), 3)
 
     def test_capability_awareness_and_progress_selection(self):
         self.assertIn("ask the Oracle questions", core.DEFAULT_IDENTITY)
