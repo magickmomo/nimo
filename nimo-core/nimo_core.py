@@ -103,6 +103,14 @@ def open_db(path: str) -> sqlite3.Connection:
       artifact_id INTEGER REFERENCES artifacts(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS think_notes (
+      decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
+      purpose TEXT NOT NULL,
+      assessment TEXT NOT NULL,
+      next_step TEXT,
+      evidence_decision_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS memories (
       id INTEGER PRIMARY KEY,
       cycle_end_decision INTEGER UNIQUE NOT NULL,
@@ -174,7 +182,10 @@ class MockAI:
             value = {"title": "A short line study", "intention": "Try three connected marks.",
                      "strokes": [{"points": [[10, 10], [60, 60], [110, 30]], "color": "#296655", "width": 3}]}
         elif purpose == "think":
-            value = {"text": "I wonder what I would like to explore next.", "intention": "Explore a small creative idea."}
+            value = {"purpose": "curiosity", "assessment": "I have not tested this idea yet.",
+                     "next_step": "Explore a small creative idea.",
+                     "intention": "Explore a small creative idea.",
+                     "evidence_decision_ids": []}
         elif purpose == "write_journal":
             value = {"title": "A brief observation", "text": "Today I am exploring what I can create."}
         elif purpose == "oracle_question":
@@ -257,7 +268,13 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
     )
     shapes: dict[str, dict[str, Any]] = {
         "express_want": {"want": "string (1-300 chars): answer what you would like to do or pursue, in your own words, without choosing a tool"},
-        "think": {"text": "string (1-500 chars)", "intention": "string (0-200 chars) or null"},
+        "think": {
+            "purpose": "one of: planning | evaluation | problem_solving | curiosity | reflection; choose freely",
+            "assessment": "string (1-500 chars): reason about current situation, uncertainty, or what changed; distinguish known evidence from interpretation; avoid claiming new observations",
+            "next_step": "string (1-200 chars) or null: optional useful next direction, not a command or a required topic switch",
+            "intention": "string (0-200 chars) or null: optional change to persistent intention; null preserves it",
+            "evidence_decision_ids": "array of decision IDs from context.recent_experiences supporting this assessment; [] if none"
+        },
         "write_journal": {"title": "string (1-100 chars)", "text": "string (1-1200 chars)"},
         "draw": {"title": "string (1-100 chars)", "intention": "string (1-300 chars)",
                  "strokes": "array of 1-8 {points:[[x,y],...],color:'#RRGGBB',width:1..8}; 2-24 integer points per stroke; x 0..240, y 0..180"},
@@ -349,7 +366,16 @@ def recent_context(db: sqlite3.Connection, new_object_after_10: bool = False) ->
     # The observation first becomes visible at decision 11, never in consolidation.
     if new_object_after_10 and state["attempted"] >= 10:
         objects.append(dict(NEW_OBJECT))
+    latest_thought = db.execute(
+        "SELECT purpose,assessment,next_step,evidence_decision_ids_json,decision_id "
+        "FROM think_notes ORDER BY decision_id DESC LIMIT 1").fetchone()
+    thought = None
+    if latest_thought:
+        thought = {k: latest_thought[k] for k in
+                   ("purpose", "assessment", "next_step", "decision_id")}
+        thought["evidence_decision_ids"] = parse(latest_thought["evidence_decision_ids_json"])
     return {"identity": state["identity"], "current_intention": state["current_intention"],
+            "latest_thinking": thought,
             **library.context(db, int(state["attempted"])),
             "known_objects": objects,
             "recent_experiences": [dict(row) for row in reversed(experiences)],
@@ -377,7 +403,7 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
                "questions": [{"type": "choice", "name": "next_action",
                               "instructions": "Which available action would make the most meaningful progress toward Nimo's expressed intention?",
                               "choices": [{"value": x, "description": {
-                                  "think": "Reflect, reconsider, or form an intention.",
+                                  "think": "Reason about your situation: plan, evaluate, solve a problem, ask what you do not know, or reflect. You choose the purpose; no forced task switch.",
                                   "write_journal": "Write a personal entry.",
                                   "draw": "Create one complete vector artwork.",
                                   "ask_oracle": "Ask the Oracle a question and receive a text answer that may provide information or explanations. It cannot physically inspect objects or verify their condition. Answers are not independently sourced; limited to three questions per UTC day.",
@@ -414,11 +440,25 @@ def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
         outcome = library.put_down(db, decision_id)
     elif action == "think":
         value = generate(db, ai, decision_id, "think", context)
-        thought = text_field(value, "text", 500)
+        purpose = text_field(value, "purpose", 32)
+        if purpose not in ("planning", "evaluation", "problem_solving", "curiosity", "reflection"):
+            raise ValueError("Unknown thinking purpose")
+        assessment = text_field(value, "assessment", 500)
+        next_step = text_field(value, "next_step", 200, optional=True)
         intent = text_field(value, "intention", 200, optional=True)
+        evidence = value.get("evidence_decision_ids")
+        available_ids = {x["decision_id"] for x in context["recent_experiences"]}
+        if (not isinstance(evidence, list) or
+            any(type(x) is not int or x not in available_ids for x in evidence) or
+            len(evidence) != len(set(evidence))):
+            raise ValueError("Thinking evidence must cite distinct recent decision IDs")
+        db.execute("INSERT INTO think_notes VALUES(?,?,?,?,?,?)",
+                   (decision_id, purpose, assessment, next_step, compact(evidence), now()))
         if intent is not None:
             db.execute("UPDATE state SET current_intention=? WHERE id=1", (intent,))
-        outcome = "Reflected: " + thought
+        outcome = f"Thought ({purpose}): {assessment}"
+        if next_step:
+            outcome += f" | Possible next step: {next_step}"
     elif action == "write_journal":
         value = generate(db, ai, decision_id, "write_journal", context)
         title, body = text_field(value, "title", 100), text_field(value, "text", 1200)
