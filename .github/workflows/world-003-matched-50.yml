@@ -4,6 +4,9 @@ on:
     branches: [experiment/world-003-compact-cognition]
     paths: ['.github/workflows/world-003-matched-50.yml']
   workflow_dispatch:
+concurrency:
+  group: world-003-matched-experiment
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -49,12 +52,15 @@ jobs:
           from pathlib import Path
           p=Path("src/index.ts")
           s=p.read_text()
-          # Only in disposable runner checkout: bypass scheduled sleep equally.
+          # Only in disposable runner checkout: bypass scheduled sleep and decision cooldown equally.
+          assert "const DECISION_INTERVAL_MS = 30_000;" in s
+          s=s.replace("const DECISION_INTERVAL_MS = 30_000;","const DECISION_INTERVAL_MS = 0;")
           s=s.replace("return !scheduledAsleep(new Date()) && await manualAutonomousEnabled(db);","return await manualAutonomousEnabled(db);")
           marker='if (path === "/tick" && request.method === "POST") return json(await tick(env));'
           assert marker in s
           s=s.replace(marker,'''if (path === "/tick" && request.method === "POST") {
             const before=await env.DB.prepare("SELECT COALESCE(MAX(id),0) AS id FROM action_trace").first<{id:number}>();
+            await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1").bind(new Date(0).toISOString()).run();
             await resumeJourney(env.DB,new Date());
             const result=await tick(env);
             const traces=await env.DB.prepare("SELECT status,metadata FROM action_trace WHERE kind='decide' AND id>? ORDER BY id").bind(before?.id??0).all<{status:string;metadata:string|null}>();
@@ -112,7 +118,7 @@ jobs:
                   usage.update(trace.get("usage") or {})
                   counts[result.get("action") or result["status"]]+=1
                   print(f"{arm}: {attempts}/50 attempts, {success} valid",flush=True)
-              if attempts<50: time.sleep(3)
+              if attempts<50 and not result["traces"]: time.sleep(1)
           summary=dict(arm=arm,attempts=attempts,valid=success,actions=dict(counts),usage=dict(usage))
           pathlib.Path(out,arm+".json").write_text(json.dumps(summary,indent=2))
           print(json.dumps(summary),flush=True)
