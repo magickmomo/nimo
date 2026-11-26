@@ -281,7 +281,7 @@ You inhabit a persistent 16×16 world. Coordinates are one-based; north decrease
 Fullness 100 is full, 0 is starving; curiosity is a soft motivation, never prohibits productive routines or overrides essential needs. Energy, happiness and boredom are paused. Food effects are learned from verified outcomes. Inventory holds nine fruit.
 Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded. Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. oracleHistory contains results, not firsthand experiences. Oracle invitations are world dialogue, not an instruction.
 Travel uses reachable walkable coordinates and completes before the next decision. Inspect adjacent objects only. Object notes are interpretations; observations are verified. Documents use lowercase .txt paths, at most 2000 characters; workspace to 100 files. Writing an existing path replaces its content. Sketch canvas 240×180; 1–8 strokes per action, 2–24 integer points per stroke, hex color, width 1–8. Artwork inspection costs 10 coins and succeeds once per finished drawing. Projects preserve up to three unfinished intentions. REQUEST records a request; it does not immediately grant tools. Requests are optional; describe the obstacle and previous attempts. Creator suggestions are not orders. expand_world proposes changes, not executes them.
-Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable.`;
+Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Use search_memory to retrieve historical memories, including retired memories (not necessarily current facts), or search Oracle research and object notes. Retrieval results appear in the next context.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
   const offeredActions=menu.tools.map(name =>
     name==="inspect"?{name,directions:menu.inspectDirections}:
@@ -312,9 +312,13 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     availableActions:menu.tools,
     carriedFruits:food.inventory.map(item=>item.fruit),
   });
+  // Retrieval is an explicit decision; the verified result is visible on the next turn.
+  const retrieval = await env.DB.prepare("SELECT content FROM events WHERE action='RETRIEVAL_OK' ORDER BY id DESC LIMIT 1").first<{content:string}>();
+  const latestEvent = history[0];
+  const retrieved = latestEvent && history.slice(0,4).some(e=>e.action==="RETRIEVAL_OK") ? retrieval?.content : undefined;
   const messages = [
         { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ state:{currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:undefined})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-4)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count,visualFeedback:d.inspection??null}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
+        { role: "user", content: JSON.stringify({ retrieved, state:{currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:undefined})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-4)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count,visualFeedback:d.inspection??null}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
           seen: memory.seen.map(p=>[p.x+1,p.y+1]),
           visited: memory.visited.map(({x,y}) => [x+1,y+1]),
           inspected: memory.inspected.slice(0,12).map(({x,y,kind,description,inspection_count}) =>
@@ -324,13 +328,22 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
         ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
+  const variants = format.json_schema.schema.properties.toolCall.anyOf as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
+  const nativeTools = variants.filter(v=>v.properties?.name).map(v=>{
+    const {name,...properties}=v.properties!;
+    return {type:"function",name:name.enum![0],description:"Execute "+name.enum![0],strict:true,parameters:{type:"object",properties:{...properties,intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"intentDisposition"],additionalProperties:false}};
+  });
+  const mental = (name:string,properties:Record<string,unknown>)=>({type:"function",name,description:name==="reply"?"Reply to the waiting visitor":name,strict:true,parameters:{type:"object",properties,required:Object.keys(properties),additionalProperties:false}});
+  const disposition={type:"string",enum:["keep","abandon"]};
+  const textField={type:"string"};
+  const tools = pendingMessage ? [mental("reply",{text:textField,replyIntent:{type:["string","null"]},intentDisposition:disposition})] : [...nativeTools,...["think","observe","remember","request"].map(name=>mental(name,{text:textField,intentDisposition:disposition}))];
   const payload = reasoningModel
     ? {
         model,
         input: messages.map(m=>m.content).join("\\n\\n"),
         reasoning: { effort: "low" },
         max_output_tokens: 2200,
-        text: { format: { ...format.json_schema, type: "json_schema" } },
+        tools, tool_choice:"required", parallel_tool_calls:false,
       }
     : { model, temperature: 0.7, max_tokens: 1100, response_format: format, messages };
   // Capture the exact payload sent, including historical memory text, action
@@ -348,7 +361,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   }
   const data = await res.json() as {
     choices?: { message?: { content?: string } }[];
-    output?: { content?: { type?: string; text?: string }[] }[];
+    output?: { type?:string;name?:string;arguments?:string;content?: { type?: string; text?: string }[] }[];
     incomplete_details?: { reason?: string };
     usage?: {
       input_tokens?:number;output_tokens?:number;prompt_tokens?:number;completion_tokens?:number;
@@ -361,9 +374,12 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     cached_input_tokens:data.usage.input_tokens_details?.cached_tokens??data.usage.prompt_tokens_details?.cached_tokens??0,
     output_tokens:data.usage.output_tokens??data.usage.completion_tokens??0,
   });
+  const calls=data.output?.filter(o=>o.type==="function_call")??[];
+  if(reasoningModel&&calls.length!==1)throw Error("Expected exactly one function call");
   const raw = reasoningModel
-    ? data.output?.flatMap(o => o.content || []).filter(item => item.type === "output_text")
-        .map(item => item.text || "").join("")
+    ? (()=>{const call=calls[0];const args=JSON.parse(call.arguments??"{}");const {intentDisposition,text,replyIntent,...parameters}=args;
+      const mentalAction=["think","observe","remember","request","reply"].includes(call.name??"");
+      return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?text:call.name,activity:call.name,goal:state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
     : data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision" + (data.incomplete_details?.reason ? ": " + data.incomplete_details.reason : ""));
   let parsed: unknown;
@@ -608,6 +624,19 @@ async function tick(env: Env) {
         const id=await askOracle(env.DB,position,call.question);
         toolOutcome="ORACLE QUESTION #"+id+" QUEUED (10 coins paid): "+call.question;
         await log(env.DB,"tool",toolOutcome,"ORACLE_ASK");
+      } else if (call.name === "read_document") {
+        const doc=await env.DB.prepare("SELECT path,content,revision FROM documents WHERE path=?").bind(call.path).first<DocumentRow>();
+        if(!doc)throw Error("Document not found");
+        toolOutcome=JSON.stringify(doc);
+        await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
+      } else if (call.name === "search_memory") {
+        const terms=call.query.toLowerCase().match(/[a-z0-9_-]+/g)?.slice(0,6)??[];
+        if(!terms.length)throw Error("Search needs words");
+        const rows=await env.DB.prepare("SELECT subject,statement,status FROM consolidated_memories_v2 ORDER BY updated_at DESC LIMIT 500").all<{subject:string;statement:string;status:string}>();
+        const candidates=[...rows.results.map(m=>({source:"memory",text:JSON.stringify(m)})),...oracleHistory.map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)}))];
+        const hits=candidates.map(c=>({...c,score:terms.filter(t=>c.text.toLowerCase().includes(t)).length})).filter(c=>c.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(c=>({source:c.source,text:c.text.slice(0,850)}));
+        toolOutcome=JSON.stringify({query:call.query,hits});
+        await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
       } else if (call.name === "write_document") {
         const saved = await traced(env.DB,"write",`Write document ${call.path}`,()=>writeDocument(env.DB,call),
           result=>`Saved revision ${result.revision}`);
