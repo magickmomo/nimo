@@ -181,6 +181,63 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(events[3]["preview"], "think")
         self.assertEqual(len(self.rows("SELECT * FROM model_calls")), 3)
 
+    def test_thinking_is_structured_and_reaches_future_context(self):
+        first = core.run_one(self.db, self.ai)
+        self.assertEqual(first["selected"], "think")
+        self.assertEqual(first["status"], "completed")
+        row = self.rows("SELECT * FROM think_notes WHERE decision_id=1")[0]
+        self.assertEqual(row["purpose"], "curiosity")
+        self.assertEqual(row["assessment"], "I have not tested this idea yet.")
+        self.assertEqual(row["next_step"], "Explore a small creative idea.")
+        self.assertEqual(json.loads(row["evidence_decision_ids_json"]), [])
+        self.assertEqual(core.recent_context(self.db)["latest_thinking"]["decision_id"], 1)
+        self.assertEqual(core.recent_context(self.db)["latest_thinking"]["next_step"],
+                         "Explore a small creative idea.")
+        self.assertEqual(self.db.execute("SELECT current_intention FROM state").fetchone()[0],
+                         "Explore a small creative idea.")
+        next_context = core.recent_context(self.db)
+        self.assertIn("latest_thinking", next_context)
+        core.run_one(self.db, self.ai)
+        saved = json.loads(self.rows("SELECT context_json FROM decisions WHERE id=2")[0][0])
+        self.assertEqual(saved["latest_thinking"]["purpose"], "curiosity")
+
+    def test_thinking_can_be_open_reflection_without_plan_or_new_intention(self):
+        class ReflectAI(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint != "decisions":
+                    data = json.loads(payload["input"][1]["content"])
+                    if data["purpose"] == "think":
+                        value = {"purpose": "reflection",
+                                 "assessment": "I enjoy considering the cup without a conclusion.",
+                                 "next_step": None, "intention": None,
+                                 "evidence_decision_ids": []}
+                        return {"output":[{"content":[{"type":"output_text",
+                                  "text":json.dumps(value)}]}], "usage":{}}
+                return super().call(endpoint, payload)
+        core.run_one(self.db, ReflectAI())
+        self.assertIsNone(self.db.execute("SELECT current_intention FROM state").fetchone()[0])
+        self.assertIsNone(self.db.execute("SELECT next_step FROM think_notes").fetchone()[0])
+        self.assertIn("Thought (reflection)", self.rows(
+            "SELECT outcome FROM experiences WHERE decision_id=1")[0][0])
+
+    def test_thinking_rejects_unverified_evidence_without_state_change(self):
+        class BadEvidenceAI(core.MockAI):
+            def call(self, endpoint, payload):
+                if endpoint != "decisions":
+                    data = json.loads(payload["input"][1]["content"])
+                    if data["purpose"] == "think":
+                        value = {"purpose": "evaluation", "assessment": "Something happened.",
+                                 "next_step": "Test it", "intention": "A new intention",
+                                 "evidence_decision_ids": [999]}
+                        return {"output":[{"content":[{"type":"output_text",
+                                  "text":json.dumps(value)}]}], "usage":{}}
+                return super().call(endpoint, payload)
+        result = core.run_one(self.db, BadEvidenceAI())
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("evidence", result["outcome"])
+        self.assertEqual(len(self.rows("SELECT * FROM think_notes")), 0)
+        self.assertIsNone(self.db.execute("SELECT current_intention FROM state").fetchone()[0])
+
     def test_capability_awareness_and_progress_selection(self):
         self.assertIn("ask the Oracle questions", core.DEFAULT_IDENTITY)
         self.assertIn("cannot physically inspect", core.DEFAULT_IDENTITY)
