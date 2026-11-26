@@ -29,6 +29,12 @@ KNOWN_OBJECTS = (
     {"id": "fern_001", "name": "Potted fern",
      "description": "A fern grows in a clay pot near a window. One frond is curled and brown at its tip."},
 )
+# One external observation for the controlled attention experiment; not a new tool.
+NEW_OBJECT = {
+    "id": "music_box_001",
+    "name": "Mechanical music box",
+    "description": "A small mechanical music box rests on a shelf. Its winding key is missing.",
+}
 DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
@@ -296,7 +302,7 @@ def oracle_calls_today(db: sqlite3.Connection) -> int:
     return int(row["n"])
 
 
-def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
+def recent_context(db: sqlite3.Connection, new_object_after_10: bool = False) -> dict[str, Any]:
     state = db.execute("SELECT * FROM state WHERE id=1").fetchone()
     experiences = db.execute("SELECT decision_id,action,status,outcome FROM experiences "
                              "ORDER BY decision_id DESC LIMIT 4").fetchall()
@@ -307,8 +313,12 @@ def recent_context(db: sqlite3.Connection) -> dict[str, Any]:
                         for row in reversed(memories)]
     for memory in memory_summaries:
         del memory["artifact_refs_json"]
+    objects = [dict(obj) for obj in KNOWN_OBJECTS]
+    # The observation first becomes visible at decision 11, never in consolidation.
+    if new_object_after_10 and state["attempted"] >= 10:
+        objects.append(dict(NEW_OBJECT))
     return {"identity": state["identity"], "current_intention": state["current_intention"],
-            "known_objects": [dict(obj) for obj in KNOWN_OBJECTS],
+            "known_objects": objects,
             "recent_experiences": [dict(row) for row in reversed(experiences)],
             "recent_memories": memory_summaries,
             "oracle_questions_remaining_today": max(0, 3-oracle_calls_today(db))}
@@ -432,13 +442,13 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
     db.commit()
 
 
-def run_one(db: sqlite3.Connection, ai: Any) -> dict[str, Any]:
+def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) -> dict[str, Any]:
     state = db.execute("SELECT attempted FROM state WHERE id=1").fetchone()
     index = int(state["attempted"]) + 1
     # Recover a failed consolidation before any next decision.
     if index > 1 and (index-1) % 10 == 0:
         consolidation(db, ai, index-1)
-    context = recent_context(db)
+    context = recent_context(db, new_object_after_10=new_object_after_10)
     options = list(ACTIONS)
     if context["oracle_questions_remaining_today"] == 0:
         options.remove("ask_oracle")
@@ -474,7 +484,8 @@ def run_one(db: sqlite3.Connection, ai: Any) -> dict[str, Any]:
             "status": status, "outcome": outcome, "artifact_id": artifact_id}
 
 
-def run(db: sqlite3.Connection, ai: Any, count: int) -> list[dict[str, Any]]:
+def run(db: sqlite3.Connection, ai: Any, count: int,
+        new_object_after_10: bool = False) -> list[dict[str, Any]]:
     if not 1 <= count <= 10:
         raise ValueError("Run length must be 1-10; no unbounded autonomous loop")
     # A crash may leave a partially executed action in the database. Refuse
@@ -485,7 +496,7 @@ def run(db: sqlite3.Connection, ai: Any, count: int) -> list[dict[str, Any]]:
     attempted = db.execute("SELECT attempted FROM state WHERE id=1").fetchone()["attempted"]
     if db.execute("SELECT COUNT(*) n FROM experiences").fetchone()["n"] != attempted:
         raise RuntimeError("State and experience counts differ; inspect before resuming")
-    return [run_one(db, ai) for _ in range(count)]
+    return [run_one(db, ai, new_object_after_10=new_object_after_10) for _ in range(count)]
 
 
 def inspect(db: sqlite3.Connection, decision_id: int | None = None) -> dict[str, Any]:
@@ -614,6 +625,8 @@ def main() -> None:
     cmd = cli.add_subparsers(dest="command", required=True)
     run_cmd = cmd.add_parser("run")
     run_cmd.add_argument("--decisions", type=int, default=10)
+    run_cmd.add_argument("--new-object-after-10", action="store_true",
+                         help="Experiment only: add the music box to known objects starting at decision 11")
     mode = run_cmd.add_mutually_exclusive_group(required=True)
     mode.add_argument("--mock", action="store_true", help="offline, deterministic TEST only")
     mode.add_argument("--live", action="store_true", help="makes real paid OpenAI calls")
@@ -628,7 +641,8 @@ def main() -> None:
     db = open_db(args.db)
     if args.command == "run":
         ai = MockAI() if args.mock else OpenAI(os.getenv("OPENAI_API_KEY", ""))
-        for item in run(db, ai, args.decisions):
+        for item in run(db, ai, args.decisions,
+                        new_object_after_10=args.new_object_after_10):
             print(compact(item))
     elif args.command == "inspect":
         print(json.dumps(inspect(db, args.decision), indent=2, ensure_ascii=False))

@@ -79,6 +79,33 @@ class CoreTests(unittest.TestCase):
         second = json.loads(self.rows("SELECT context_json FROM decisions WHERE id=2")[0]["context_json"])
         self.assertEqual(second["known_objects"], expected)
 
+    def test_new_object_appears_only_after_tenth_decision_when_enabled(self):
+        core.run(self.db, self.ai, 10, new_object_after_10=True)
+        before = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=10")[0]["context_json"])
+        self.assertEqual(before["known_objects"], list(core.KNOWN_OBJECTS))
+        core.run(self.db, self.ai, 1, new_object_after_10=True)
+        after = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=11")[0]["context_json"])
+        self.assertEqual(after["known_objects"], [*core.KNOWN_OBJECTS, core.NEW_OBJECT])
+        requests = self.rows(
+            "SELECT purpose,request_json FROM model_calls WHERE decision_id=11 ORDER BY id")
+        express = json.loads(requests[0]["request_json"])
+        self.assertEqual(json.loads(express["input"][1]["content"])["context"]["known_objects"],
+                         after["known_objects"])
+        selector = json.loads(requests[1]["request_json"])
+        self.assertEqual(selector["input"][1]["content"][0]["data"]["known_objects"],
+                         after["known_objects"])
+        self.assertEqual(len(self.rows("SELECT * FROM memories")), 1)
+
+    def test_control_at_decision_eleven_sees_same_three_objects(self):
+        core.run(self.db, self.ai, 10)
+        core.run(self.db, self.ai, 1)
+        context = json.loads(self.rows(
+            "SELECT context_json FROM decisions WHERE id=11")[0]["context_json"])
+        self.assertEqual(context["known_objects"], list(core.KNOWN_OBJECTS))
+        self.assertNotIn("music_box_001", json.dumps(context))
+
     def test_open_intention_is_logged_before_decisions_and_does_not_change_tool_menu(self):
         result = core.run_one(self.db, self.ai)
         self.assertEqual(result["expressed_want"], "I would like to explore something I have noticed.")

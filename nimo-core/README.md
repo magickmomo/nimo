@@ -62,3 +62,27 @@ Artifact 1 may be a journal or Oracle result rather than a drawing; inspect the 
 - The model name may need updating if your OpenAI API access uses another available model.
 
 **Development rule:** modify only this directory, document the change's expected behavioural impact, and add a regression test. See [Change control](docs/ARCHITECTURE.md#11-change-control-rules-for-future-codex-work).
+
+### Controlled new-object attention experiment
+
+This is **one opt-in context change**, not a permanent novelty rule. First run ten live decisions in a *new* database; then make two independent copies of the SQLite database. Close all processes before copying. Both copies contain exactly the same first ten decisions and consolidated memory.
+
+```bash
+python3 -u nimo_core.py --db ./attention-seed.sqlite3 run --live --decisions 10
+cp ./attention-seed.sqlite3 ./attention-control.sqlite3
+cp ./attention-seed.sqlite3 ./attention-stimulus.sqlite3
+
+# Control: no new object
+python3 -u nimo_core.py --db ./attention-control.sqlite3 run --live --decisions 10
+
+# Intervention: same history, music box added to known_objects at decision 11
+python3 -u nimo_core.py --db ./attention-stimulus.sqlite3 run --live --decisions 10 --new-object-after-10
+
+python3 nimo_core.py --db ./attention-control.sqlite3 report --out ./attention-control.html
+python3 nimo_core.py --db ./attention-stimulus.sqlite3 report --out ./attention-stimulus.html
+open ./attention-control.html ./attention-stimulus.html
+```
+
+The injected observation is a small mechanical music box with a missing winding key, presented as an ordinary fourth `known_objects` entry. There is **no instruction** to inspect it and no modification to the intention prompt, action menu, memory or Oracle. It is visible to the intention generator, selector and executor in the stimulus branch. The exact context is stored with every decision. Before decision 11, even an enabled run sees only the original objects.
+
+Compare decisions 11–20: Did Nimo mention the new object, choose actions involving it, incorporate it into existing interests, or ignore it? Continuing with the compass is not inherently failure. This is a small exploratory comparison, not proof of spontaneous curiosity; stochastic model variation is a confound. No live calls are made by the code change or CI tests. Do **not** copy a database while a run is in progress or run the two conditions against the same database.
