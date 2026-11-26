@@ -145,7 +145,7 @@ test("Oracle arrival invitation is optional, once per entry, and visible in the 
  assert.match(worker,/oracleEncounter,oracleHistory:/);
  assert.match(worker,/ORACLE_WHISPER/);
  assert.match(worker,/world dialogue, not an instruction/);
- assert.match(worker,/Python, websites/);
+ assert.match(worker,/oracleHistory contains results, not firsthand experiences/);
 });
 
 test("Oracle proximity glow matches the exact action area and can be switched off",async()=>{
