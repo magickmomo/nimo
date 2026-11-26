@@ -29,8 +29,10 @@ CATALOG = (
      "author": "Peter Wentworth and contributors", "subject": "Programming and problem-solving",
      "license": "GNU Free Documentation License 1.3",
      "source": "https://github.com/HowToThink/HowToThink",
-     "parts": tuple(f"https://raw.githubusercontent.com/HowToThink/HowToThink/master/source/PvL_{n:02d}.rst"
-                    for n in range(1, 8))},
+     "parts": (tuple(f"https://raw.githubusercontent.com/HowToThink/HowToThink/master/source/PvL_{n:02d}.rst"
+                    for n in range(1, 8)) +
+              tuple(f"https://raw.githubusercontent.com/HowToThink/HowToThink/master/source/PvL_{letter}.rst"
+                    for letter in "ABCDEFGH"))},
 )
 BOOKS = {item["id"]: item for item in CATALOG}
 MAX_PART_BYTES = 3_000_000
@@ -116,6 +118,15 @@ def download_part(url: str) -> str:
     return data.decode("utf-8-sig")
 
 
+def strip_gutenberg_notice(content: str) -> str:
+    """Only remove a recognised Gutenberg distribution notice, not book prose."""
+    start = re.search(r"(?im)^\\*{3} START OF THE PROJECT GUTENBERG EBOOK.*\\*{3}\\s*$", content)
+    end = re.search(r"(?im)^\\*{3} END OF THE PROJECT GUTENBERG EBOOK.*\\*{3}\\s*$", content)
+    if start and end and end.start() > start.end():
+        return content[start.end():end.start()].strip()
+    return content
+
+
 def split_text(content: str) -> list[str]:
     # Preserve paragraph order; keep sections near 1,000 words.
     blocks = re.split(r"\n\s*\n", content.replace("\r\n","\n"))
@@ -149,6 +160,8 @@ def acquire(db: sqlite3.Connection, decision_id: int, book_id: str,
     book = BOOKS[book_id]
     contents = [fetch(url) for url in book["parts"]]
     full_text = "\n\n".join(contents)
+    if book_id != "programming":
+        full_text = strip_gutenberg_notice(full_text)
     if not full_text.strip() or len(full_text) < 400:
         raise ValueError("Book source is empty or unexpectedly short")
     segments = split_text(full_text)
