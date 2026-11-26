@@ -78,6 +78,50 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(core.recent_context(self.db)["last_read_passage"]["segment"], 2)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM artifacts")[0][0], 0)
 
+    def test_gutenberg_acquisition_is_agent_initiated_and_uses_approved_mirror(self):
+        attempted = []
+        sample = ("*** START OF THE PROJECT GUTENBERG EBOOK THE TIME MACHINE ***\\n" +
+                  "CHAPTER I\\n" + "This is a genuine test passage. " * 120 +
+                  "\\n*** END OF THE PROJECT GUTENBERG EBOOK THE TIME MACHINE ***")
+        def only_mirror(url):
+            attempted.append(url)
+            return sample
+        self.assertFalse(self.rows("SELECT * FROM library_books"))
+        core.library.browse(self.db, 1)
+        self.assertEqual(attempted, [])
+        core.library.acquire(self.db, 2, "time_machine", fetch=only_mirror)
+        self.assertEqual(len(attempted), 1)
+        self.assertEqual(attempted[0],
+                         "https://gutenberg.pglaf.org/cache/epub/35/pg35.txt")
+        event = json.loads(self.rows("SELECT data_json FROM library_events WHERE decision_id=2")[0][0])
+        self.assertEqual(event["downloaded_from"], attempted)
+        self.assertEqual(len(self.rows("SELECT * FROM library_books")), 1)
+
+    def test_gutenberg_mirror_fallback_does_not_commit_failed_download(self):
+        attempted = []
+        sample = ("*** START OF THE PROJECT GUTENBERG EBOOK THE TIME MACHINE ***\\n" +
+                  "CHAPTER I\\n" + "This is a genuine test passage. " * 120 +
+                  "\\n*** END OF THE PROJECT GUTENBERG EBOOK THE TIME MACHINE ***")
+        def transient_primary_error(url):
+            attempted.append(url)
+            if "gutenberg.pglaf.org" in url:
+                raise core.library.urllib.error.HTTPError(url,503,"Service Unavailable",{},None)
+            return sample
+        core.library.acquire(self.db, 1, "time_machine", fetch=transient_primary_error)
+        self.assertEqual(len(attempted), 2)
+        self.assertIn("mirror.cs.odu.edu", attempted[1])
+        event = json.loads(self.rows("SELECT data_json FROM library_events")[0][0])
+        self.assertEqual(event["downloaded_from"], attempted[1:])
+        self.assertEqual(len(self.rows("SELECT library_books.id FROM library_books")), 1)
+
+    def test_all_mirrors_failed_leaves_no_owned_book(self):
+        def unavailable(url):
+            raise core.library.urllib.error.HTTPError(url,503,"Service Unavailable",{},None)
+        with self.assertRaisesRegex(RuntimeError, "every approved source"):
+            core.library.acquire(self.db, 1, "beagle", fetch=unavailable)
+        self.assertEqual(len(self.rows("SELECT * FROM library_books")), 0)
+        self.assertEqual(len(self.rows("SELECT * FROM library_events")), 0)
+
     def test_gutenberg_book_content_starts_after_distribution_notice(self):
         sample = ("Intro distribution notice\n" +
                   "*** START OF THE PROJECT GUTENBERG EBOOK A BOOK ***\n" +
