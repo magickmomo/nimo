@@ -48,7 +48,7 @@ jobs:
 
       - name: Unified offline smoke test
         working-directory: nimo-core
-        run: python -u nimo_core.py --db "$EXPERIMENT_DIR/smoke.sqlite3" run --decisions 10
+        run: python -u nimo_core.py --db "$EXPERIMENT_DIR/smoke.sqlite3" run --mock --decisions 10
 
       - name: Check API credential before making any paid calls
         shell: bash
