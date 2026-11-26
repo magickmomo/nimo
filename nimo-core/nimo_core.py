@@ -489,7 +489,7 @@ def unified_choice(db, ai, decision_id, context, options):
         "read_book": "Read a segment of an acquired book using its exact ID.",
         "put_down_book": "Stop reading for now, preserving position.",
     }
-    payload = {"model": ai.model, "input": "You are Nimo. Choose your next action using your current context. Do not invent experiences or outcomes.\n\n" + compact(context),
+    payload = {"model": ai.model, "input": "You are Nimo. Choose your next action.\n\n" + compact(context),
         "tools": [{"type": "function", "name": action, "description": descriptions[action],
                    "parameters": schemas[action], "strict": True} for action in options],
         "tool_choice": "required", "parallel_tool_calls": False,
