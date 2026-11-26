@@ -315,16 +315,40 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   // Retrieval is an explicit decision; the verified result is visible on the next turn.
   const retrieval = await env.DB.prepare("SELECT content FROM events WHERE action='RETRIEVAL_OK' ORDER BY id DESC LIMIT 1").first<{content:string}>();
   const retrieved = history.slice(0,4).some(e=>e.action==="RETRIEVAL_OK") ? retrieval?.content : undefined;
+  // E012 working context: recent experience and memory, not the entire world database.
+  const latestThought=history.find(e=>e.kind==="thought"&&e.action==="THINK");
+  const knownObjects=objects.filter(o=>memory.seen.some(t=>t.x===o.x&&t.y===o.y))
+    .map(o=>({id:o.id,x:o.x+1,y:o.y+1}));
+  const workingContext={
+    retrieved,
+    identity:"Nimo",
+    currentIntention:state.currentGoal,
+    pendingIntent:state.pendingIntent??null,
+    latestThinking:latestThought?{id:latestThought.id,text:latestThought.content.slice(0,500)}:null,
+    recentExperiences:experience.recentEvents.slice(0,4),
+    recentMemories:recalledMemories.slice(0,3).map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})),
+    needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
+    perception:{position:perception.position,visibleObjects:perception.visibleObjects,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
+    knownObjects,
+    exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length},
+    projects,
+    creatorRequests:creatorRequests.slice(0,3).map(r=>({id:r.id,status:r.status,content:r.content.slice(0,160)})),
+    oracleEncounter,
+    oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status})),
+    sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
+    workspace:workspace.map(d=>({path:d.path,revision:d.revision})),
+    food:{inventory:modelFood.inventory,capacity:modelFood.capacity,trees:modelFood.trees.map(t=>({id:t.id,last_seen_stock:t.last_seen_stock}))},
+    garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.coins},
+    ...(vending.inspected?{vending:{machineId:vending.machineId,coins:vending.coins,items:vending.items}}:{}),
+    fullnessDecayPointsPerSecond:rate,
+    availableActions:offeredActions,
+    capabilityCatalogue:capabilityCatalogue.filter(c=>!c.availableNow).map(c=>({action:c.action,requirements:c.requirements.slice(0,1)})),
+    priorityMode:priority.mode
+  };
   const messages = [
-        { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ retrieved, state:{currentGoal:state.currentGoal,currentActivity:state.currentActivity,pendingIntent:state.pendingIntent??null,tickCount:state.tickCount},projects,creatorRequests,oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status,answer:q.answer?.slice(0,700)??null,sources:undefined})),sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-4)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,intention:d.intention,status:d.status,strokeCount:d.stroke_count,visualFeedback:d.inspection??null}))},consolidatedMemories:recalledMemories.map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})), needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)}, perception:{...perception,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))}, environmentMemory: {
-          seen: memory.seen.map(p=>[p.x+1,p.y+1]),
-          visited: memory.visited.map(({x,y}) => [x+1,y+1]),
-          inspected: memory.inspected.slice(0,12).map(({x,y,kind,description,inspection_count}) =>
-            ({...displayPoint({x,y}),kind,description:description.slice(0,180),inspections:inspection_count})),
-        }, objectMemory: objects.filter(item=>memory.seen.some(tile=>tile.x===item.x&&tile.y===item.y))
-          .map(({observations,...item})=>({ ...item, recentObservations: observations.slice(0,1) })), experience:{recentEvents:experience.recentEvents.slice(0,6),meaningfulEvents:experience.meaningfulEvents.slice(0,4)}, workspace:workspace.map(d=>({path:d.path,revision:d.revision,content: d.path===workspace.slice().sort((a,b)=>b.updated_at.localeCompare(a.updated_at))[0]?.path?d.content:undefined})), food:modelFood, garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1) || memory.seen.some(t=>t.x===p.x&&t.y===p.y)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null}, ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}), fullnessDecayPointsPerSecond:rate, availableActions: offeredActions, capabilityCatalogue, priorityMode:priority.mode }) },
-        ...(pendingMessage ? [{ role: "user", content: visitorInstructions }] : []),
+    {role:"system",content:system},
+    {role:"user",content:JSON.stringify(workingContext)},
+    ...(pendingMessage?[{role:"user",content:visitorInstructions}]:[])
   ];
   const format = decisionResponseFormat(menu, pendingMessage !== null);
   const variants = (format.json_schema.schema.properties.toolCall as {anyOf:unknown[]}).anyOf as unknown as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
