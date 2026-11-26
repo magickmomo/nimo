@@ -86,3 +86,21 @@ open ./attention-control.html ./attention-stimulus.html
 The injected observation is a small mechanical music box with a missing winding key, presented as an ordinary fourth `known_objects` entry. There is **no instruction** to inspect it and no modification to the intention prompt, action menu, memory or Oracle. It is visible to the intention generator, selector and executor in the stimulus branch. The exact context is stored with every decision. Before decision 11, even an enabled run sees only the original objects.
 
 Compare decisions 11–20: Did Nimo mention the new object, choose actions involving it, incorporate it into existing interests, or ignore it? Continuing with the compass is not inherently failure. This is a small exploratory comparison, not proof of spontaneous curiosity; stochastic model variation is a confound. No live calls are made by the code change or CI tests. Do **not** copy a database while a run is in progress or run the two conditions against the same database.
+
+### Optional library experiment (four real books)
+
+The independent library prototype offers **The Time Machine**, **The Voyage of the Beagle**, **A Short History of Astronomy**, and **How to Think Like a Computer Scientist: Learning with Python 3**. Sources: Project Gutenberg ebooks #35, #944 and #59212, plus the public HowToThink/HowToThink book source (GNU Free Documentation License 1.3). The astronomy and natural-history books are historic texts, not necessarily current scientific evidence.
+
+Nimo learns that a library is available; he must select `browse_library` to see titles, then `acquire_book` to fetch an actual text (only after browsing). `read_book` loads one roughly 1,000-word passage, with `next`, `previous`, or `repeat` navigation. `put_down_book` pauses reading without losing the saved position. Other actions remain available throughout; reading is never forced. Every library action is explicitly selected through the existing Decisions API, and model-generated book identifiers are validated against the catalogue and database. No web searches, code execution, arbitrary URLs or unsandboxed actions are added.
+
+The first acquisition downloads the source into the selected SQLite database. The programming text is fetched as seven original reStructuredText chapters. Actual book contents are **not** included in the ordinary context; the exact passage Nimo just read is offered to his *immediately following* intention call, then drops out of default context. The database retains immutable source passages, SHA-256, source URL, license, reading progress and event history. Library events and the full passage enter the HTML audit. There is no automatic summarization of reading into permanent memory, no sophisticated retrieval, and no recommendation algorithm.
+
+```bash
+git pull
+python3 -m unittest -v
+python3 -u nimo_core.py --db ./library-001.sqlite3 run --live --decisions 10
+python3 nimo_core.py --db ./library-001.sqlite3 report --out ./library-001.html
+open ./library-001.html
+```
+
+The offline mock deliberately uses only the original tools and does not perform network downloads. New tests exercise the browse/acquire/read/pause/resume sequence with synthetic text, without requiring network or model credentials. Live acquisition requires network access from the machine running Nimo Core and can fail if the source is unavailable; failed attempts are audited. Only run live actions intentionally; each makes billable model calls.

@@ -19,6 +19,8 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+import library
+
 ACTIONS = ("think", "write_journal", "draw", "ask_oracle")
 # Fixed, directly known surroundings for a controlled experiment. Not random per call.
 KNOWN_OBJECTS = (
@@ -35,7 +37,7 @@ NEW_OBJECT = {
     "name": "Mechanical music box",
     "description": "A small mechanical music box rests on a shelf. Its winding key is missing.",
 }
-DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
+DEFAULT_IDENTITY = "I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. I can browse a library, acquire books, and read them at my own pace. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover."
 MODEL = os.getenv("NIMO_CORE_MODEL", "gpt-6-luna")
 UTC = dt.timezone.utc
 
@@ -113,13 +115,14 @@ def open_db(path: str) -> sqlite3.Connection:
       status TEXT NOT NULL
     );
     INSERT OR IGNORE INTO state(id,identity,current_intention,attempted)
-    VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
+    VALUES (1,'I am Nimo. I can think, write in my journal, create drawings, and ask the Oracle questions. I can browse a library, acquire books, and read them at my own pace. The Oracle provides text answers to questions, but cannot physically inspect objects; its answers are not independently verified. My interests are mine to discover.',NULL,0);
     """)
     # Preserve existing experiment databases; new cycles get artifact references.
     existing_columns = {row["name"] for row in db.execute("PRAGMA table_info(memories)")}
     if "artifact_refs_json" not in existing_columns:
         db.execute("ALTER TABLE memories ADD COLUMN artifact_refs_json TEXT NOT NULL DEFAULT '[]'")
     db.commit()
+    library.setup(db)
     return db
 
 
@@ -233,6 +236,8 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
                  "strokes": "array of 1-8 {points:[[x,y],...],color:'#RRGGBB',width:1..8}; 2-24 integer points per stroke; x 0..240, y 0..180"},
         "oracle_question": {"question": "string (1-300 chars)"},
         "oracle_answer": {"answer": "string (1-1200 chars); uncertainty where appropriate"},
+        "library_acquire": {"book_id": "string: exact id of a catalogue book not yet acquired, selected because it advances Nimo's intention"},
+        "library_read": {"book_id": "string: exact acquired book id", "move": "next | previous | repeat"},
         "consolidate": {"reflection": "string (0-800 chars)", "identity_note": "tentative string (0-200 chars) or null",
                         "evidence_decision_ids": "array of integer IDs from evidence_ids"},
     }
@@ -318,6 +323,7 @@ def recent_context(db: sqlite3.Connection, new_object_after_10: bool = False) ->
     if new_object_after_10 and state["attempted"] >= 10:
         objects.append(dict(NEW_OBJECT))
     return {"identity": state["identity"], "current_intention": state["current_intention"],
+            **library.context(db, int(state["attempted"])),
             "known_objects": objects,
             "recent_experiences": [dict(row) for row in reversed(experiences)],
             "recent_memories": memory_summaries,
@@ -347,7 +353,11 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
                                   "think": "Reflect, reconsider, or form an intention.",
                                   "write_journal": "Write a personal entry.",
                                   "draw": "Create one complete vector artwork.",
-                                  "ask_oracle": "Ask the Oracle a question and receive a text answer that may provide information or explanations. It cannot physically inspect objects or verify their condition. Answers are not independently sourced; limited to three questions per UTC day."
+                                  "ask_oracle": "Ask the Oracle a question and receive a text answer that may provide information or explanations. It cannot physically inspect objects or verify their condition. Answers are not independently sourced; limited to three questions per UTC day.",
+                                  "browse_library": "Browse available real book titles and subjects without reading the books.",
+                                  "acquire_book": "Acquire a book seen in the library catalogue for later reading.",
+                                  "read_book": "Read the next, previous or current segment of an acquired book.",
+                                  "put_down_book": "Stop reading for now; keep the reading position for later."
                               }[x]} for x in options]}]}
     response = call_logged(db, ai, "select", "decisions", payload, decision_id)
     answer = next((x.get("choice") for x in response.get("answers", [])
@@ -360,7 +370,22 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
 def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
             action: str, context: dict[str, Any]) -> tuple[str, int | None]:
     artifact: tuple[str, str, str] | None = None
-    if action == "think":
+    if action == "browse_library":
+        outcome = library.browse(db, decision_id)
+    elif action == "acquire_book":
+        value = generate(db, ai, decision_id, "library_acquire", context)
+        book_id = text_field(value, "book_id", 80)
+        if not context.get("catalogue_browsed") or book_id not in {b["id"] for b in context["library_catalogue"]}:
+            raise ValueError("Book not present in browsed catalogue")
+        outcome = library.acquire(db, decision_id, book_id, timestamp=now())
+    elif action == "read_book":
+        value = generate(db, ai, decision_id, "library_read", context)
+        book_id = text_field(value, "book_id", 80)
+        move = text_field(value, "move", 20)
+        outcome = library.read(db, decision_id, book_id, move)
+    elif action == "put_down_book":
+        outcome = library.put_down(db, decision_id)
+    elif action == "think":
         value = generate(db, ai, decision_id, "think", context)
         thought = text_field(value, "text", 500)
         intent = text_field(value, "intention", 200, optional=True)
@@ -449,7 +474,7 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     if index > 1 and (index-1) % 10 == 0:
         consolidation(db, ai, index-1)
     context = recent_context(db, new_object_after_10=new_object_after_10)
-    options = list(ACTIONS)
+    options = list(ACTIONS) + library.actions(db)
     if context["oracle_questions_remaining_today"] == 0:
         options.remove("ask_oracle")
     cursor = db.execute("INSERT INTO decisions(started_at,context_json,offered_json,status) "
@@ -505,7 +530,8 @@ def inspect(db: sqlite3.Connection, decision_id: int | None = None) -> dict[str,
         return {"state": dict(state),
                 "decisions": [dict(r) for r in db.execute(
                     "SELECT id,started_at,selected,status,result FROM decisions ORDER BY id DESC LIMIT 20")],
-                "memories": [dict(r) for r in db.execute("SELECT * FROM memories ORDER BY id")]}
+                "memories": [dict(r) for r in db.execute("SELECT * FROM memories ORDER BY id")],
+            "library": library.context(db, state["attempted"] )}
     row = db.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
     if row is None:
         raise ValueError("Unknown decision")
@@ -525,6 +551,8 @@ def write_report(db: sqlite3.Connection, output: str) -> None:
     memories = [dict(r) for r in db.execute("SELECT * FROM memories ORDER BY id")]
     calls = [dict(r) for r in db.execute("SELECT * FROM model_calls ORDER BY id")]
     artifacts = [dict(r) for r in db.execute("SELECT * FROM artifacts ORDER BY id")]
+    reading_events = [dict(r) for r in db.execute(
+        "SELECT * FROM library_events ORDER BY decision_id")]
     state = dict(db.execute("SELECT * FROM state WHERE id=1").fetchone())
 
     def pretty(raw: str | None) -> str:
@@ -589,6 +617,13 @@ def write_report(db: sqlite3.Connection, output: str) -> None:
                 pre("Saved artifact content", art["content"]),
             ]
         parts.append("</article>")
+    parts.append("<h2>Library reading and acquisition events</h2>")
+    for event in reading_events:
+        parts += [
+            f"<article><h3>Decision #{event['decision_id']} — {escape(event['action'])}</h3>",
+            pre("Verified library event (includes actual reading passage)", event["data_json"]),
+            "</article>",
+        ]
     parts.append("<h2>Memories at every ten decisions</h2>")
     for memory in memories:
         parts += [
