@@ -579,6 +579,19 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
         "SELECT id,decision_id,kind,title FROM artifacts "
         "WHERE decision_id>? AND decision_id<=? ORDER BY decision_id,id",
         (cycle_end-10, cycle_end))]
+    # E01: enrich only consolidation input with committed source content.
+    if os.getenv("NIMO_CORE_RICH_CONSOLIDATION", "1") == "1":
+        by_id = {x["decision_id"]: x for x in batch if x["status"] == "completed"}
+        for row in db.execute(
+            "SELECT decision_id,data_json FROM library_events WHERE action='read_book' "
+            "AND decision_id>? AND decision_id<=?", (cycle_end-10, cycle_end)):
+            if row["decision_id"] in by_id:
+                by_id[row["decision_id"]]["read_passage"] = parse(row["data_json"])
+        for row in db.execute(
+            "SELECT id,decision_id,kind,title,content FROM artifacts "
+            "WHERE decision_id>? AND decision_id<=? ORDER BY id", (cycle_end-10, cycle_end)):
+            if row["decision_id"] in by_id:
+                by_id[row["decision_id"]].setdefault("artifacts", []).append(dict(row))
     reflection, identity_note, status = None, None, "fallback"
     try:
         value = generate(db, ai, None, "consolidate",
