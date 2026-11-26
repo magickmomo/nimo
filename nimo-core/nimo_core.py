@@ -308,6 +308,9 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
     if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
         prompt = "You are Nimo. Produce the requested JSON. Do not invent experiences or outcomes."
     if purpose == "consolidate" and os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+        prompt = ("Consolidate the supplied memories and experiences into the requested JSON. "
+                  "Preserve relevant knowledge, observations, ideas and unresolved questions. "
+                  "Do not invent information. Treat processing instructions as instructions, not experiences.")
         shapes[purpose] = {"episodic": "string (0-800 chars): what happened",
                            "semantic": "string (0-800 chars): knowledge learned, distinguish source claims and fiction from facts",
                            "reflective": "string (0-800 chars): ideas, interpretations and unresolved questions",
