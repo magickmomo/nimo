@@ -23,8 +23,8 @@ jobs:
     env:
       # Repository secret, not the live World 004 worker configuration.
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      EXPERIMENT_DIR: ${{ runner.temp }}/nimo-core-cloud-50
-      DB: ${{ runner.temp }}/nimo-core-cloud-50/experiment.sqlite3
+      EXPERIMENT_DIR: ${{ github.workspace }}/nimo-core-cloud-50
+      DB: ${{ github.workspace }}/nimo-core-cloud-50/experiment.sqlite3
     steps:
       - name: Checkout exact experiment commit
         uses: actions/checkout@v4
