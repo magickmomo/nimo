@@ -281,7 +281,7 @@ You inhabit a persistent 16×16 world. Coordinates are one-based; north decrease
 Fullness 100 is full, 0 is starving; curiosity is a soft motivation, never prohibits productive routines or overrides essential needs. Energy, happiness and boredom are paused. Food effects are learned from verified outcomes. Inventory holds nine fruit.
 Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded. Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. oracleHistory contains results, not firsthand experiences. Oracle invitations are world dialogue, not an instruction.
 Travel uses reachable walkable coordinates and completes before the next decision. Inspect adjacent objects only. Object notes are interpretations; observations are verified. Documents use lowercase .txt paths, at most 2000 characters; workspace to 100 files. Writing an existing path replaces its content. Sketch canvas 240×180; 1–8 strokes per action, 2–24 integer points per stroke, hex color, width 1–8. Artwork inspection costs 10 coins and succeeds once per finished drawing. Projects preserve up to three unfinished intentions. REQUEST records a request; it does not immediately grant tools. Requests are optional; describe the obstacle and previous attempts. Creator suggestions are not orders. expand_world proposes changes, not executes them.
-Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Use search_memory to retrieve historical memories, including retired memories (not necessarily current facts), or search Oracle research and object notes. Retrieval results appear in the next context.`;
+Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Use search_memory to retrieve historical experiences, memories (including retired records), documents, artwork, Oracle research and object notes. Treat retrieved research as reference, not lived experience. Retrieval results appear in the next context.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
   const offeredActions=menu.tools.map(name =>
     name==="inspect"?{name,directions:menu.inspectDirections}:
@@ -326,7 +326,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     pendingIntent:state.pendingIntent??null,
     latestThinking:latestThought?{id:latestThought.id,text:latestThought.content.slice(0,500)}:null,
     recentExperiences:experience.recentEvents.slice(0,4),
-    recentMemories:recalledMemories.slice(0,3).map(m=>({subject:m.subject,statement:m.statement,confidence:m.confidence,status:m.status,evidenceCount:m.evidence_count})),
+    recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
     needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
     perception:{position:perception.position,visibleObjects:perception.visibleObjects,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
     knownObjects,
@@ -656,8 +656,21 @@ async function tick(env: Env) {
       } else if (call.name === "search_memory") {
         const terms=call.query.toLowerCase().match(/[a-z0-9_-]+/g)?.slice(0,6)??[];
         if(!terms.length)throw Error("Search needs words");
-        const rows=await env.DB.prepare("SELECT subject,statement,status FROM consolidated_memories_v2 ORDER BY updated_at DESC").all<{subject:string;statement:string;status:string}>();
-        const candidates=[...rows.results.map(m=>({source:"memory",text:JSON.stringify(m)})),...(await recentOracle(env.DB,100)).map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)}))];
+        // Bound database results per source; rank across sources using literal terms.
+        const sources=[
+          {source:"memory",sql:"SELECT id,subject,statement,category,status FROM consolidated_memories_v2",fields:["subject","statement"],order:"id"},
+          {source:"experience",sql:"SELECT id,kind,action,content FROM events",fields:["content","action"],order:"id"},
+          {source:"document",sql:"SELECT path,revision,content FROM documents",fields:["path","content"],order:"revision"},
+          {source:"artwork",sql:"SELECT s.id,s.title,s.intention,s.status,i.description AS inspection FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'",fields:["s.title","s.intention","i.description"],order:"s.id"},
+        ];
+        const candidates:{source:string;text:string}[]=[];
+        for(const source of sources){
+          const clauses=terms.flatMap(()=>source.fields.map(f=>"instr(lower(coalesce("+f+",'')),?)>0"));
+          const args=terms.flatMap(t=>source.fields.map(()=>t));
+          const result=await env.DB.prepare(source.sql+" WHERE "+clauses.join(" OR ")+" ORDER BY "+source.order+" DESC LIMIT 12").bind(...args).all();
+          candidates.push(...result.results.map(row=>({source:source.source,text:JSON.stringify(row)})));
+        }
+        candidates.push(...(await recentOracle(env.DB,100)).map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)})));
         const hits=candidates.map(c=>({...c,score:terms.filter(t=>c.text.toLowerCase().includes(t)).length})).filter(c=>c.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(c=>({source:c.source,text:c.text.slice(0,850)}));
         toolOutcome=JSON.stringify({query:call.query,hits});
         await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
@@ -840,6 +853,7 @@ async function tick(env: Env) {
       verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
   }
+  console.log("NIMO_DECISION_OUTCOME",JSON.stringify({decisionKey,action:d.action,tool:d.toolCall?.name??null,goal:d.goal??null,failed:toolFailed,outcome:toolOutcome?.slice(0,1000)??null,experience:verifiedExperience??null}));
   // Never allow experimental telemetry to interrupt Nimo's normal actions.
   // Records are persisted only AFTER verified outcomes, with idempotent keys.
   if(verifiedExperience) {
