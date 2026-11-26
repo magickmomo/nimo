@@ -240,8 +240,8 @@ def call_logged(db: sqlite3.Connection, ai: Any, purpose: str,
                     value = parse(raw)
                     preview = (value.get("want") or value.get("title") or
                                value.get("book_id") or value.get("question") or
-                               value.get("text") or value.get("reflection") or
-                               value.get("answer") or raw[:200])
+                               value.get("assessment") or value.get("text") or
+                               value.get("reflection") or value.get("answer") or raw[:200])
                 except (ValueError, TypeError, AttributeError):
                     preview = raw[:200]
             print(compact({"event": "model_call_completed", "call_id": call_id,
