@@ -104,3 +104,7 @@ open ./library-001.html
 ```
 
 The offline mock deliberately uses only the original tools and does not perform network downloads. New tests exercise the browse/acquire/read/pause/resume sequence with synthetic text, without requiring network or model credentials. Live acquisition requires network access from the machine running Nimo Core and can fail if the source is unavailable; failed attempts are audited. Only run live actions intentionally; each makes billable model calls.
+
+### Live terminal progress
+
+During `--live` runs, the terminal now emits a flushed `model_call_started` event before each API request and `model_call_completed` (with a brief preview) or `model_call_failed` event afterward. Each decision's existing result JSON is also printed immediately when that decision finishes, rather than waiting for all ten decisions. The events identify call ID, decision ID, task purpose and endpoint, and cover the ten-decision consolidation call too. Complete audited request/response contents remain in SQLite and the HTML report. This changes only terminal visibility, not Nimo's prompts, actions, context, or choices. `--mock` remains quiet about individual model calls.
