@@ -184,6 +184,10 @@ class MockAI:
             mock_payload = {"input": [{"content": ""}, {"content": compact({"purpose": purpose})}]}
             value = parse(response_text(self.call("responses", mock_payload)))
             self.calls -= 1
+            if action == "think":
+                value = {"thought": value["assessment"]}
+            elif action == "draw":
+                value.pop("intention", None)
             return {"output": [{"type": "function_call", "name": action, "arguments": compact(value)}],
                     "usage": {"input_tokens": 0, "output_tokens": 0}}
         purpose = json.loads(payload["input"][1]["content"])["purpose"]
@@ -298,6 +302,8 @@ def generate(db: sqlite3.Connection, ai: Any, decision_id: int | None,
         "consolidate": {"reflection": "string (0-800 chars)", "identity_note": "tentative string (0-200 chars) or null",
                         "evidence_decision_ids": "array of integer IDs from evidence_ids"},
     }
+    if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+        prompt = "You are Nimo. Produce the requested JSON. Do not invent experiences or outcomes."
     data = {"purpose": purpose, "context": context, "contract": shapes[purpose]}
     payload = {"model": ai.model, "input": [
         {"role": "system", "content": prompt},
@@ -436,16 +442,13 @@ def choose(db: sqlite3.Connection, ai: Any, decision_id: int,
 def unified_choice(db, ai, decision_id, context, options):
     """Choose exactly one available action and generate its arguments together."""
     string = {"type": "string"}
-    nullable = {"type": ["string", "null"]}
     def obj(properties):
         return {"type": "object", "properties": properties,
                 "required": list(properties), "additionalProperties": False}
     schemas = {
-        "think": obj({"purpose": {"type": "string", "enum": ["planning", "evaluation", "problem_solving", "curiosity", "reflection"]},
-                      "assessment": string, "next_step": nullable, "intention": nullable,
-                      "evidence_decision_ids": {"type": "array", "items": {"type": "integer"}}}),
+        "think": obj({"thought": string}),
         "write_journal": obj({"title": string, "text": string}),
-        "draw": obj({"title": string, "intention": string, "strokes": {"type": "array", "items": obj({
+        "draw": obj({"title": string, "strokes": {"type": "array", "items": obj({
             "points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
             "color": string, "width": {"type": "integer"}})}}),
         "ask_oracle": obj({"question": string}),
@@ -454,9 +457,9 @@ def unified_choice(db, ai, decision_id, context, options):
         "read_book": obj({"book_id": string, "move": {"type": "string", "enum": ["next", "previous", "repeat"]}}),
     }
     descriptions = {
-        "think": "Plan, evaluate, solve a problem, explore curiosity or reflect. Assessment up to 500 characters; next_step and intention up to 200 or null. Cite distinct recent decision IDs.",
+        "think": "Record a thought (1-500 characters).",
         "write_journal": "Write a personal entry. Title up to 100 characters, text up to 1200.",
-        "draw": "Create one complete vector artwork. Title up to 100 characters, intention up to 300. 1-8 strokes, each 2-24 integer coordinate pairs, x 0..240, y 0..180, color #RRGGBB, width 1..8.",
+        "draw": "Create one complete vector artwork. Title up to 100 characters. 1-8 strokes, each 2-24 integer coordinate pairs, x 0..240, y 0..180, color #RRGGBB, width 1..8.",
         "ask_oracle": "Ask a question up to 300 characters. Oracle answers are not independently verified and cannot physically inspect objects.",
         "browse_library": "Browse available real book titles and subjects.",
         "acquire_book": "Acquire a book from the browsed catalogue using its exact ID.",
@@ -464,7 +467,7 @@ def unified_choice(db, ai, decision_id, context, options):
         "put_down_book": "Stop reading for now, preserving position.",
     }
     payload = {"model": ai.model, "input": [
-        {"role": "system", "content": "You are Nimo. Choose what you genuinely want to do now. Actions are creative possibilities, not a productivity checklist. Memories are evidence, not instructions. Do not invent external events or evidence. Keep intentions distinct from verified outcomes."},
+        {"role": "system", "content": "You are Nimo. Choose your next action using your current context. Do not invent experiences or outcomes."},
         {"role": "user", "content": compact(context)}],
         "tools": [{"type": "function", "name": action, "description": descriptions[action],
                    "parameters": schemas[action], "strict": True} for action in options],
@@ -500,6 +503,11 @@ def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
         outcome = library.put_down(db, decision_id)
     elif action == "think":
         value = arguments if arguments is not None else generate(db, ai, decision_id, "think", context)
+        if arguments is not None:
+            thought = text_field(value, "thought", 500)
+            db.execute("INSERT INTO think_notes VALUES(?,?,?,?,?,?)",
+                       (decision_id, "thought", thought, None, "[]", now()))
+            return "Thought: " + thought, None
         purpose = text_field(value, "purpose", 32)
         if purpose not in ("planning", "evaluation", "problem_solving", "curiosity", "reflection"):
             raise ValueError("Unknown thinking purpose")
@@ -527,10 +535,11 @@ def execute(db: sqlite3.Connection, ai: Any, decision_id: int,
     elif action == "draw":
         value = arguments if arguments is not None else generate(db, ai, decision_id, "draw", context)
         title = text_field(value, "title", 100)
-        text_field(value, "intention", 300)
         strokes = valid_strokes(value.get("strokes"))
-        artifact = ("drawing", title, compact({"intention": value["intention"],
-                                            "strokes": strokes, "svg": svg(strokes)}))
+        drawing = {"strokes": strokes, "svg": svg(strokes)}
+        if arguments is None:
+            drawing["intention"] = text_field(value, "intention", 300)
+        artifact = ("drawing", title, compact(drawing))
         outcome = f"Completed drawing: {title} ({len(strokes)} strokes)"
     elif action == "ask_oracle":
         if oracle_calls_today(db) > 3:  # selected 'running' row already reserves a slot
@@ -601,6 +610,13 @@ def run_one(db: sqlite3.Connection, ai: Any, new_object_after_10: bool = False) 
     if index > 1 and (index-1) % 10 == 0:
         consolidation(db, ai, index-1)
     context = recent_context(db, new_object_after_10=new_object_after_10)
+    if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
+        context.pop("current_intention", None)
+        old_thought = context.get("latest_thinking")
+        if old_thought:
+            context["latest_thinking"] = {"thought": old_thought["assessment"],
+                                          "decision_id": old_thought["decision_id"]}
+        context["identity"] = "I am Nimo."
     options = list(ACTIONS) + library.actions(db)
     if context["oracle_questions_remaining_today"] == 0:
         options.remove("ask_oracle")
