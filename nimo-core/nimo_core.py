@@ -619,7 +619,23 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
                          {"experiences": batch, "evidence_ids": evidence,
                           "previous_memories": recent_context(db)["recent_memories"]})
         if os.getenv("NIMO_CORE_UNIFIED", "1") == "1":
-            candidate_reflection = compact({k: text_field(value, k, 800, optional=True) for k in ("episodic", "semantic", "reflective")})
+            # Length is guidance, not a reason to discard otherwise valid knowledge.
+            fields = {}
+            issues = []
+            for k in ("episodic", "semantic", "reflective"):
+                v = value.get(k)
+                if isinstance(v, str) and v.strip():
+                    fields[k] = v.strip()
+                    if len(fields[k]) > 800:
+                        issues.append(f"{k}: length {len(fields[k])} exceeds guidance")
+                else:
+                    fields[k] = None
+                    issues.append(f"{k}: missing or invalid text")
+            if issues:
+                print("CONSOLIDATION_WARNING=" + compact({"cycle_end": cycle_end, "issues": issues}), flush=True)
+            if not any(fields.values()):
+                raise ValueError("No valid memory categories")
+            candidate_reflection = compact(fields)
         else:
             candidate_reflection = text_field(value, "reflection", 800, optional=True)
         candidate_identity = (None if os.getenv("NIMO_CORE_UNIFIED", "1") == "1"
@@ -630,8 +646,8 @@ def consolidation(db: sqlite3.Connection, ai: Any, cycle_end: int) -> None:
         # Publish the interpretation only AFTER every evidence reference passes.
         reflection, identity_note = candidate_reflection, candidate_identity
         status = "reflected"
-    except Exception:
-        # Failure is visible in model_calls; never hide or fabricate a reflection.
+    except Exception as exc:
+        print("CONSOLIDATION_ERROR=" + compact({"cycle_end": cycle_end, "type": type(exc).__name__, "message": str(exc)}), flush=True)
         status = "fallback"
     db.execute("INSERT OR IGNORE INTO memories(cycle_end_decision,created_at,objective_summary,"
                "reflection,tentative_identity_note,evidence_decision_ids_json,artifact_refs_json,status) "
