@@ -87,6 +87,26 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("distribution notice", result)
         self.assertEqual(core.library.strip_gutenberg_notice("plain text"), "plain text")
 
+    def test_library_preserves_programming_example_formatting(self):
+        source = "Example:\\n\\n    def greet(name):\\n        if name:\\n            print(name)\\n"
+        segments = core.library.split_text(source)
+        self.assertEqual(segments, ["Example:", "    def greet(name):\\n        if name:\\n            print(name)\\n"])
+        long_source = ("    def greet(name):\\n        if name:\\n            print(name)\\n\\n" * 450)
+        parts = core.library.split_text(long_source)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all("def greet(name):" in part for part in parts))
+
+    def test_backward_navigation_updates_next_segment(self):
+        text = "This sentence describes some test words. " * 900
+        core.library.acquire(self.db, 1, "time_machine", fetch=lambda url: text)
+        self.assertGreaterEqual(self.db.execute(
+            "SELECT COUNT(*) FROM library_segments").fetchone()[0], 3)
+        for decision, move in enumerate(("next","next","next","previous","next"),start=2):
+            core.library.read(self.db, decision, "time_machine", move)
+        events = [json.loads(r["data_json"])["segment"] for r in self.db.execute(
+            "SELECT data_json FROM library_events WHERE action='read_book' ORDER BY decision_id")]
+        self.assertEqual(events, [1,2,3,2,3])
+
     def test_library_read_cannot_fetch_unacquired_book(self):
         with self.assertRaisesRegex(ValueError,"not been acquired"):
             core.library.read(self.db, 1, "time_machine", "next")
