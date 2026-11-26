@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import urllib.error
 import urllib.request
 from typing import Callable
 
@@ -16,15 +17,18 @@ CATALOG = (
     {"id": "time_machine", "title": "The Time Machine", "author": "H. G. Wells",
      "subject": "Fiction and imagined futures", "license": "Project Gutenberg public-domain edition",
      "source": "https://www.gutenberg.org/ebooks/35",
-     "parts": ("https://www.gutenberg.org/cache/epub/35/pg35.txt",)},
+     "parts": ("https://gutenberg.pglaf.org/cache/epub/35/pg35.txt",),
+     "fallback_parts": ("https://mirror.cs.odu.edu/gutenberg-epub/35/pg35.txt",)},
     {"id": "beagle", "title": "The Voyage of the Beagle", "author": "Charles Darwin",
      "subject": "Natural history and exploration", "license": "Project Gutenberg public-domain edition",
      "source": "https://www.gutenberg.org/ebooks/944",
-     "parts": ("https://www.gutenberg.org/cache/epub/944/pg944.txt",)},
+     "parts": ("https://gutenberg.pglaf.org/cache/epub/944/pg944.txt",),
+     "fallback_parts": ("https://mirror.cs.odu.edu/gutenberg-epub/944/pg944.txt",)},
     {"id": "astronomy", "title": "A Short History of Astronomy", "author": "Arthur Berry",
      "subject": "History of science", "license": "Project Gutenberg public-domain edition",
      "source": "https://www.gutenberg.org/ebooks/59212",
-     "parts": ("https://www.gutenberg.org/cache/epub/59212/pg59212.txt",)},
+     "parts": ("https://gutenberg.pglaf.org/cache/epub/59212/pg59212.txt",),
+     "fallback_parts": ("https://mirror.cs.odu.edu/gutenberg-epub/59212/pg59212.txt",)},
     {"id": "programming", "title": "How to Think Like a Computer Scientist: Learning with Python 3",
      "author": "Peter Wentworth and contributors", "subject": "Programming and problem-solving",
      "license": "GNU Free Documentation License 1.3",
@@ -65,7 +69,7 @@ def setup(db: sqlite3.Connection) -> None:
 
 
 def catalogue() -> list[dict]:
-    return [{k: v for k, v in book.items() if k not in ("parts",)}
+    return [{k: v for k, v in book.items() if k not in ("parts", "fallback_parts")}
             for book in CATALOG]
 
 
@@ -118,6 +122,40 @@ def download_part(url: str) -> str:
     return data.decode("utf-8-sig")
 
 
+def fetch_book_parts(book: dict, fetch: Callable[[str], str]) -> tuple[list[str], list[str]]:
+    """Fetch only after Nimo selects acquire; try fixed, trusted mirrors on failure.
+
+    The mirror URL used is recorded for source provenance. Do not fall back
+    to Gutenberg's main web site, which discourages automated downloads.
+    """
+    fallback_parts = book.get("fallback_parts", ())
+    if fallback_parts and len(fallback_parts) != len(book["parts"]):
+        raise ValueError("Invalid catalogue fallback configuration")
+    contents, used_urls = [], []
+    for index, primary_url in enumerate(book["parts"]):
+        candidates = [primary_url]
+        if fallback_parts:
+            candidates.append(fallback_parts[index])
+        errors = []
+        for url in candidates:
+            try:
+                text = fetch(url)
+                if len(text.strip()) < 400:
+                    raise ValueError("Source text too short")
+                # Never mistake an HTML error page for an ebook.
+                if text.lstrip().lower().startswith(("<!doctype html", "<html")):
+                    raise ValueError("Source returned HTML instead of book text")
+                contents.append(text)
+                used_urls.append(url)
+                break
+            except (OSError, UnicodeError, ValueError) as exc:
+                errors.append(f"{url}: {type(exc).__name__}: {str(exc)[:130]}")
+        else:
+            raise RuntimeError("Book download failed on every approved source: " +
+                               " | ".join(errors))
+    return contents, used_urls
+
+
 def strip_gutenberg_notice(content: str) -> str:
     """Only remove a recognised Gutenberg distribution notice, not book prose."""
     start = re.search(r"(?im)^\*{3} START OF THE PROJECT GUTENBERG EBOOK.*\*{3}\s*$", content)
@@ -161,7 +199,7 @@ def acquire(db: sqlite3.Connection, decision_id: int, book_id: str,
     if db.execute("SELECT 1 FROM library_books WHERE id=?",(book_id,)).fetchone():
         raise ValueError("Book already acquired")
     book = BOOKS[book_id]
-    contents = [fetch(url) for url in book["parts"]]
+    contents, downloaded_from = fetch_book_parts(book, fetch)
     full_text = "\n\n".join(contents)
     if book_id != "programming":
         full_text = strip_gutenberg_notice(full_text)
@@ -177,6 +215,7 @@ def acquire(db: sqlite3.Connection, decision_id: int, book_id: str,
                    [(book_id,i+1,part) for i,part in enumerate(segments)])
     db.execute("INSERT INTO library_reading(book_id) VALUES(?)",(book_id,))
     record(db,decision_id,"acquire_book",{"book_id":book_id,"source":book["source"],
+                                       "downloaded_from":downloaded_from,
                                        "content_sha256":sha,"total_segments":len(segments)})
     return f"Acquired {book['title']} ({len(segments)} segments; SHA-256 {sha[:12]})."
 
