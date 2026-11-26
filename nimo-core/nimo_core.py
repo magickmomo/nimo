@@ -208,15 +208,42 @@ def call_logged(db: sqlite3.Connection, ai: Any, purpose: str,
         (decision_id, purpose, now(), compact(payload)))
     call_id = cursor.lastrowid
     db.commit()
+    # Terminal progress is read-only; complete requests and responses remain in SQLite.
+    show_progress = isinstance(ai, OpenAI)
+    if show_progress:
+        print(compact({"event": "model_call_started", "call_id": call_id,
+                       "decision_id": decision_id, "purpose": purpose,
+                       "endpoint": endpoint}), flush=True)
     try:
         response = ai.call(endpoint, payload)
         db.execute("UPDATE model_calls SET response_json=?,usage_json=? WHERE id=?",
                    (compact(response), compact(response.get("usage", {})), call_id))
         db.commit()
+        if show_progress:
+            if endpoint == "decisions":
+                preview = next((a.get("choice") for a in response.get("answers", [])
+                                if a.get("name") == "next_action"), None)
+            else:
+                raw = response_text(response)
+                try:
+                    value = parse(raw)
+                    preview = (value.get("want") or value.get("title") or
+                               value.get("book_id") or value.get("question") or
+                               value.get("text") or value.get("reflection") or
+                               value.get("answer") or raw[:200])
+                except (ValueError, TypeError, AttributeError):
+                    preview = raw[:200]
+            print(compact({"event": "model_call_completed", "call_id": call_id,
+                           "decision_id": decision_id, "purpose": purpose,
+                           "preview": str(preview)[:220]}), flush=True)
         return response
     except Exception as exc:
         db.execute("UPDATE model_calls SET error=? WHERE id=?", (str(exc)[:1200], call_id))
         db.commit()
+        if show_progress:
+            print(compact({"event": "model_call_failed", "call_id": call_id,
+                           "decision_id": decision_id, "purpose": purpose,
+                           "error": str(exc)[:220]}), flush=True)
         raise
 
 
