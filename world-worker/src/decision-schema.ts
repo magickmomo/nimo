@@ -6,6 +6,8 @@ import {isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
 export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
 export type DecisionTool =
+  | {name:"read_document";path:string}
+  | {name:"search_memory";query:string}
   | { name:"start_sketch";title:string;intention:string }
   | { name:"draw_strokes";sketchId:number;strokes:{points:[number,number][];color:string;width:number}[] }
   | { name:"finish_sketch";sketchId:number;status:"finished"|"abandoned" }
@@ -41,7 +43,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
-const TOOLS: readonly string[] = ["write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
+const TOOLS: readonly string[] = ["read_document","search_memory","write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -92,7 +94,13 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
   let toolCall: DecisionTool | null = null;
   if (tool !== null) {
     if (!object(tool) || typeof tool.name !== "string") fail("invalid toolCall");
-    if (tool.name === "expand_world") {
+    if(tool.name==="read_document"){
+      if(!string(tool.path,44)||!/^[a-z0-9][a-z0-9_-]{0,39}\.txt$/.test(tool.path))fail("Invalid document path");
+      toolCall={name:"read_document",path:tool.path};
+    } else if(tool.name==="search_memory"){
+      if(!string(tool.query,200)||!tool.query.trim())fail("Invalid search query");
+      toolCall={name:"search_memory",query:tool.query.trim()};
+    } else if (tool.name === "expand_world") {
       if(!["add","modify"].includes(String(tool.changeType))||!string(tool.title,100)||!tool.title.trim()||!string(tool.target,120)||!tool.target.trim()||!string(tool.description,700)||!tool.description.trim()||!string(tool.reason,400)||!tool.reason.trim())fail("Invalid world expansion proposal");
       toolCall={name:"expand_world",changeType:tool.changeType as "add"|"modify",title:tool.title.trim(),target:tool.target.trim(),description:tool.description.trim(),reason:tool.reason.trim()};
     } else if (tool.name === "ask_oracle") {
