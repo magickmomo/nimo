@@ -1,0 +1,43 @@
+name: Nimo minimal guidance offline verification
+on:
+  push:
+    branches: [experiment/nimo-minimal-guidance]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nimo-core
+    env:
+      NIMO_CORE_UNIFIED: '1'
+      OPENAI_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q .
+      - run: NIMO_CORE_UNIFIED=0 python -m unittest -v
+      - run: |
+          python -u nimo_core.py --db /tmp/minimal.sqlite3 run --mock --decisions 10
+          python - <<'PY'
+          import sqlite3,json
+          db=sqlite3.connect('/tmp/minimal.sqlite3')
+          assert db.execute("select count(*) from decisions where status='completed'").fetchone()[0]==10
+          assert db.execute("select count(*) from memories").fetchone()[0]==1
+          for (raw,) in db.execute("select context_json from decisions"):
+              ctx=json.loads(raw)
+              assert 'current_intention' not in ctx
+              if ctx.get('latest_thinking'):
+                  assert set(ctx['latest_thinking'])=={'thought','decision_id'}
+          for (raw,) in db.execute("select request_json from model_calls where purpose='unified_action'"):
+              req=json.loads(raw)
+              for tool in req['tools']:
+                  if tool['name']=='think':
+                      assert set(tool['parameters']['properties'])=={'thought'}
+                  if tool['name']=='draw':
+                      assert 'intention' not in tool['parameters']['properties']
+          assert db.execute("select count(*) from think_notes where purpose='thought' and next_step is null").fetchone()[0]>0
+          print('Minimal guidance assertions passed')
+          PY
