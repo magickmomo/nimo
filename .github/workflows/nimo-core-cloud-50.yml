@@ -20,8 +20,10 @@ jobs:
     name: Run 50 decisions on fresh ephemeral runner
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # The existing OPENAI_API_KEY is scoped to this GitHub Actions environment.
+    # It only provides the key; the experiment remains an isolated local SQLite run.
+    environment: world-004
     env:
-      # Repository secret, not the live World 004 worker configuration.
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       EXPERIMENT_DIR: ${{ github.workspace }}/nimo-core-cloud-50
       DB: ${{ github.workspace }}/nimo-core-cloud-50/experiment.sqlite3
@@ -47,7 +49,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::Missing repository secret OPENAI_API_KEY. Set it under Settings > Secrets and variables > Actions."
+            echo "::error::Missing OPENAI_API_KEY in GitHub Actions environment world-004 or repository secrets."
             exit 1
           fi
 
