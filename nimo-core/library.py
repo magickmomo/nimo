@@ -6,6 +6,7 @@ segment is exposed on the NEXT decision only; nothing is auto-read or summarized
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import re
 import sqlite3
@@ -38,6 +39,17 @@ CATALOG = (
               tuple(f"https://raw.githubusercontent.com/HowToThink/HowToThink/master/source/PvL_{letter}.rst"
                     for letter in "ABCDEFGH"))},
 )
+if os.getenv("NIMO_CORE_SHORT_LIBRARY") == "1":
+    CATALOG = ({
+        "id": "small_observations", "title": "Small Observations", "author": "Nimo experiment editorial text",
+        "subject": "Observation, hypotheses and natural phenomena",
+        "license": "Original experiment text", "source": "bundled:small_observations",
+        "parts": (), "segments": (
+            """A compass needle is a small magnet. When free to rotate, it tends to align with the local magnetic field. Nearby iron or magnets can change that field. A compass that points in an unexpected direction does not by itself reveal the cause. Comparing its reading in different places, or with another compass, could distinguish some explanations. A single observation may be consistent with several hypotheses.""",
+            """Plants exchange water with their surroundings. Water moves through roots and stems and evaporates from leaves. A brown leaf tip can have several causes, including dry air, irregular watering, excess dissolved salts or damage. The appearance alone is not a diagnosis. Changes over time, comparisons between leaves, and information about growing conditions can help narrow the possibilities.""",
+            """A crack concentrates stress near its tip. In a brittle material such as ceramic, a crack can grow when the material is loaded. Its shape, the material and the direction of force matter. A visible crack does not tell us exactly when a cup will break. A drawing or written record can preserve its appearance for comparison later, without requiring a destructive test."""
+        )
+    },)
 BOOKS = {item["id"]: item for item in CATALOG}
 MAX_PART_BYTES = 3_000_000
 WORDS_PER_SEGMENT = 1000
@@ -69,7 +81,7 @@ def setup(db: sqlite3.Connection) -> None:
 
 
 def catalogue() -> list[dict]:
-    return [{k: v for k, v in book.items() if k not in ("parts", "fallback_parts")}
+    return [{k: v for k, v in book.items() if k not in ("parts", "fallback_parts", "segments")}
             for book in CATALOG]
 
 
@@ -199,13 +211,16 @@ def acquire(db: sqlite3.Connection, decision_id: int, book_id: str,
     if db.execute("SELECT 1 FROM library_books WHERE id=?",(book_id,)).fetchone():
         raise ValueError("Book already acquired")
     book = BOOKS[book_id]
-    contents, downloaded_from = fetch_book_parts(book, fetch)
+    if "segments" in book:
+        contents, downloaded_from = list(book["segments"]), [book["source"]]
+    else:
+        contents, downloaded_from = fetch_book_parts(book, fetch)
     full_text = "\n\n".join(contents)
     if book_id != "programming":
         full_text = strip_gutenberg_notice(full_text)
     if not full_text.strip() or len(full_text) < 400:
         raise ValueError("Book source is empty or unexpectedly short")
-    segments = split_text(full_text)
+    segments = list(book["segments"]) if "segments" in book else split_text(full_text)
     if not segments:
         raise ValueError("Book has no readable segments")
     sha = hashlib.sha256(full_text.encode("utf8")).hexdigest()
