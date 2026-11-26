@@ -51,7 +51,7 @@ export function buildActionMenu(
   const noteObjectIds = [...new Set(seenObjectIds)]
     .filter(id=>knownIds.has(id) && !priority.blockedNoteIds.includes(id))
     .sort();
-  const tools = ["write_document","travel_to","expand_world"];
+  const tools = ["write_document","travel_to","expand_world","read_document","search_memory"];
   if(inspectDirections.length) tools.push("inspect");
   if(noteObjectIds.length) tools.push("remember_object");
   const pickTreeIds=food.inventory.length<food.capacity ? adjacentTreeIds.filter(id=>food.trees.some(t=>t.id===id && (t.last_seen_stock??0)>0)) : [];
@@ -84,6 +84,8 @@ const obj=(properties:Record<string,unknown>)=>({
 export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false) {
   const variants:unknown[]=[{type:"null"}];
   if(!hasPendingVisitor) {
+    if(menu.tools.includes("read_document"))variants.push(obj({name:{type:"string",enum:["read_document"]},path:string(44)}));
+    if(menu.tools.includes("search_memory"))variants.push(obj({name:{type:"string",enum:["search_memory"]},query:string(200)}));
     if(menu.restAtNook)variants.push(obj({name:{type:"string",enum:["rest"]}}));
     if(menu.tools.includes("ask_oracle"))variants.push(obj({name:{type:"string",enum:["ask_oracle"]},question:string(500)}));
     if(menu.tools.includes("expand_world"))variants.push(obj({name:{type:"string",enum:["expand_world"]},changeType:{type:"string",enum:["add","modify"]},title:string(100),target:string(120),description:string(700),reason:string(400)}));
