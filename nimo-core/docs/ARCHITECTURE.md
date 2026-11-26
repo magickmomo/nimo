@@ -244,3 +244,25 @@ The `ask_oracle` choice description now explains what it does, its limitations a
 **Changes compared with the previous plain-identity test:** (1) restore capability-aware seeded identity, (2) restore Oracle quota in the initial want context, (3) clarify the Oracle option description, and (4) change the selector question. Because this changes more than one prompt-related variable, differences in behaviour cannot be assigned uniquely to one change.
 
 **Fresh-database requirement:** `INSERT OR IGNORE` does not overwrite existing stored identities. Start with a new SQLite file to test this version. Old experiment databases remain unchanged.
+
+## 17. Controlled change: memory references to real artifacts
+
+**The one new capability in this change is a reference, not retrieval.** At each existing 10-decision consolidation boundary, the system queries the **committed `artifacts` rows** created during those ten decisions and stores their metadata alongside the memory.
+
+Each reference has exactly:
+
+```json
+{"id": 17, "decision_id": 18, "kind": "journal", "title": "Northeast Without a Map"}
+```
+
+The example values above are illustrative. The runtime obtains real values from SQLite; no model is allowed to generate or change these references.
+
+**What changes:** a new `memories.artifact_refs_json` column stores an ordered array of records; `recent_context()` exposes the records as `artifacts` inside each recent consolidated memory. The offline HTML audit report includes the same references. This allows Nimo to know *which artifact exists*, not to read it. The next selection and intention calls consequently see this additional compact metadata.
+
+**What does not change:** ten-decision timing, memory summaries, reflection prompts, four tools, selection criteria, execution, object descriptions, identity, and artifact contents. No `read_artifact` tool is added. No artifact content, SVG source, or prior journal text is added to a model call. The system does not decide which references are personally meaningful: it records **all actual artifacts** within that batch, including no references when none were created.
+
+**Existing databases:** startup adds the column without rewriting prior memories. Existing memories receive `[]`, because they did not store the original references. Subsequent 10-decision cycles will populate references from new actual artifacts; there is deliberately no historical backfill or re-consolidation.
+
+**How to verify:** after one new consolidation, run `inspect` or `report`. Compare the `artifact_refs_json` IDs with `SELECT id,decision_id,kind,title FROM artifacts WHERE decision_id BETWEEN ? AND ?`. Tests check exact equality, preservation under consolidation-model failures, migration of an older database, and no artifact content leaking into the default decision context.
+
+**Limitation:** these references are not yet a retrieval mechanism; Nimo cannot open an artifact from the memory. This change tests **whether references can be made accurate and visible**, not whether they improve creative development.
