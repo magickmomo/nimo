@@ -37,3 +37,5 @@ jobs:
           name: world-003-e02-observation-results
           path: ${{ runner.temp }}/nimo-results/*.json
           if-no-files-found: ignore
+
+# Run bounded-error observation after offline verification.
