@@ -2,7 +2,7 @@
 
 Shared branch: `experiment/world-003-compact-cognition`.
 
-**W003-E00 corrected baseline has completed and is ready for reuse.**
+**W003-E00 corrected baseline is accepted as the comparison baseline.**
 
 The [corrected run](https://github.com/magickmomo/nimo/actions/runs/45973447418) and [branch checks](https://github.com/magickmomo/nimo/actions/runs/45973447343) passed on [`421b75a`](https://github.com/magickmomo/nimo/commit/421b75a5c667714b8d9e73aadbdd37705d4aa85f). It completed 50 decisions with stored fullness 65.158% and first-decision fullness 65%. The unchanged cognitive architecture inspected the same plot 46 times. See the [corrected results and verification](experiments/W003-E00/corrected-results.md) and [restore instructions](experiments/W003-E00/restore.md).
 
@@ -10,4 +10,4 @@ The [corrected run](https://github.com/magickmomo/nimo/actions/runs/45973447418)
 
 The artifact records 50 successful decisions, 12 completed journeys in 16 attempts, and 253,320 total tokens, including eight consolidation calls. Stored fullness was 65.16%, while the first decision saw 0%. A mocked worker replay reproduced the drop and preserved reporting at 65% when the clone's decision clock was rebased. This verifies the mechanism on an offline fixture. The original SQL export was deleted, so an identical mature baseline is unavailable.
 
-The single approved paid run has been used. W003-E01 through E08 remain pending. The corrected run gives a reproducible starting snapshot and an observed inspection loop. It did not exercise eating, historical search, or a memory revision.
+The single approved paid run has been used. [W003-E01 is specified for review](experiments/W003-E01/specification.md). Implementation and a paid E01 run await separate owner approval. E02 through E08 remain pending. The corrected run gives a reproducible starting snapshot and an observed inspection loop. It did not exercise eating, historical search, or a memory revision.
