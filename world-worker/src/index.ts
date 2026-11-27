@@ -325,10 +325,10 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     currentIntention:state.currentGoal,
     pendingIntent:state.pendingIntent??null,
     latestThinking:latestThought?{id:latestThought.id,text:latestThought.content.slice(0,500)}:null,
-    recentExperiences:experience.recentEvents.slice(0,4),
+    recentExperiences:experience.recentEvents.slice(0,8),
     recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
     needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
-    perception:{position:perception.position,visibleObjects:perception.visibleObjects,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
+    perception:{position:perception.position,visibleObjects:perception.visibleObjects,visibleTiles:perception.visibleTiles,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
     knownObjects,
     exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length},
     projects,
@@ -336,7 +336,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status})),
     sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
     workspace:workspace.map(d=>({path:d.path,revision:d.revision})),
-    food:{inventory:modelFood.inventory,capacity:modelFood.capacity,trees:modelFood.trees.map(t=>({id:t.id,last_seen_stock:t.last_seen_stock}))},
+    food:{inventory:modelFood.inventory,capacity:modelFood.capacity,trees:modelFood.trees.map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
     garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null},
     ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}),
     fullnessDecayPointsPerSecond:rate,
@@ -853,7 +853,7 @@ async function tick(env: Env) {
       verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
   }
-  console.log("NIMO_DECISION_OUTCOME",JSON.stringify({decisionKey,action:d.action,tool:d.toolCall?.name??null,goal:d.goal??null,failed:toolFailed,outcome:toolOutcome?.slice(0,1000)??null,experience:verifiedExperience??null}));
+  console.log("NIMO_DECISION_OUTCOME",JSON.stringify({decisionKey,action:d.action,tool:d.toolCall?.name??null,arguments:d.toolCall??null,goal:d.goal??null,failed:toolFailed,outcome:toolOutcome?.slice(0,1000)??null,experience:verifiedExperience??null}));
   // Never allow experimental telemetry to interrupt Nimo's normal actions.
   // Records are persisted only AFTER verified outcomes, with idempotent keys.
   if(verifiedExperience) {
