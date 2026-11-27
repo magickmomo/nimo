@@ -300,7 +300,8 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Your normal movement tools are temporarily unavailable during a REPLY, but they return on your next autonomous turn. If you choose to accept an actionable request, store what you intend to do in replyIntent; do not claim you already did it. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
   const model = env.OPENAI_MODEL || "gpt-6-luna";
-  const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  const supportsReasoning = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  const reasoningModel = supportsReasoning || (env.EXPERIMENT_ACCESS==="true" && model==="gpt-4.1-mini");
   const intentionProgress=reasoningModel&&env.INTENTION_PROGRESS==="true";
   const structuredThinking=reasoningModel&&env.STRUCTURED_THINKING==="true";
   const offeredExperienceIds=new Set(experience.recentEvents.map(e=>e.id));
@@ -380,7 +381,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     ? {
         model,
         input: messages.map(m=>m.content).join("\n\n"),
-        reasoning: { effort: "low" },
+        ...(supportsReasoning ? { reasoning: { effort: "low" } } : {}),
         max_output_tokens: 2200,
         tools, tool_choice:"required", parallel_tool_calls:false,
       }
