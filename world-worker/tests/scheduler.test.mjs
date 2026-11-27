@@ -31,7 +31,7 @@ test("journey arrival must not shorten an already persisted completion-based dea
   assert.ok(started + 30_000 <= arrived, "start-based cooldown has expired");
   assert.ok(arrived < persistedNextTick, "completion-based cooldown has not expired");
 
-  const arrivalSection = worker.split("const journey = await advanceJourney(env.DB, now);")[1]
+  const arrivalSection = worker.split("const journey = await advanceJourney(env.DB, now, experiment);")[1]
     .split("if (!experiment && Date.parse(world.next_tick) > now.getTime())")[0];
   assert.doesNotMatch(arrivalSection, /UPDATE world SET next_tick/);
   assert.doesNotMatch(arrivalSection, /lastDecision \+ DECISION_INTERVAL_MS/);
