@@ -13,7 +13,7 @@ const {DB,sqlite}=isolatedWorld();
 const {tick,researchOracleQuestion}=await loadWorldWorker();
 sqlite.exec(`DROP TRIGGER nimo_oracle_charge_on_insert; DROP TRIGGER nimo_oracle_daily_limit; CREATE TRIGGER experiment_oracle_limit BEFORE INSERT ON oracle_queries WHEN (SELECT COUNT(*) FROM oracle_queries)>=3 BEGIN SELECT RAISE(ABORT,'Three questions per run'); END;`);
 const env={DB,OPENAI_API_KEY:paid?process.env.OPENAI_API_KEY:"offline-no-key",
-  KNOWLEDGEABLE_ORACLE:"true",COMPACT_CONTEXT:"true",EXPERIMENT_ACCESS:"true",OPENAI_MODEL:"gpt-4.1-mini",MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:"true",INTENTION_PROGRESS:"true"};
+  KNOWLEDGEABLE_ORACLE:"true",COMPACT_CONTEXT:"true",EXPERIMENT_ACCESS:"true",OPENAI_MODEL:"gpt-5.4-nano",MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:"true",INTENTION_PROGRESS:"true"};
 const calls=[];
 const telemetry=[];
 const originalFetch=globalThis.fetch;
