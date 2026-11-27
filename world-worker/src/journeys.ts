@@ -72,14 +72,14 @@ export async function beginJourney(db: D1Database, from: Point, to: Point, now =
   return route;
 }
 
-export async function advanceJourney(db: D1Database, now = new Date()):
+export async function advanceJourney(db: D1Database, now = new Date(), instant = false):
   Promise<{status:"idle"|"travelling"|"paused"|"completed";position?:Point;route?:Point[]}> {
   const row = await journeyRow(db);
   if (row.status !== "travelling") return {status:row.status};
   const route = parsePath(row.path);
   const start = Date.parse(row.started_at || "");
   if (!Number.isFinite(start) || route.length < 2) throw new Error("Invalid active journey");
-  const targetIndex = completedStepIndex(start,now.getTime(),row.step_ms,route.length,row.step_index);
+  const targetIndex = instant ? route.length-1 : completedStepIndex(start,now.getTime(),row.step_ms,route.length,row.step_index);
   let currentIndex = row.step_index;
   // Steps are claimed in D1. If a scheduled invocation overlaps, the
   // second one cannot claim the same step and double-count a visit.
