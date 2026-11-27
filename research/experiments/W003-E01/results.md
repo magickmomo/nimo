@@ -1,6 +1,6 @@
 # W003-E01 — Results
 
-**Disposition:** intervention exercised, with evidence of follow-through in one sequence. Acceptance remains with the owner. One paid run completed on 27 November 2026. [Candidate `ba8d851`](https://github.com/magickmomo/nimo/commit/ba8d8510c655ed8acc13763a3fa8e2207de4bef1) · [workflow 45979906087](https://github.com/magickmomo/nimo/actions/runs/45979906087) · [artifact 15188498845](https://github.com/magickmomo/nimo/actions/runs/45979906087/artifacts/15188498845) · [offline verification](verification.md).
+**Disposition:** intervention exercised, with evidence of follow-through in one sequence. Provisionally accepted by the owner on 27 November 2026. One paid run completed on 27 November 2026. [Candidate `ba8d851`](https://github.com/magickmomo/nimo/commit/ba8d8510c655ed8acc13763a3fa8e2207de4bef1) · [workflow 45979906087](https://github.com/magickmomo/nimo/actions/runs/45979906087) · [artifact 15188498845](https://github.com/magickmomo/nimo/actions/runs/45979906087/artifacts/15188498845) · [offline verification](verification.md).
 
 The encrypted artifact ZIP matched the GitHub SHA-256 `7aa7746c3ba47c4356e9ec05872ea19fdc87574999dcc8b2b9ae7165bbe0d9d5`. The decrypted trace contained 50 primary requests and 50 selected outcomes. The run matched the original E00 SQL digest, first-decision needs, position, inventory, and inherited memories. Both runs executed on 27 November in the same calendar window for day limits. The same models and clock policy were used. E01 had no experiment cooldowns.
 

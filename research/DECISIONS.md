@@ -11,3 +11,7 @@ The owner accepted the corrected W003-E00 run as the comparison baseline on 27 N
 ## 2026-11-27 — W003-E01
 
 The owner authorised implementation and one 50-decision run from the accepted E00 snapshot. [Candidate `ba8d851`](https://github.com/magickmomo/nimo/commit/ba8d8510c655ed8acc13763a3fa8e2207de4bef1) · [offline verification](experiments/W003-E01/verification.md) · [run and analysis](experiments/W003-E01/results.md). The paid approval has been used. Acceptance remains pending.
+
+## 2026-11-27 — W003-E02
+
+The owner provisionally accepted E01 and approved the [E02 specification](experiments/W003-E02/specification.md) and one paid 50-decision screening on the exact E00 snapshot after offline verification. E03 remains outside this approval.
