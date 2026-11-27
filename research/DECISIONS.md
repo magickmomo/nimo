@@ -15,3 +15,5 @@ The owner authorised implementation and one 50-decision run from the accepted E0
 ## 2026-11-27 — W003-E02
 
 The owner provisionally accepted E01 and approved the [E02 specification](experiments/W003-E02/specification.md) and one paid 50-decision screening on the exact E00 snapshot after offline verification. E03 remains outside this approval.
+
+E02 passed offline verification. Its one paid attempt stopped at 38 completed decisions and one model error. [Partial results](experiments/W003-E02/results.md). Candidate acceptance remains pending.
