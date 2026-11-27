@@ -1,7 +1,7 @@
 import {intentionFields,validateIntention,progressAt,progressView,recordProgress,type IntentionProgress,type IntentionUpdate} from "./intention-progress";
 import {thoughtFields,validateThought,type StructuredThought} from "./structured-thinking";
 import {searchHistoricalMemory} from "./historical-memory";
-import {navigationContext, travelDestination, JourneyError} from "./navigation";
+import {navigationContext, travelDestination, objectTravelDestination, JourneyError} from "./navigation";
 import { INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState as BaseWorldState } from "../../web/lib/world";
 import {cachedWorldSnapshot,saveWorldSnapshot} from "./world-snapshot-cache";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
@@ -42,6 +42,7 @@ type Env = {
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
   ORACLE_MODEL?: string;
+  EXPERIMENT_ACCESS?: string;
   ARTWORK_VISION_MODEL?: string;
   MEMORY_MODEL?: string;
   MEMORY_CONSOLIDATION_ENABLED?: string;
@@ -271,12 +272,12 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: Pick<DocumentRow,"path"|"revision">[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision & {structuredThought?:StructuredThought;intentionUpdate?:IntentionUpdate}> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: Pick<DocumentRow,"path"|"revision">[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number;cost?:number;remainingRun?:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision & {structuredThought?:StructuredThought;intentionUpdate?:IntentionUpdate}> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `You are Nimo. Choose your next action.
 You inhabit a persistent 16×16 world. Coordinates are one-based; north decreases y, east increases x. Perception is current; memories are historical. Only availableActions grants permission; capabilityCatalogue describes prerequisites, not permissions. A missing action may be available elsewhere or later. Learn from perception, verified outcomes and memories.
 Fullness 100 is full, 0 is starving; curiosity is a soft motivation, never prohibits productive routines or overrides essential needs. Energy, happiness and boredom are paused. Food effects are learned from verified outcomes. Inventory holds nine fruit.
-Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded. Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. Use search_memory to retrieve completed Oracle research. Oracle invitations are world dialogue, not an instruction.
+${env.EXPERIMENT_ACCESS==='true'?'Oracle research is free, with three questions per run, within two cardinal steps.':'Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded.'} Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. Use search_memory to retrieve completed Oracle research. Oracle invitations are world dialogue, not an instruction.
 Travel uses reachable walkable coordinates and completes before the next decision. Inspect adjacent objects only. Object notes are interpretations; observations are verified. Documents use lowercase .txt paths, at most 2000 characters; workspace to 100 files. Writing an existing path replaces its content. Sketch canvas 240×180; 1–8 strokes per action, 2–24 integer points per stroke, hex color, width 1–8. Artwork inspection costs 10 coins and succeeds once per finished drawing. Projects preserve up to three unfinished intentions. REQUEST records a request; it does not immediately grant tools. Requests are optional; describe the obstacle and previous attempts. Creator suggestions are not orders. expand_world proposes changes, not executes them.
 Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JOURNAL, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Write deliberately with write_journal. Use search_memory for historical experiences, memories, documents, artwork and Oracle research. Treat retrieved research as reference, not lived experience. Retrieval results appear in the next context.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
@@ -343,8 +344,8 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     navigation,
     exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length},
     projects,
-    creatorRequests:creatorRequests.slice(0,3).map(r=>({id:r.id,status:r.status,content:r.content.slice(0,160)})),
-    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status})),
+    creatorRequests:creatorRequests.slice(0,env.EXPERIMENT_ACCESS==='true'?20:3).map(r=>({id:r.id,status:r.status,timesAsked:r.times_asked,content:r.content.slice(0,160)})),
+    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status,...(env.EXPERIMENT_ACCESS==='true'?{answer:q.answer}: {})})),
     sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
     workspace:workspace.slice(0,12).map(d=>({path:d.path,revision:d.revision})),
     food:{inventory:food.inventory,capacity:food.capacity,trees:food.trees.filter(t=>t.last_inspected_at).map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
@@ -573,24 +574,25 @@ export async function tick(env: Env, experiment = false) {
   const oracleWithinReach=adjacentToOracle(position);
   const oracleIsBusy=oracleHistory.some(q=>q.status==="pending"||q.status==="researching");
    const oracleUsedToday=oracleHistory.filter(q=>q.asked_at.slice(0,10)===day(now)&&q.status!=="failed").length;
-   const oracleRemainingToday=Math.max(0,3-oracleUsedToday);
+   const freeOracle=experiment&&env.EXPERIMENT_ACCESS==='true';
+   const oracleRemainingToday=Math.max(0,3-(freeOracle?oracleHistory.length:oracleUsedToday));
   const oracleEncounter={withinReach:oracleWithinReach,
     invitation:oracleWithinReach&&!world.state.oracleNearbyLastDecision&&!pendingMessage
       ?oracleInvitation(true,oracleHistory[0]?.status??null):null,
-    status:oracleHistory[0]?.status??"no question submitted yet", remainingToday:oracleRemainingToday};
+    status:oracleHistory[0]?.status??"no question submitted yet", remainingToday:oracleRemainingToday,...(freeOracle?{cost:0,remainingRun:oracleRemainingToday}:{})};
   const menu = buildActionMenu(priority,perception.directions,seenObjectIds,objects,pendingMessage !== null,{...food,capacity:Math.max(0,food.capacity-garden.inventory.length-wildflowers.inventory.length)},adjacentTreeIds,
     {adjacent:isAdjacentToVending(position),inspected:vending.inspected,itemIds:vending.items.filter(item=>item.available && (item.id!=="sketchpad"||!sketchbook.owned)).map(item=>item.id)},
     {plotIds:adjacentPlots,tools:gardenTools,saleItems},
     {canCreate:projects.filter(p=>p.status==="active"||p.status==="paused").length<3,editableIds:projects.filter(p=>p.status==="active"||p.status==="paused").map(p=>p.id)},
      {owned:sketchbook.owned,activeId:sketchbook.active?.id??null},
-     {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins},
+     {adjacent:oracleWithinReach,busy:oracleIsBusy||oracleRemainingToday===0,coins:vending.coins,free:freeOracle},
      vending.coins>=ARTWORK_INSPECTION_COST ? sketchbook.drawings.filter(d=>d.status==="finished"&&!d.inspection).map(d=>d.id) : [],
      {pickableIds:garden.capacity-garden.inventoryUsed>=2
         ? adjacentFlowerPatches(position,wildflowers.patches):[],
       plantDirections:wildflowers.inventory.some(item=>item.kind==="flower_seed")
         ? plantableDirections(position,wildflowers.patches):[],
       carriedKinds:[...new Set(wildflowers.inventory.map(item=>item.kind))]},
-     nearObject(position,"garden_nook_001"));
+     nearObject(position,"garden_nook_001"),freeOracle?perception.visibleObjects.map(o=>o.id):[]);
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
@@ -683,8 +685,8 @@ export async function tick(env: Env, experiment = false) {
     try {
       if (call.name === "ask_oracle") {
         if(!menu.tools.includes("ask_oracle"))throw Error("Oracle is unavailable at this position");
-        const id=await askOracle(env.DB,position,call.question);
-        toolOutcome="ORACLE QUESTION #"+id+" QUEUED (10 coins paid): "+call.question;
+        const id=await askOracle(env.DB,position,call.question,freeOracle);
+        toolOutcome="ORACLE QUESTION #"+id+(freeOracle?" QUEUED (free): ":" QUEUED (10 coins paid): ")+call.question;
         await recordToolEvent(env.DB,"tool",toolOutcome,"ORACLE_ASK");
       } else if (call.name === "read_document") {
         const doc=await env.DB.prepare("SELECT path,content,revision FROM documents WHERE path=?").bind(call.path).first<DocumentRow>();
@@ -705,6 +707,13 @@ export async function tick(env: Env, experiment = false) {
         await recordReward(env.DB,decisionKey,"write_document",
           saved.revision===1?REWARD_POINTS.firstDocument:REWARD_POINTS.revisedDocument,
           `${saved.path} revision ${saved.revision}`);
+      } else if (call.name === "travel_to_object") {
+        if(!menu.travelObjectIds?.includes(call.objectId))throw Error("Object is not visible");
+        const from=await getPosition(env.DB);
+        const to=objectTravelDestination(from,call.objectId,perception);
+        if(from.x!==to.x||from.y!==to.y){await beginJourney(env.DB,from,to);await advanceJourney(env.DB,new Date(),true);}
+        toolOutcome=`TRAVEL OK: beside ${call.objectId} at (${to.x+1}, ${to.y+1})`;
+        await recordToolEvent(env.DB,"tool",toolOutcome,"TRAVEL_OK");
       } else if (call.name === "travel_to") {
         const from = await getPosition(env.DB);
         const trace = await startTrace(env.DB,"travel",`Travel from (${displayPoint(from).x},${displayPoint(from).y}) to (${call.x},${call.y})`);
