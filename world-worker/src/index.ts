@@ -43,6 +43,7 @@ type Env = {
   OPENAI_MODEL?: string;
   ORACLE_MODEL?: string;
   EXPERIMENT_ACCESS?: string;
+  COMPACT_CONTEXT?: string;
   ARTWORK_VISION_MODEL?: string;
   MEMORY_MODEL?: string;
   MEMORY_CONSOLIDATION_ENABLED?: string;
@@ -328,32 +329,33 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     : null;
   const navigation=navigationContext(perception, memory.seen, objects, history);
   const progress=intentionProgress ? progressAt(state.intentionProgress,state.currentGoal,state.tickCount,history) : null;
+  const compact=env.COMPACT_CONTEXT==='true';
   const workingContext={
     retrieved,
-    identity:"Nimo",
+    ...(compact?{}:{identity:"Nimo"}),
     currentIntention:state.currentGoal,
     ...(progress?{intentionProgress:progressView(state.currentGoal,progress)}:{}),
     pendingIntent:state.pendingIntent??null,
-    latestThinking:latestThought
+    latestThinking:compact&&latestThought&&!experience.recentEvents.some(e=>e.id===latestThought.id)?(storedThought?{id:latestThought.id,nextStep:JSON.parse(storedThought.thought_json).nextStep,assessment:JSON.parse(storedThought.thought_json).assessment}:null):latestThought
       ? {id:latestThought.id,...(storedThought?JSON.parse(storedThought.thought_json):{text:latestThought.content.slice(0,500)})}
       : null,
     recentExperiences:experience.recentEvents,
     recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,kind:m.memory_kind,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
     needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
     perception:{position:perception.position,visibleObjects:perception.visibleObjects,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
-    navigation,
-    exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length},
+    navigation:compact?{visibleTerrain:navigation.visibleTerrain,recentFailures:navigation.recentFailures}:navigation,
+    ...(compact?{}:{exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length}}),
     projects,
     creatorRequests:creatorRequests.slice(0,env.EXPERIMENT_ACCESS==='true'?20:3).map(r=>({id:r.id,status:r.status,timesAsked:r.times_asked,content:r.content.slice(0,160)})),
-    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status,...(env.EXPERIMENT_ACCESS==='true'?{answer:q.answer}: {})})),
+    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status,...(env.EXPERIMENT_ACCESS==='true'&&(!compact||history.slice(0,4).some(e=>e.action==='ORACLE_ANSWER'&&e.content.startsWith('ORACLE #'+q.id+':')))?{answer:q.answer}: {})})),
     sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
     workspace:workspace.slice(0,12).map(d=>({path:d.path,revision:d.revision})),
     food:{inventory:food.inventory,capacity:food.capacity,trees:food.trees.filter(t=>t.last_inspected_at).map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
     garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null},
     ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}),
     fullnessDecayPointsPerSecond:rate,
-    availableActions:offeredActions,
-    capabilityCatalogue:capabilityCatalogue.filter(c=>!c.availableNow).map(c=>({action:c.action,requirements:c.requirements.slice(0,1)})),
+    availableActions:compact?menu.tools:offeredActions,
+    capabilityCatalogue:capabilityCatalogue.filter(c=>!c.availableNow).map(c=>compact?[c.action,c.requirements[0]]:{action:c.action,requirements:c.requirements.slice(0,1)}),
     priorityMode:priority.mode
   };
   const intentionInstructions=intentionProgress&&!pendingMessage
@@ -368,7 +370,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
   const variants = (format.json_schema.schema.properties.toolCall as {anyOf:unknown[]}).anyOf as unknown as {type:string;properties?:Record<string,{enum?:string[]}>;required?:string[];additionalProperties?:boolean}[];
   const nativeTools = variants.filter(v=>v.properties?.name).map(v=>{
     const {name,...properties}=v.properties!;
-    return {type:"function",name:name.enum![0],description:"Execute "+name.enum![0],strict:true,parameters:{type:"object",properties:{...properties,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"goal","intentDisposition"],additionalProperties:false}};
+    return {type:"function",name:name.enum![0],...(compact?{}:{description:"Execute "+name.enum![0]}),strict:true,parameters:{type:"object",properties:{...properties,goal:{type:["string","null"]},intentDisposition:{type:"string",enum:["keep","complete","abandon"]}},required:[...Object.keys(properties),"goal","intentDisposition"],additionalProperties:false}};
   });
   const mental = (name:string,properties:Record<string,unknown>)=>({type:"function",name,description:name==="reply"?"Reply to the waiting visitor":name,strict:true,parameters:{type:"object",properties,required:Object.keys(properties),additionalProperties:false}});
   const disposition={type:"string",enum:["keep","abandon"]};
