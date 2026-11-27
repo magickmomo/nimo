@@ -1,0 +1,54 @@
+name: World 003 live snapshot 50-decision experiment
+on:
+  push:
+    branches: [experiment/world-003-compact-cognition]
+    paths: ['.github/workflows/world-003-snapshot-50.yml']
+concurrency:
+  group: world-003-live-snapshot-50
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  snapshot-and-run:
+    runs-on: ubuntu-latest
+    environment: world-004
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install and verify the worker
+        run: |
+          npm install --prefix world-worker --no-audit --no-fund
+          npm run typecheck --prefix world-worker
+          npm test --prefix world-worker
+      - name: Export the live world read-only
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          umask 077
+          npx wrangler d1 export nimo-world --remote --output="$RUNNER_TEMP/nimo-snapshot.sql" > "$RUNNER_TEMP/nimo-export.log" 2>&1 ||
+            { echo "::error::Read-only D1 export failed"; exit 1; }
+          test -s "$RUNNER_TEMP/nimo-snapshot.sql"
+      - name: Verify the snapshot can execute a mocked decision
+        run: |
+          node world-worker/scripts/snapshot-experiment.mjs "$RUNNER_TEMP/nimo-snapshot.sql" "$RUNNER_TEMP/nimo-offline.json" --offline
+      - name: Run 50 decisions on a new copy of the snapshot
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node world-worker/scripts/snapshot-experiment.mjs "$RUNNER_TEMP/nimo-snapshot.sql" "$RUNNER_TEMP/nimo-snapshot-results.json"
+      - name: Remove the raw snapshot and temporary files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/nimo-snapshot.sql" "$RUNNER_TEMP/nimo-export.log" "$RUNNER_TEMP/nimo-offline.json"
+      - name: Upload redacted experiment results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-003-live-snapshot-results
+          path: ${{ runner.temp }}/nimo-snapshot-results.json
+          if-no-files-found: ignore

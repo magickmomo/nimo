@@ -19,13 +19,17 @@ export function isolatedWorld(){
   }
   sqlite.exec(`UPDATE world SET state=json_set(state,'$.emotions.hunger',0.4,
     '$.emotions.curiosity',0.35,'$.lastTick',strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=1`);
+  return {DB:sqliteAdapter(sqlite),sqlite};
+}
+
+export function sqliteAdapter(sqlite){
   const prepare=(sql,args=[])=>({
     bind:(...values)=>prepare(sql,values),
     first:async()=>sqlite.prepare(sql).get(...args)??null,
     all:async()=>({results:sqlite.prepare(sql).all(...args)}),
     run:async()=>({meta:{changes:Number(sqlite.prepare(sql).run(...args).changes)}}),
   });
-  const DB={prepare,batch:async statements=>{
+  return {prepare,batch:async statements=>{
     sqlite.exec("BEGIN");
     try {
       const rows=[];
@@ -39,7 +43,6 @@ export function isolatedWorld(){
       throw error;
     }
   }};
-  return {DB,sqlite};
 }
 
 export async function loadWorldWorker(){
