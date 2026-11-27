@@ -27,7 +27,10 @@ export function sqliteAdapter(sqlite){
     bind:(...values)=>prepare(sql,values),
     first:async()=>sqlite.prepare(sql).get(...args)??null,
     all:async()=>({results:sqlite.prepare(sql).all(...args)}),
-    run:async()=>({meta:{changes:Number(sqlite.prepare(sql).run(...args).changes)}}),
+    run:async()=>{
+      const {changes,lastInsertRowid}=sqlite.prepare(sql).run(...args);
+      return {meta:{changes:Number(changes),last_row_id:Number(lastInsertRowid)}};
+    },
   });
   return {prepare,batch:async statements=>{
     sqlite.exec("BEGIN");

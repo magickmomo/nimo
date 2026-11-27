@@ -1,0 +1,91 @@
+name: W003-E02 intention and progress
+on:
+  push:
+    branches: [experiment/w003-e02-intention-progress]
+    paths: ['.github/workflows/world-003-e02.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: w003-e02-intention-progress
+  cancel-in-progress: false
+jobs:
+  run:
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run the approved W003-E02 diagnostic repeat once'
+    runs-on: ubuntu-latest
+    environment: world-004
+    timeout-minutes: 30
+    env:
+      STRUCTURED_THINKING: 'true'
+      INTENTION_PROGRESS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run offline checks
+        run: |
+          npm install --prefix world-worker --no-audit --no-fund
+          npm run typecheck --prefix world-worker
+          npm test --prefix world-worker
+      - name: Download exact E00 baseline and generate runner key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          umask 077
+          mkdir "$RUNNER_TEMP/e02"
+          cd "$RUNNER_TEMP/e02"
+          gh run download 45973447418 -R "$GITHUB_REPOSITORY" -n w003-e00-encrypted-baseline
+          openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out runner-key.pem
+          openssl pkey -in runner-key.pem -pubout -out runner-public.pem
+      - name: Publish ephemeral public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: e02-runner-public-key
+          path: ${{ runner.temp }}/e02/runner-public.pem
+          if-no-files-found: error
+          retention-days: 1
+      - name: Restore and mock the approved snapshot
+        run: |
+          umask 077
+          data="$RUNNER_TEMP/e02"
+          ref="refs/heads/experiment/w003-e02-key-$GITHUB_RUN_ID"
+          for attempt in $(seq 1 60); do
+            if git fetch --quiet --no-tags "https://github.com/$GITHUB_REPOSITORY.git" "$ref" 2>/dev/null; then
+              git show FETCH_HEAD:wrapped-e00-key.txt > "$data/wrapped-key.txt"
+              break
+            fi
+            sleep 5
+          done
+          test -s "$data/wrapped-key.txt"
+          node world-worker/scripts/snapshot-key-handoff.mjs restore "$data/e00-snapshot.enc" "$data/runner-key.pem" "$data/wrapped-key.txt" "$data/world.sql"
+          rm -f "$data/runner-key.pem" "$data/wrapped-key.txt"
+          printf '%s  %s\n' b56294f210b641769dfcb8c872216efda3c9e4080fff354ff0cc9a4ee4abcdc9 "$data/world.sql" | sha256sum -c
+          node world-worker/scripts/snapshot-experiment.mjs "$data/world.sql" "$data/mock.json" "$(jq -r .captureStartedAt "$data/e00-manifest.json")" --offline
+          jq -e '.finished and .firstContext.needsPercent.fullness==65 and .firstContext.needsPercent.curiosity==100 and .initial.tickCount==5797' "$data/mock.json" >/dev/null
+      - name: Run 50 approved decisions
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          umask 077
+          data="$RUNNER_TEMP/e02"
+          node world-worker/scripts/snapshot-experiment.mjs "$data/world.sql" "$data/results.json" "$(jq -r .captureStartedAt "$data/e00-manifest.json")" "$data/evidence.json"
+      - name: Encrypt detailed evidence and clean up
+        if: always()
+        run: |
+          data="$RUNNER_TEMP/e02"
+          trap 'rm -f "$data/world.sql" "$data/evidence.json" "$data/runner-key.pem" "$data/wrapped-key.txt" "$data/mock.json"' EXIT
+          if test -s "$data/evidence.json"; then
+            node world-worker/scripts/snapshot-envelope.mjs seal research/experiments/W003-E00/snapshot-public-key.pem "$data/evidence.json" "$data/evidence.enc"
+          fi
+      - name: Publish redacted results and encrypted evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: w003-e02-results
+          path: |
+            ${{ runner.temp }}/e02/results.json
+            ${{ runner.temp }}/e02/evidence.enc
+          if-no-files-found: ignore

@@ -1,6 +1,8 @@
+import {intentionFields,validateIntention,progressAt,progressView,recordProgress,type IntentionProgress,type IntentionUpdate} from "./intention-progress";
+import {thoughtFields,validateThought,type StructuredThought} from "./structured-thinking";
 import {searchHistoricalMemory} from "./historical-memory";
 import {navigationContext, travelDestination, JourneyError} from "./navigation";
-import { INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
+import { INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState as BaseWorldState } from "../../web/lib/world";
 import {cachedWorldSnapshot,saveWorldSnapshot} from "./world-snapshot-cache";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
 import { REWARD_POINTS, inspectScore, applyRewards, recordReward, pendingRewards, totalRewards } from "./rewards";
@@ -32,6 +34,7 @@ import {saveDecisionInputAudit,decisionAuditExport,type DecisionInputAudit} from
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
 
+type WorldState = BaseWorldState & {intentionProgress?:IntentionProgress};
 type Env = {
   DB: D1Database;
   ARCHIVES?: R2Bucket;
@@ -42,6 +45,8 @@ type Env = {
   ARTWORK_VISION_MODEL?: string;
   MEMORY_MODEL?: string;
   MEMORY_CONSOLIDATION_ENABLED?: string;
+  STRUCTURED_THINKING?: string;
+  INTENTION_PROGRESS?: string;
   WORLD_INTERNAL_SECRET: string;
 };
 type EventRow = ExperienceEvent;
@@ -266,7 +271,7 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], workspace: Pick<DocumentRow,"path"|"revision">[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: Pick<DocumentRow,"path"|"revision">[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision & {structuredThought?:StructuredThought;intentionUpdate?:IntentionUpdate}> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `You are Nimo. Choose your next action.
 You inhabit a persistent 16×16 world. Coordinates are one-based; north decreases y, east increases x. Perception is current; memories are historical. Only availableActions grants permission; capabilityCatalogue describes prerequisites, not permissions. A missing action may be available elsewhere or later. Learn from perception, verified outcomes and memories.
@@ -294,6 +299,12 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     : "";
   const model = env.OPENAI_MODEL || "gpt-6-luna";
   const reasoningModel = /^gpt-(?:5|6)(?:[.-]|$)/.test(model);
+  const intentionProgress=reasoningModel&&env.INTENTION_PROGRESS==="true";
+  const structuredThinking=reasoningModel&&env.STRUCTURED_THINKING==="true";
+  const offeredExperienceIds=new Set(experience.recentEvents.map(e=>e.id));
+  const eligibleThoughtEvidence=new Set(structuredThinking
+    ? history.filter(e=>offeredExperienceIds.has(e.id)&&eligibleEvent({...e,action:e.action??""})).map(e=>e.id)
+    : []);
   // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
   const {hunger: storedHunger, ...otherEmotions} = state.emotions;
   const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
@@ -310,13 +321,21 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
   const retrieved=lastCognitiveEvent?.action==="RETRIEVAL_OK" ? lastCognitiveEvent.content : undefined;
   // E012 working context: recent experience and memory, not the entire world database.
   const latestThought=history.find(e=>e.kind==="thought"&&["THINK","WRITE_JOURNAL"].includes(e.action??""));
+  const storedThought=structuredThinking&&latestThought?.action==="THINK"
+    ? await env.DB.prepare("SELECT thought_json FROM structured_thoughts WHERE event_id=?").bind(latestThought.id)
+      .first<{thought_json:string}>()
+    : null;
   const navigation=navigationContext(perception, memory.seen, objects, history);
+  const progress=intentionProgress ? progressAt(state.intentionProgress,state.currentGoal,state.tickCount,history) : null;
   const workingContext={
     retrieved,
     identity:"Nimo",
     currentIntention:state.currentGoal,
+    ...(progress?{intentionProgress:progressView(state.currentGoal,progress)}:{}),
     pendingIntent:state.pendingIntent??null,
-    latestThinking:latestThought?{id:latestThought.id,text:latestThought.content.slice(0,500)}:null,
+    latestThinking:latestThought
+      ? {id:latestThought.id,...(storedThought?JSON.parse(storedThought.thought_json):{text:latestThought.content.slice(0,500)})}
+      : null,
     recentExperiences:experience.recentEvents,
     recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,kind:m.memory_kind,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
     needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
@@ -336,8 +355,11 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     capabilityCatalogue:capabilityCatalogue.filter(c=>!c.availableNow).map(c=>({action:c.action,requirements:c.requirements.slice(0,1)})),
     priorityMode:priority.mode
   };
+  const intentionInstructions=intentionProgress&&!pendingMessage
+    ? "\nUse intentionProgress as an account of recent attempts. Verified outcomes show what happened, while relevance to your goal depends on your assessment. You may keep acting, or freely use update_intention to set or revise an aim, abandon it or record completion with evidence. Cite verified outcome IDs from this request. Use a brief reason and null goal for abandon or complete."
+    : "";
   const messages = [
-    {role:"system",content:system},
+    {role:"system",content:system+(structuredThinking&&!pendingMessage ? "\nIf you choose THINK, record a short assessment and optional advisory next step. Cite only verified outcomes in recentExperiences or use an empty list." : "")+intentionInstructions},
     {role:"user",content:JSON.stringify(workingContext)},
     ...(pendingMessage?[{role:"user",content:visitorInstructions}]:[])
   ];
@@ -350,7 +372,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
   const mental = (name:string,properties:Record<string,unknown>)=>({type:"function",name,description:name==="reply"?"Reply to the waiting visitor":name,strict:true,parameters:{type:"object",properties,required:Object.keys(properties),additionalProperties:false}});
   const disposition={type:"string",enum:["keep","abandon"]};
   const textField={type:"string"};
-  const tools = pendingMessage ? [mental("reply",{text:textField,replyIntent:{type:["string","null"]},intentDisposition:disposition})] : [...nativeTools,...["think","observe","remember","request","write_journal"].map(name=>mental(name,{text:textField,intentDisposition:disposition}))];
+  const tools = pendingMessage ? [mental("reply",{text:textField,replyIntent:{type:["string","null"]},intentDisposition:disposition})] : [...nativeTools,...(intentionProgress?[mental("update_intention",intentionFields)]:[]),...["think","observe","remember","request","write_journal"].map(name=>mental(name,{...(name==="think"&&structuredThinking?thoughtFields:{text:textField}),intentDisposition:disposition}))];
   const payload = reasoningModel
     ? {
         model,
@@ -396,10 +418,24 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
   });
   const calls=data.output?.filter(o=>o.type==="function_call")??[];
   if(reasoningModel&&calls.length!==1)throw Error("Expected exactly one function call");
+  let structuredThought:StructuredThought|undefined;
+  let intentionUpdate:IntentionUpdate|undefined;
   const raw = reasoningModel
     ? (()=>{const call=calls[0];const args=JSON.parse(call.arguments??"{}");const {intentDisposition,text,replyIntent,goal,...parameters}=args;
+      if(intentionProgress&&call.name==="update_intention"){
+        if(pendingMessage)throw Error("Intention updates are unavailable during a visitor reply");
+        const offeredIds=new Set([...offeredExperienceIds,...(progress?.attempts.filter(a=>a.status!=="pending"&&a.status!=="unverified").flatMap(a=>a.eventId===null?[]:[a.eventId])??[])]);
+        const verifiedIds=new Set(history.filter(e=>offeredIds.has(e.id)&&eligibleEvent({...e,action:e.action??""})).map(e=>e.id));
+        intentionUpdate=validateIntention(args,state.currentGoal,verifiedIds);
+        return JSON.stringify({action:"OBSERVE",monologue:intentionUpdate.reason,activity:call.name,goal:intentionUpdate.goal,
+          identityUpdate:null,toolCall:null,replyIntent:null,intentDisposition:"keep"});
+      }
+      if(structuredThinking&&call.name==="think"){
+        if(pendingMessage)throw Error("THINK unavailable during a visitor reply");
+        structuredThought=validateThought(args,eligibleThoughtEvidence);
+      }
       const mentalAction=["think","observe","remember","request","reply","write_journal"].includes(call.name??"");
-      return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?text:call.name,activity:call.name,goal:goal??state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
+      return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?(structuredThought?.assessment??text):call.name,activity:call.name,goal:goal??state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
     : data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision" + (data.incomplete_details?.reason ? ": " + data.incomplete_details.reason : ""));
   let parsed: unknown;
@@ -423,7 +459,8 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     throw new Error(`Invalid AI decision: ${reason}. Model response: ${diagnostic()}`);
   };
   try {
-    return validateDecision(parsed, pendingMessage !== null);
+    const decision=validateDecision(parsed, pendingMessage !== null);
+    return structuredThought?{...decision,structuredThought}:intentionUpdate?{...decision,intentionUpdate}:decision;
   } catch (error) {
     return invalid(error instanceof Error ? error.message : String(error));
   }
@@ -557,7 +594,7 @@ export async function tick(env: Env, experiment = false) {
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
-  let d: Decision;
+  let d: Decision & {structuredThought?:StructuredThought;intentionUpdate?:IntentionUpdate};
   let usage:Record<string,number>|null=null;
   // Record the exact model used for each new decision so exported histories
   // can distinguish model changes. Earlier records cannot be retroactively tagged.
@@ -632,8 +669,10 @@ export async function tick(env: Env, experiment = false) {
   // Unsuccessful attempts remain in the journal, but do not satisfy curiosity.
   let toolFailed=false;
   let outcomeEventId:number|null=null;
+  let toolEventId:number|null=null;
   const recordToolEvent = async (db:D1Database, kind:string, content:string, action:string) => {
     const id=await log(db,kind,content,action);
+    toolEventId=id;
     if(eligibleEvent({id,kind,content,action,created_at:now.toISOString()}))outcomeEventId=id;
     return id;
   };
@@ -897,6 +936,18 @@ export async function tick(env: Env, experiment = false) {
       d.intentDisposition,!!d.toolCall&&!toolFailed,now.toISOString()),
     tickCount: state.tickCount + 1, lastTick: now.toISOString(),
   };
+  if(env.INTENTION_PROGRESS==="true"){
+    const prior=progressAt(state.intentionProgress,state.currentGoal,state.tickCount,history);
+    const outcomeStatus=toolFailed?"failed"
+      : verifiedExperience?.type==="inspection"&&verifiedExperience.comparison==="unchanged"?"unchanged"
+      : d.toolCall?.name==="travel_to"||d.toolCall?.name==="ask_oracle"?"pending"
+      : outcomeEventId!==null?"observed":"unverified";
+    next.intentionProgress=recordProgress(prior,state.currentGoal,next.currentGoal,next.tickCount,
+      d.toolCall?{action:d.toolCall.name,status:outcomeStatus,eventId:toolEventId,outcome:toolOutcome?.slice(0,160)??null}:null,
+      d.intentionUpdate);
+    console.log("NIMO_INTENTION_PROGRESS",JSON.stringify({decisionKey,before:state.currentGoal,after:next.currentGoal,
+      update:d.intentionUpdate??null,newestAttempt:d.toolCall?next.intentionProgress.attempts.at(-1):null}));
+  }
   await env.DB.prepare("UPDATE world SET state=? WHERE id=1").bind(JSON.stringify(next)).run();
   if(oracleEncounter.invitation && !pendingMessage){
     await log(env.DB,"world",oracleEncounter.invitation,"ORACLE_WHISPER");
@@ -907,6 +958,14 @@ export async function tick(env: Env, experiment = false) {
     await log(env.DB, "reply", d.monologue, `REPLY_TO:${pendingMessage.id}`);
     if(d.replyIntent)await log(env.DB,"tool",
       "Nimo accepted visitor request #"+pendingMessage.id+": "+d.replyIntent,"INTENT_ACCEPTED");
+  } else if (d.action==="THINK"&&d.structuredThought) {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO events(kind,content,action) VALUES('thought',?,'THINK')").bind(d.monologue),
+      env.DB.prepare("INSERT INTO structured_thoughts(event_id,trace_id,thought_json) VALUES(last_insert_rowid(),?,?)")
+        .bind(modelTrace,JSON.stringify(d.structuredThought)),
+    ]);
+    const event=await env.DB.prepare("SELECT event_id AS id FROM structured_thoughts WHERE trace_id=?").bind(modelTrace).first<{id:number}>();
+    console.log("NIMO_STRUCTURED_THOUGHT",JSON.stringify({decisionKey,eventId:event?.id,...d.structuredThought}));
   } else if (d.action!=="ACT") {
     const eventId=await log(env.DB, d.action==="REQUEST"?"request":"thought", d.monologue, d.action);
     if(d.action==="REQUEST"){
