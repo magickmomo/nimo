@@ -1,0 +1,3 @@
+# Decision register
+Owner-approved principles: general rather than food-specific memory; preserve physical outcomes; meaningful-experience consolidation; no cooldowns in experiments; compare new runs against historical evidence instead of rerunning old architectures unnecessarily; no production deployment or main merge during experiments.
+Proposed (not accepted): structured thinking, progress tracking, reflective consolidation refinements, semantic precision, identity changes, simplification, library, long validation. See ROADMAP. Record each acceptance/rejection with date, experiment ID, evidence, rationale and commit.
