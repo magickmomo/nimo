@@ -1,7 +1,7 @@
-name: W003-E02F knowledgeable Oracle 200 decisions
+name: W003-E02F-M01 GPT-4.1 mini 200 decisions
 on:
   push:
-    branches: [experiment/w003-e02f-knowledgeable-oracle]
+    branches: [experiment/w003-e02f-m01-gpt41-mini]
     paths: ['.github/workflows/world-003-e02-observation.yml']
 concurrency:
   group: world-003-e02-observation
@@ -34,7 +34,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: world-003-e02f-results
+          name: world-003-e02f-m01-results
           path: ${{ runner.temp }}/nimo-results/
           if-no-files-found: ignore
 
