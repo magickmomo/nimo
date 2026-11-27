@@ -1,7 +1,7 @@
-name: W003-E02 full perception instant travel 200 decisions
+name: W003-E02C accessible environment 200 decisions
 on:
   push:
-    branches: [experiment/w003-e02-full-perception]
+    branches: [experiment/w003-e02c-accessible-environment]
     paths: ['.github/workflows/world-003-e02-observation.yml']
 concurrency:
   group: world-003-e02-observation
@@ -34,8 +34,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: world-003-e02-full-perception-results
-          path: ${{ runner.temp }}/nimo-results/*.json
+          name: world-003-e02c-results
+          path: ${{ runner.temp }}/nimo-results/
           if-no-files-found: ignore
 
 # Run bounded-error observation after offline verification.
