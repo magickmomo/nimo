@@ -43,3 +43,5 @@ jobs:
 # Retry after updating offline regression assertions.
 
 # Retry after preserving quiet-nook regression assertion.
+
+# Retry with bundled Oracle regression test.
