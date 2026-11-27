@@ -55,7 +55,7 @@ export async function loadWorldWorker(){
     plugins:[{name:"experiment-exports",setup(ctx){
       ctx.onLoad({filter:/\/src\/index\.ts$/},({path})=>({
         contents:readFileSync(path,"utf8")+
-          '\nexport {searchHistoricalMemory, consolidatePersonalExperiences, beginJourney, advanceJourney, pauseJourney, resumeJourney, travelDestination};',
+          '\nexport {searchHistoricalMemory, consolidatePersonalExperiences, beginJourney, advanceJourney, pauseJourney, resumeJourney, travelDestination, researchOracleQuestion};',
         loader:"ts",
       }));
     }}],
