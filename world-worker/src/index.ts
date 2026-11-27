@@ -336,7 +336,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     currentIntention:state.currentGoal,
     ...(progress?{intentionProgress:progressView(state.currentGoal,progress)}:{}),
     pendingIntent:state.pendingIntent??null,
-    latestThinking:compact&&latestThought&&!experience.recentEvents.some(e=>e.id===latestThought.id)?(storedThought?{id:latestThought.id,nextStep:JSON.parse(storedThought.thought_json).nextStep,assessment:JSON.parse(storedThought.thought_json).assessment}:null):latestThought
+    latestThinking:latestThought
       ? {id:latestThought.id,...(storedThought?JSON.parse(storedThought.thought_json):{text:latestThought.content.slice(0,500)})}
       : null,
     recentExperiences:experience.recentEvents,
@@ -347,7 +347,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JO
     ...(compact?{}:{exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length}}),
     projects,
     creatorRequests:creatorRequests.slice(0,env.EXPERIMENT_ACCESS==='true'?20:3).map(r=>({id:r.id,status:r.status,timesAsked:r.times_asked,content:r.content.slice(0,160)})),
-    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status,...(env.EXPERIMENT_ACCESS==='true'&&(!compact||history.slice(0,4).some(e=>e.action==='ORACLE_ANSWER'&&e.content.startsWith('ORACLE #'+q.id+':')))?{answer:q.answer}: {})})),
+    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status,...(env.EXPERIMENT_ACCESS==='true'?{answer:q.answer}: {})})),
     sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
     workspace:workspace.slice(0,12).map(d=>({path:d.path,revision:d.revision})),
     food:{inventory:food.inventory,capacity:food.capacity,trees:food.trees.filter(t=>t.last_inspected_at).map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
