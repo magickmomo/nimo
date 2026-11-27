@@ -53,9 +53,11 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
   let firstContext=null;
   const thoughts=[],thoughtExposure=[],intentions=[];
   const getMemory=sqlite.prepare("SELECT id,subject,statement,memory_kind,confidence,status,updated_at FROM consolidated_memories_v2 WHERE subject=?");
-  const getDecisionTrace=sqlite.prepare("SELECT id,status FROM action_trace WHERE id>? AND kind='decide' ORDER BY id DESC LIMIT 1");
+  const getDecisionTrace=sqlite.prepare("SELECT id,status,result FROM action_trace WHERE id>? AND kind='decide' ORDER BY id DESC LIMIT 1");
   const target=offline?1:50;
   let primary=0;
+  let primaryResponse=null;
+  let failedDecision=null;
   let finished=false;
   const env={DB,OPENAI_API_KEY:offline?"offline-placeholder":key,OPENAI_MODEL:"gpt-6-luna",
     MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:process.env.STRUCTURED_THINKING,INTENTION_PROGRESS:process.env.INTENTION_PROGRESS};
@@ -120,6 +122,7 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
     const mainDecision=pathname==="/v1/responses"&&request.model===env.OPENAI_MODEL;
     if(mainDecision && ++primary>target)throw Error("Decision budget exceeded");
     if(mainDecision){
+      primaryResponse=null;
       const context=JSON.parse(request.input.split("\n\n",3)[1]);
       if(context.latestThinking?.purpose)thoughtExposure.push({ordinal:primary,eventId:context.latestThinking.id});
       if(primary===1)firstContext={needsPercent:context.needsPercent,position:context.perception.position,hasIntention:Boolean(context.currentIntention)};
@@ -139,6 +142,16 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
     }
     const response=await originalFetch(url,init);
     const body=await response.clone().json().catch(()=>null);
+    if(mainDecision && privateOutput){
+      // Keep function arguments as received, including invalid JSON. Avoid
+      // copying unrelated response items such as reasoning or assistant text.
+      const output=Array.isArray(body?.output)?body.output:[];
+      primaryResponse={status:response.status,parsedJson:body!==null,
+        responseStatus:body?.status??null,incompleteReason:body?.incomplete_details?.reason??null,
+        outputTypes:output.map(item=>item?.type??null),
+        functionCalls:output.filter(item=>item?.type==="function_call")
+          .map(({name,arguments:args})=>({name,args}))};
+    }
     calls.push({model:request.model,endpoint:pathname,status:response.status,usage:body?.usage,decisionOrdinal:primary});
     return response;
   };
@@ -152,7 +165,13 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
       if(!["ok","model_error"].includes(result.status))throw Error("Unexpected decision status");
       attempts.push(result.status);
       log(`${attempts.length}/${target} ${result.status}`);
-      if(result.status==="model_error")throw Error("Model decision failed");
+      if(result.status==="model_error"){
+        const trace=getDecisionTrace.get(traceMax);
+        failedDecision={ordinal:primary,traceId:trace?.id??null};
+        if(privateOutput)privateTrace.push({kind:"decision-failure",...failedDecision,
+          response:primaryResponse,diagnostic:trace?.status==="failed"?trace.result:null});
+        throw Error("Model decision failed");
+      }
     }
     while((await advanceJourney(DB)).status==="travelling")await setTimeout(750);
     if(primary!==target)throw Error("Decision budget mismatch");
@@ -166,7 +185,7 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
         const m=content.match(/arrived at \((\d+), (\d+)\) after (\d+) steps/);
         return {eventId:id,arrival:m?{x:Number(m[1]),y:Number(m[2]),steps:Number(m[3])}:null};
       });
-    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,thoughts,thoughtExposure,intentions,
+    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,failedDecision,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,thoughts,thoughtExposure,intentions,
       finalPosition:getPosition(),finalNeeds:{fullness:100*(1-final.emotions.hunger),curiosity:final.emotions.curiosity},
       finishedAt:new Date().toISOString()},null,2));
     if(privateOutput)writeFileSync(privateOutput,JSON.stringify(privateTrace),{mode:0o600});
