@@ -11,4 +11,4 @@ Each stage is a proposal until owner approval. Change one variable at a time, us
 | W003-E06 | Simplify legacy guidance | Remove one behavioural mechanism at a time; preserve physical constraints |
 | W003-E07 | Library | Voluntary reading, provenance distinct from personal experience, general memory reuse |
 | W003-E08 | Long validation | Proposed 200 decisions plus restart persistence; accepted changes only |
-Before E01: fix/verify snapshot clock rebasing, retain securely reusable baseline, ensure redacted telemetry supports evidence-to-action analysis. No paid rerun without approval.
+W003-E00 completed the offline clock checks, encrypted snapshot restore, and the authorised 50-decision run. The [corrected results](experiments/W003-E00/corrected-results.md) document an inspection loop and the limits of what that run exercised. Further experiments require owner approval.
