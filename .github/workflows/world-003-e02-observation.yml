@@ -1,7 +1,7 @@
-name: W003-E02D compact context 200 decisions
+name: W003-E02E cognitive continuity 200 decisions
 on:
   push:
-    branches: [experiment/w003-e02d-compact-context]
+    branches: [experiment/w003-e02e-cognitive-continuity]
     paths: ['.github/workflows/world-003-e02-observation.yml']
 concurrency:
   group: world-003-e02-observation
@@ -34,7 +34,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: world-003-e02d-results
+          name: world-003-e02e-results
           path: ${{ runner.temp }}/nimo-results/
           if-no-files-found: ignore
 
