@@ -1,0 +1,39 @@
+name: W003-E02 fresh world 200-decision observation
+on:
+  push:
+    branches: [experiment/w003-e02-intention-progress]
+    paths: ['.github/workflows/world-003-e02-observation.yml']
+concurrency:
+  group: world-003-e02-observation
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  verify-and-run:
+    runs-on: ubuntu-latest
+    environment: world-004
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install worker dependencies
+        run: npm install --prefix world-worker --no-audit --no-fund
+      - name: Offline verification
+        run: |
+          npm run typecheck --prefix world-worker
+          npm test --prefix world-worker
+          node world-worker/scripts/e02-observation.mjs profile "$RUNNER_TEMP/nimo-results"
+          node -e 'const r=require(process.argv[1]); if(r.attempts.length!==1 || r.attempts[0].status!=="ok") process.exit(1)' "$RUNNER_TEMP/nimo-results/profile.json"
+      - name: Run 200 E02 decisions in an isolated database
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node world-worker/scripts/e02-observation.mjs paid "$RUNNER_TEMP/nimo-results"
+      - name: Export decision, usage, evidence and outcome records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-003-e02-observation-results
+          path: ${{ runner.temp }}/nimo-results/*.json
+          if-no-files-found: ignore
