@@ -1,0 +1,2 @@
+# Objectives
+Build a general autonomous cognitive core: perceive, form independent intentions, choose actions, learn from verified experience, recall relevant knowledge, reflect, create and explore. New capabilities must not require specialised cognitive banks. Preserve physical mechanics, autonomy and evidence provenance. One primary model call per decision; bounded context; auxiliary calls measured separately. No forced tasks, narration or experiment cooldowns. Evaluate learning by experience → evidence → memory → recall → changed action → outcome, not memory counts alone.
