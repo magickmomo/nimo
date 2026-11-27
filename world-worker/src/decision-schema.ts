@@ -15,6 +15,7 @@ export type DecisionTool =
   | { name: "expand_world";changeType:"add"|"modify";title:string;target:string;description:string;reason:string }
   | { name: "ask_oracle";question:string }
   | { name: "write_document"; path: string; content: string }
+  | { name: "travel_to_object"; objectId:string }
   | { name: "travel_to"; x: number; y: number }
   | { name: "inspect"; direction: "north" | "south" | "east" | "west" }
   | { name: "remember_object"; objectId: string; label: string; note: string }
@@ -43,7 +44,7 @@ export type Decision = {
 };
 
 const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY", "WRITE_JOURNAL"];
-const TOOLS: readonly string[] = ["read_document","search_memory","write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
+const TOOLS: readonly string[] = ["read_document","search_memory","write_document", "travel_to", "travel_to_object", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -175,6 +176,9 @@ export function validateDecision(input: unknown, hasPendingVisitor: boolean): De
     } else if (tool.name === "sell_item") {
       if(typeof tool.item!=="string"||!isSaleableItem(tool.item))fail("Unknown sale item");
       toolCall={name:"sell_item",item:tool.item as SaleableItem};
+    } else if (tool.name === "travel_to_object") {
+      if(!string(tool.objectId,100)||!tool.objectId.trim())fail("Object ID required");
+      toolCall={name:"travel_to_object",objectId:tool.objectId};
     } else if (tool.name === "travel_to") {
       if (!Number.isInteger(tool.x) || !Number.isInteger(tool.y) ||
           (tool.x as number) < 1 || (tool.x as number) > WORLD_SIZE ||
