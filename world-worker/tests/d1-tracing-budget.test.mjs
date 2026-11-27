@@ -9,7 +9,7 @@ test("preparation reads don't create expensive D1 action traces",()=>{
   assert.doesNotMatch(worker,/traced\(env\.DB,"perceive"/);
   assert.match(worker,/const \[history,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory\] = await Promise\.all/);
   assert.match(worker,/await recordSight\(env\.DB,position\)/);
-  assert.match(worker,/const perception = modelPerception\(position\)/);
+  assert.match(worker,/const perception = experiment \? modelPerception\(position,WORLD_SIZE\) : modelPerception\(position\)/);
 });
 
 test("passive monologue is persisted in journal but not action_trace",()=>{
