@@ -1,4 +1,4 @@
-import { displayPoint, modelPerception, WORLD_SIZE } from "../../web/lib/world-map";
+import { displayPoint, modelPerception, WORLD_SIZE, shortestPath, objectAt, isWalkable, type Point } from "../../web/lib/world-map";
 import type { ExperienceEvent } from "./experience-context";
 
 export class JourneyError extends Error {
@@ -41,4 +41,17 @@ export function navigationContext(
     knownObjects,
     recentFailures:history.filter(e=>e.action==="TRAVEL_ERROR").slice(0,4).map(e=>e.content.slice(0,250)),
   };
+}
+
+export function objectTravelDestination(from:Point,id:string,perception:ReturnType<typeof modelPerception>):Point {
+ if(!perception.visibleObjects.some(o=>o.id===id))throw new JourneyError("object_not_visible");
+ const candidates:Point[][]=[];
+ for(let y=0;y<WORLD_SIZE;y++)for(let x=0;x<WORLD_SIZE;x++){
+  const p={x,y}; if(!isWalkable(p))continue;
+  if(![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>objectAt({x:x+dx,y:y+dy})?.id===id))continue;
+  const route=shortestPath(from,p); if(route)candidates.push(route);
+ }
+ candidates.sort((a,b)=>a.length-b.length);
+ const route=candidates[0]; if(!route)throw new JourneyError("unreachable_object");
+ return route[route.length-1];
 }
