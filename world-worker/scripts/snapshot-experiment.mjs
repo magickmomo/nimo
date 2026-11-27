@@ -15,6 +15,8 @@ export function importSnapshot(sql){
     const migration=new URL("../migrations/034_experiential_memory.sql",import.meta.url);
     sqlite.exec(readFileSync(migration,"utf8"));
   }
+  const schema=new URL("../migrations/035_structured_thoughts.sql",import.meta.url);
+  sqlite.exec(readFileSync(schema,"utf8"));
   sqlite.exec("PRAGMA foreign_keys=ON");
   return sqlite;
 }
@@ -34,7 +36,7 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
   const eventMax=sqlite.prepare("SELECT COALESCE(MAX(id),0) AS id FROM events").get().id;
   const traceMax=sqlite.prepare("SELECT COALESCE(MAX(id),0) AS id FROM action_trace").get().id;
   const initial={
-    snapshotSha256:sha256(bytes),schemaVersion:34,
+    snapshotSha256:sha256(bytes),schemaVersion:35,
     startedAt:new Date().toISOString(),tickCount:start.tickCount,
     position:getPosition(),storedFullness:typeof start.emotions.hunger==="number"?100*(1-start.emotions.hunger):null,
     curiosity:start.emotions.curiosity,hasIntention:Boolean(start.currentGoal),
@@ -49,22 +51,28 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
   await resumeJourney(DB,new Date(clock.startedAt));
   const calls=[], decisions=[], recall=[], reviews=[], attempts=[], privateTrace=[];
   let firstContext=null;
+  const thoughts=[],thoughtExposure=[];
   const getMemory=sqlite.prepare("SELECT id,subject,statement,memory_kind,confidence,status,updated_at FROM consolidated_memories_v2 WHERE subject=?");
   const getDecisionTrace=sqlite.prepare("SELECT id,status FROM action_trace WHERE id>? AND kind='decide' ORDER BY id DESC LIMIT 1");
   const target=offline?1:50;
   let primary=0;
   let finished=false;
   const env={DB,OPENAI_API_KEY:offline?"offline-placeholder":key,OPENAI_MODEL:"gpt-6-luna",
-    MEMORY_CONSOLIDATION_ENABLED:"true"};
+    MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:process.env.STRUCTURED_THINKING};
   const mute=()=>{};
   console.error=mute;
   console.warn=mute;
   console.log=(tag,raw)=>{
     // Do not publish historical records, text arguments, thoughts, intentions,
     // requests, literal queries, or excerpts in a GitHub workflow artifact.
-    if(!["NIMO_DECISION_OUTCOME","NIMO_RECALL","NIMO_CONSOLIDATION"].includes(tag))return;
+    if(!["NIMO_DECISION_OUTCOME","NIMO_RECALL","NIMO_CONSOLIDATION","NIMO_STRUCTURED_THOUGHT"].includes(tag))return;
     const data=JSON.parse(raw);
     if(privateOutput)privateTrace.push({tag,data});
+    if(tag==="NIMO_STRUCTURED_THOUGHT"){
+      const {decisionKey,eventId,purpose,nextStep,evidenceEventIds}=data;
+      thoughts.push({decisionKey,eventId,purpose,hasNextStep:nextStep!==null,evidenceEventIds});
+      return;
+    }
     if(tag==="NIMO_RECALL"){
       const memories=data.ids.length?sqlite.prepare(`SELECT id,updated_at,memory_kind AS kind FROM consolidated_memories_v2
         WHERE id IN (${data.ids.map(()=>"?").join(",")})`).all(...data.ids):[];
@@ -104,10 +112,11 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
     const request=JSON.parse(init.body);
     const mainDecision=pathname==="/v1/responses"&&request.model===env.OPENAI_MODEL;
     if(mainDecision && ++primary>target)throw Error("Decision budget exceeded");
-    if(mainDecision && primary===1){
+    if(mainDecision){
       const context=JSON.parse(request.input.split("\n\n",3)[1]);
-      firstContext={needsPercent:context.needsPercent,position:context.perception.position,hasIntention:Boolean(context.currentIntention)};
-      if(initial.journey==="idle" && initial.storedFullness!==null && Math.abs(initial.storedFullness-context.needsPercent.fullness)>1){
+      if(context.latestThinking?.purpose)thoughtExposure.push({ordinal:primary,eventId:context.latestThinking.id});
+      if(primary===1)firstContext={needsPercent:context.needsPercent,position:context.perception.position,hasIntention:Boolean(context.currentIntention)};
+      if(primary===1 && initial.journey==="idle" && initial.storedFullness!==null && Math.abs(initial.storedFullness-context.needsPercent.fullness)>1){
         throw Error("First decision did not preserve stored fullness");
       }
     }
@@ -117,7 +126,9 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
       const tool=request.tools.find(t=>t.name==="reply")??request.tools.find(t=>t.name==="think");
       return Response.json({output:[{type:"function_call",name:tool.name,arguments:JSON.stringify(
         tool.name==="reply"?{text:"Offline smoke test.",replyIntent:null,intentDisposition:"keep"}
-          :{text:"Offline smoke test.",intentDisposition:"keep"})}]});
+           :env.STRUCTURED_THINKING==="true"
+            ?{purpose:"reflection",assessment:"Offline smoke test.",nextStep:null,evidenceEventIds:[],intentDisposition:"keep"}
+            :{text:"Offline smoke test.",intentDisposition:"keep"})}]});
     }
     const response=await originalFetch(url,init);
     const body=await response.clone().json().catch(()=>null);
@@ -148,7 +159,7 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
         const m=content.match(/arrived at \((\d+), (\d+)\) after (\d+) steps/);
         return {eventId:id,arrival:m?{x:Number(m[1]),y:Number(m[2]),steps:Number(m[3])}:null};
       });
-    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,
+    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,thoughts,thoughtExposure,
       finalPosition:getPosition(),finalNeeds:{fullness:100*(1-final.emotions.hunger),curiosity:final.emotions.curiosity},
       finishedAt:new Date().toISOString()},null,2));
     if(privateOutput)writeFileSync(privateOutput,JSON.stringify(privateTrace),{mode:0o600});
