@@ -21,7 +21,7 @@ test("garden nook at (6,13) is a discoverable, non-walkable bench landmark",()=>
 });
 test("rest is offered only at a cardinally adjacent tile and validated again by Worker",()=>{
  const worker=read("../src/index.ts"),menu=read("../src/action-menu.ts"),schema=read("../src/decision-schema.ts");
- assert.match(worker,/nearObject\(position,"garden_nook_001"\)\);/);
+ assert.match(worker,/nearObject\(position,"garden_nook_001"\),freeOracle\?perception\.visibleObjects\.map\(o=>o\.id\):\[\]\);/);
  assert.match(menu,/if\(restAtNook\)tools\.push\("rest"\)/);
  assert.match(menu,/if\(menu\.restAtNook\)variants\.push\(obj\(\{name:/);
  assert.match(schema,/toolCall=\{name:"rest"\}/);
