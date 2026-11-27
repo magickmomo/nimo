@@ -1,3 +1,6 @@
+import {GARDEN_GROW_MS} from "./garden";
+import {MAX_INVENTORY,FOOD_TREES} from "./food";
+import {ITEM_REGISTRY} from "../../web/lib/item-registry";
 import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";
 
 export type OracleSource={title:string;url:string};
@@ -75,6 +78,17 @@ export function oracleResearchOverdue(startedAt:string|null,now:Date):boolean {
 }
 const requestHeaders=(key:string)=>({Authorization:"Bearer "+key,"Content-Type":"application/json"});
 const oraclePrompt="You are a research instrument in a small autonomous digital world. Answer the visitor's question directly and accurately, using web research where appropriate. Cite trustworthy external sources when stating external facts. You are NOT Nimo, have no authority over Nimo's choices, and must not make up facts about his private simulation. Keep the answer under about 220 words. If the answer is unknown or can't be substantiated, explain that plainly.";
+export function groundedOraclePrompt():string {
+ const items=Object.entries(ITEM_REGISTRY).map(([id,item])=>({id,label:item.label,buyPrice:item.buyPrice,saleValue:item.saleValue,actions:item.actions}));
+ return oraclePrompt+"\nAuthoritative reference for Nimo's private simulated world (not a public game): "+JSON.stringify({
+ inventoryCapacity:MAX_INVENTORY,fruitTrees:FOOD_TREES,items,
+ gardening:{growthSecondsAfterWatering:GARDEN_GROW_MS/1000,steps:"Buy seed packet, plant in empty plot, obtain can from well, fill can (3 uses), water dry planted plot once, harvest when ready. Crop is saleable, not edible."},
+ commerce:"Sell saleable carried items adjacent to store; buy at vending machine with sufficient coins and inventory space.",
+ food:"Inspect adjacent trees before picking; fruit regrows over time. Food effects are intentionally learned by eating; this reference does not specify them.",
+ navigation:"16 by 16 world; travel to visible objects selects reachable adjacent tile; inspect and interact from appropriate nearby tiles.",
+ oracle:"Three free questions per experimental run; external research is available."
+ })+"\nUse this reference for questions about the simulation; do not search the web for Nimo's private world or substitute similarly named games. For external questions use web research and citations as appropriate. For mixed questions clearly distinguish simulation facts from external facts. Do not invent live state or unspecified mechanics. Answer only the question asked; do not assign goals, suggest interests unsolicited, or claim Nimo has verified something. World reference facts need no external citation.";
+}
 function failureReason(data:unknown):string {
  const obj=data as {error?:{message?:string};incomplete_details?:{reason?:string};status?:string};
  return String(obj.error?.message||obj.incomplete_details?.reason||obj.status||"Unknown research failure").slice(0,300);
@@ -84,7 +98,7 @@ async function markOracle(db:D1Database,id:number,status:"failed"|"answered"|"un
   .bind(status,new Date().toISOString(),error,answer,JSON.stringify(sources),id,responseId).run();
 }
 // Long research executes on the Responses API. Cron only starts and polls jobs.
-export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:string;ORACLE_MODEL?:string}) {
+export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:string;ORACLE_MODEL?:string;KNOWLEDGEABLE_ORACLE?:string}) {
  const now=new Date();
  const cutoff=new Date(now.getTime()-LOST_SUBMISSION_MS).toISOString();
  const row=await env.DB.prepare("SELECT id,question,status,started_at,response_id,attempts FROM oracle_queries WHERE status IN ('pending','researching') ORDER BY id ASC LIMIT 1").first<OracleRow>();
@@ -171,7 +185,7 @@ export async function researchOracleQuestion(env:{DB:D1Database;OPENAI_API_KEY:s
      body:JSON.stringify({
        model:env.ORACLE_MODEL||"gpt-6-luna",background:true,store:true,
        reasoning:{effort:"low"},tools:[{type:"web_search",search_context_size:"low"}],
-       input:[{role:"system",content:oraclePrompt},{role:"user",content:row.question}],
+       input:[{role:"system",content:env.KNOWLEDGEABLE_ORACLE==="true"?groundedOraclePrompt():oraclePrompt},{role:"user",content:row.question}],
        max_output_tokens:1300
      }),signal:AbortSignal.timeout(20_000)
    });
