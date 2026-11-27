@@ -25,7 +25,7 @@ globalThis.fetch=async (url,init)=>{
   assert.ok(String(url).startsWith("https://api.openai.com/v1/"),"Unexpected outbound request");
   const response=await originalFetch(url,init);
   const body=await response.clone().json().catch(()=>null);
-  calls.push({endpoint:new URL(url).pathname,model:request.model,status:response.status,usage:body?.usage});
+  calls.push({endpoint:new URL(url).pathname,model:request.model,status:response.status,usage:body?.usage,responseStatus:body?.status,outputTypes:body?.output?.map(item=>item.type),functionNames:body?.output?.filter(item=>item.type==="function_call").map(item=>item.name),errorCode:body?.error?.code});
   return response;
 };
 const originalLog=console.log;
@@ -42,9 +42,10 @@ const initial={world:rows("world"),position:rows("world_position"),foodTrees:row
   oracle:"Questions can be queued. Background Oracle research is disabled in this isolated experiment."};
 mkdirSync(output,{recursive:true});
 const attempts=[];
+let successful=0, errors=0, consecutiveErrors=0;
 try {
   const target=paid?200:1;
-  while(attempts.length<target){
+  while(successful<target){
     const result=await tick(env,true);
     if(result.status==="action_in_progress"){
       await setTimeout(750);
@@ -52,8 +53,9 @@ try {
     }
     assert.ok(["ok","model_error"].includes(result.status),JSON.stringify(result));
     attempts.push(result);
-    originalLog(`${attempts.length}/${target} ${result.status}`);
-    if(paid && result.status==="model_error")throw Error("A decision request failed. Review partial artifacts before any retry.");
+    if(result.status==="ok"){successful++;consecutiveErrors=0;}else{errors++;consecutiveErrors++;}
+    originalLog(`${successful}/${target} successful; ${attempts.length} attempts; ${errors} errors; ${result.status}`);
+    if(result.status==="model_error" && (!paid || consecutiveErrors>=3 || errors>=10))throw Error("Model error budget reached; partial results preserved.");
   }
   if(paid){
     // Finish the last physical journey without making a 201st decision.
@@ -62,7 +64,7 @@ try {
     // Consolidation is observed, not required for success.
   }
 } finally {
-  const final={attempts,calls,telemetry,traces:traces(),events:rows("events"),
+  const final={successful,errors,consecutiveErrors,attempts,calls,telemetry,traces:traces(),events:rows("events"),
     episodes:rows("episodic_memory"),memories:rows("consolidated_memories_v2"),evidence:rows("memory_evidence_v2")};
   writeFileSync(`${output}/${mode}.json`,JSON.stringify({initial,...final},null,2));
 }
