@@ -7,7 +7,6 @@ import { WORLD_OBJECTS, type Point } from "../../web/lib/world-map";
 
 export type Fruit = "amber"|"blue"|"red";
 export type FoodTree = { id:string; fruit:Fruit; stock:number; capacity:number; regrow_at:number|null; seen_fruit:Fruit|null; last_seen_stock:number|null; last_inspected_at:string|null };
-export type FoodMemory = { fruit:Fruit; count:number; informative:number; mean:number|null; minimum_relief:number; helpful:number; harmful:number };
 export type FoodInventoryItem = { id:number; fruit:Fruit; picked_at:string };
 const EFFECTS:Record<Fruit,number> = {amber:-35,blue:0,red:18};
 export const MAX_INVENTORY=9;
@@ -54,12 +53,11 @@ export async function refreshFood(db:D1Database,now=Date.now()) {
   }
 }
 export async function foodView(db:D1Database) {
-  const [trees,inventory,knowledge]=await Promise.all([
+  const [trees,inventory]=await Promise.all([
     db.prepare("SELECT id,seen_fruit,last_seen_stock,last_inspected_at FROM world_food_trees ORDER BY id").all<Pick<FoodTree,"id"|"seen_fruit"|"last_seen_stock"|"last_inspected_at">>(),
     db.prepare("SELECT id,fruit,picked_at FROM world_food_inventory ORDER BY id").all<FoodInventoryItem>(),
-    db.prepare("SELECT fruit,count,informative,mean,minimum_relief,helpful,harmful FROM world_food_memory ORDER BY fruit").all<FoodMemory>(),
   ]);
-  return {trees:trees.results,inventory:inventory.results,knowledge:knowledge.results,capacity:MAX_INVENTORY};
+  return {trees:trees.results,inventory:inventory.results,capacity:MAX_INVENTORY};
 }
 export async function inspectFruit(db:D1Database,treeId:string) {
   if(!(treeId in FOOD_TREES))throw Error("This object does not grow fruit");
@@ -102,23 +100,8 @@ export async function eatFruit(db:D1Database,fruit:Fruit,hunger:number,rate:numb
   if(!item)throw Error("Fruit not in inventory");
   const before=round(clamp(hunger)*100),after=round(Math.max(0,Math.min(100,before+EFFECTS[fruit])));
   const observed=round(after-before),censored=after===0||after===100;
-  const previous=await db.prepare("SELECT fruit,count,informative,mean,minimum_relief,helpful,harmful FROM world_food_memory WHERE fruit=?")
-    .bind(fruit).first<FoodMemory>();
-  const useful=Math.max(0,-observed);
-  const informative=(previous?.informative??0)+(censored?0:1);
-  const mean=censored?previous?.mean??null:
-    round(((previous?.mean??0)*(previous?.informative??0)+observed)/informative);
-  await db.batch([
-    db.prepare("DELETE FROM world_food_inventory WHERE id=?").bind(item.id),
-    db.prepare(`INSERT INTO world_food_memory(fruit,count,informative,mean,minimum_relief,helpful,harmful)
-      VALUES(?,?,?,?,?,?,?) ON CONFLICT(fruit) DO UPDATE SET
-      count=excluded.count,informative=excluded.informative,mean=excluded.mean,
-      minimum_relief=excluded.minimum_relief,helpful=excluded.helpful,harmful=excluded.harmful`)
-      .bind(fruit,(previous?.count??0)+1,informative,mean,
-        Math.max(previous?.minimum_relief??0,useful),
-        (previous?.helpful??0)+(observed<0?1:0),
-        (previous?.harmful??0)+(observed>0?1:0)),
-  ]);
+  const consumed=await db.prepare("DELETE FROM world_food_inventory WHERE id=?").bind(item.id).run();
+  if(consumed.meta.changes!==1)throw Error("Fruit is no longer in inventory");
   return {fruit,before,after,rate,effectObserved:observed,hunger:after/100,censored};
 }
 export async function discardFruit(db:D1Database,fruit:Fruit) {

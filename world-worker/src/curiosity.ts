@@ -108,7 +108,7 @@ export function verifiedActivityEvidence(action:string,detail:{
    return {key:"inspect:"+subject+":"+(detail.comparison==="changed"?"change:"+(detail.inspectionVersion??"unknown"):"first"),
      strength:"meaningful"};
   case "eat_fruit":
-   return subject&&detail.informativeTrials===0&&!detail.censored&&
+   return subject&&(detail.informativeTrials??0)===0&&!detail.censored&&
      Number.isFinite(detail.difference)&&Math.abs(detail.difference!)>=0.02
      ? {key:"food:effect:"+subject,strength:"meaningful"}:null;
   case "write_document":

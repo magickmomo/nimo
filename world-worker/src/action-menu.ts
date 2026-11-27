@@ -129,7 +129,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
     }));
   }
   const schema=obj({
-    action:{type:"string",enum:hasPendingVisitor?["REPLY"]:["OBSERVE","THINK","REMEMBER","ACT","REQUEST"]},
+    action:{type:"string",enum:hasPendingVisitor?["REPLY"]:["OBSERVE","THINK","REMEMBER","ACT","REQUEST","WRITE_JOURNAL"]},
     monologue:string(1800),activity:string(120),
     goal:nullableString(250),
     identityUpdate:{anyOf:[{type:"null"},obj({text:string(500),evidence:string(250)})]},

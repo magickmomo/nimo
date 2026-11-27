@@ -4,7 +4,7 @@ import {validateStrokes} from "./sketchbook";
 import { WORLD_SIZE,objectById } from "../../web/lib/world-map";
 import {isSaleableItem,type SaleableItem} from "../../web/lib/item-registry";
 
-export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY";
+export type DecisionAction = "OBSERVE" | "THINK" | "REMEMBER" | "ACT" | "REQUEST" | "REPLY" | "WRITE_JOURNAL";
 export type DecisionTool =
   | {name:"read_document";path:string}
   | {name:"search_memory";query:string}
@@ -42,7 +42,7 @@ export type Decision = {
   intentDisposition: "keep" | "complete" | "abandon";
 };
 
-const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY"];
+const ACTIONS: readonly string[] = ["OBSERVE", "THINK", "REMEMBER", "ACT", "REQUEST", "REPLY", "WRITE_JOURNAL"];
 const TOOLS: readonly string[] = ["read_document","search_memory","write_document", "travel_to", "inspect", "remember_object","pick_fruit","rest","pick_flowers","plant_wildflower_seed","discard_wildflower","eat_fruit","discard_fruit","buy_item","create_project","update_project","take_can","fill_can","plant_seed","water_plot","harvest_crop","sell_item","start_sketch","draw_strokes","finish_sketch","inspect_artwork","ask_oracle","expand_world"];
 const DIRECTIONS: readonly string[] = ["north", "south", "east", "west"];
 const object = (v: unknown): v is Record<string, unknown> =>

@@ -26,7 +26,7 @@ test("rest is offered only at a cardinally adjacent tile and validated again by 
  assert.match(menu,/if\(menu\.restAtNook\)variants\.push\(obj\(\{name:/);
  assert.match(schema,/toolCall=\{name:"rest"\}/);
  assert.match(worker,/if\(!menu\.restAtNook\|\|!nearObject\(position,"garden_nook_001"\)\)/);
- assert.match(worker,/await log\(env\.DB,"tool",toolOutcome,"RESTED"\)/);
+ assert.match(worker,/await recordToolEvent\(env\.DB,"tool",toolOutcome,"RESTED"\)/);
 });
 test("rest is passive and does not change curiosity; Worker records no meter adjustment",()=>{
  const {activityFor,curiosityStep}=curiosity;

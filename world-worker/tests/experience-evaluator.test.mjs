@@ -22,7 +22,7 @@ test("experience telemetry is persisted idempotently without touching motivation
   assert.match(schema,/CREATE TABLE IF NOT EXISTS experience_evaluations/);
   assert.match(schema,/source_key TEXT NOT NULL UNIQUE/);
   assert.match(evalCode,/INSERT OR IGNORE INTO experience_evaluations/);
-  assert.match(worker,/recordExperience\(env.DB,decisionKey,verifiedExperience\)/);
+  assert.match(worker,/recordExperience\(env.DB,decisionKey,verifiedExperience,outcomeEventId\)/);
   // Movement telemetry is redundant: journeys persist their own waypoint state.\n  assert.doesNotMatch(journey,/recordExperience\(db,/);\n  assert.doesNotMatch(journey,/INSERT INTO action_trace\(kind,status,detail,result,finished_at\)/);
   assert.doesNotMatch(evalCode,/UPDATE world SET state/);
   assert.doesNotMatch(evalCode,/applyRewards/);

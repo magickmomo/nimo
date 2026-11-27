@@ -1,7 +1,9 @@
+import {searchHistoricalMemory} from "./historical-memory";
+import {navigationContext, travelDestination, JourneyError} from "./navigation";
 import { INITIAL_STATE, fullnessFromHunger, updateEmotions, type WorldState } from "../../web/lib/world";
 import {cachedWorldSnapshot,saveWorldSnapshot} from "./world-snapshot-cache";
 import { hungerRate, setHungerRate, validHungerRate, refreshFood, foodView, inspectFruit, pickFruit, eatFruit, discardFruit } from "./food";
-import { REWARD_POINTS, inspectScore, applyRewards, recordReward, recentRewards, pendingRewards, totalRewards } from "./rewards";
+import { REWARD_POINTS, inspectScore, applyRewards, recordReward, pendingRewards, totalRewards } from "./rewards";
 import { computePriorityPolicy, priorityBlockReason, type PriorityPolicy } from "./priority-policy";
 import { buildActionMenu, decisionResponseFormat, type ActionMenu } from "./action-menu";
 import { buildCapabilityCatalogue } from "./capability-catalogue";
@@ -11,7 +13,7 @@ import { nextVisitorIntent } from "./visitor-intent";
 import { recordExperience, recentExperiences, type VerifiedOutcome } from "./experience-evaluator";
 import { vendingSnapshot, inspectVending, attemptPurchase, isAdjacentToVending } from "./vending";
 import { validateDecision, type Decision } from "./decision-schema";
-import { curiosityStep, curiosityGuidance, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
+import { curiosityStep, choiceName, recentChoices, verifiedActivityEvidence, noveltyAssessment, type NoveltyEvidence } from "./curiosity";
 import { scheduledAsleep, awakeElapsedSeconds } from "./sleep-schedule";
 import {adjacentToOracle,askOracle,recentOracle,researchOracleQuestion,oracleInvitation} from "./oracle";
 import { archiveLatestCompletedDay, latestArchiveKeys, selectedDayArchive, shouldArchiveNow } from "./daily-archive";
@@ -23,10 +25,9 @@ import { projectList, createProject, updateProject } from "./projects";
 import { sketchbookSnapshot, sketchbookPage, buySketchbook, beginSketch, drawStrokes, closeSketch, type SketchFilter } from "./sketchbook";
 import { inspectArtwork, ARTWORK_INSPECTION_COST } from "./artwork-inspection";
 import { consolidatedMemories, memoryEvidence } from "./consolidated-memory";
-import {consolidatePersonalExperiences} from "./personal-memory-consolidation";
+import {consolidatePersonalExperiences, eligibleEvent} from "./personal-memory-consolidation";
 import {selectRelevantMemories} from "./personal-memory-recall";
 import { startTrace, finishTrace, recentTrace, traced } from "./action-trace";
-import {goalReviewContext,type GoalReview} from "./goal-review";
 import {saveDecisionInputAudit,decisionAuditExport,type DecisionInputAudit} from "./decision-input-audit";
 import { beginJourney, advanceJourney, journeyRow, journeySnapshot, recordSight, pauseJourney, resumeJourney } from "./journeys";
 import { destination, isWalkable, objectAt, modelPerception, displayPoint, inspectedDescription, WORLD_SIZE, type Point, type Direction } from "../../web/lib/world-map";
@@ -250,15 +251,6 @@ async function pendingVisitorMessage(db: D1Database): Promise<PendingVisitorMess
     ORDER BY v.id ASC LIMIT 1`).first<PendingVisitorMessage>();
 }
 
-async function longTermLandmarks(db: D1Database): Promise<EventRow[]> {
-  // Rare high-signal experiences remain available even after leaving the
-  // rolling recent-history window. Avoid movement/inspection spam.
-  const result = await db.prepare(`SELECT id,created_at,kind,content,action FROM events
-    WHERE kind IN ('visitor','reply','belief','identity')
-       OR action IN ('WRITE_OK','REQUEST')
-    ORDER BY id DESC LIMIT 12`).all<EventRow>();
-  return result.results;
-}
 async function getWorld(db: D1Database): Promise<{ state: WorldState; next_tick: string }> {
   const row = await db.prepare("SELECT id,state,next_tick FROM world WHERE id = 1").first<WorldRow>();
   if (!row) throw new Error("World not initialised. Run migrations.");
@@ -274,14 +266,14 @@ async function log(db: D1Database, kind: string, content: string, action: string
   if(!row)throw Error("Event could not be recorded");
   return row.id;
 }
-async function decide(env: Env, state: WorldState, history: EventRow[], landmarks: EventRow[], workspace: DocumentRow[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, rewards: Awaited<ReturnType<typeof recentRewards>>, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,curiosityPrompt:string,goalReview:GoalReview,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision> {
+async function decide(env: Env, state: WorldState, history: EventRow[], workspace: Pick<DocumentRow,"path"|"revision">[], perception: ReturnType<typeof modelPerception>, memory: Awaited<ReturnType<typeof environmentMemory>>, objects: Awaited<ReturnType<typeof objectMemory>>, pendingMessage: PendingVisitorMessage | null, priority: PriorityPolicy, menu: ActionMenu, food:Awaited<ReturnType<typeof foodView>>, rate:number, vending:Awaited<ReturnType<typeof vendingSnapshot>>, garden:GardenState,knownObjectIds:readonly string[],longTermMemories:Awaited<ReturnType<typeof consolidatedMemories>>,projects:Awaited<ReturnType<typeof projectList>>,creatorRequests:Awaited<ReturnType<typeof requestContext>>,sketchbook:Awaited<ReturnType<typeof sketchbookSnapshot>>,oracleHistory:Awaited<ReturnType<typeof recentOracle>>,oracleEncounter:{withinReach:boolean;invitation:string|null;status:string;remainingToday:number}, onUsage:(usage:Record<string,number>)=>void,onRequest:(payload:unknown)=>void): Promise<Decision> {
   if (!env.OPENAI_API_KEY) throw new Error("AI key not configured");
   const system = `You are Nimo. Choose your next action.
 You inhabit a persistent 16×16 world. Coordinates are one-based; north decreases y, east increases x. Perception is current; memories are historical. Only availableActions grants permission; capabilityCatalogue describes prerequisites, not permissions. A missing action may be available elsewhere or later. Learn from perception, verified outcomes and memories.
 Fullness 100 is full, 0 is starving; curiosity is a soft motivation, never prohibits productive routines or overrides essential needs. Energy, happiness and boredom are paused. Food effects are learned from verified outcomes. Inventory holds nine fruit.
-Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded. Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. oracleHistory contains results, not firsthand experiences. Oracle invitations are world dialogue, not an instruction.
+Oracle research costs 10 coins, at most three questions per day, within two cardinal steps. Failed research is refunded. Research is asynchronous; you do not need to wait, inspect repeatedly or remain near the Oracle. Use search_memory to retrieve completed Oracle research. Oracle invitations are world dialogue, not an instruction.
 Travel uses reachable walkable coordinates and completes before the next decision. Inspect adjacent objects only. Object notes are interpretations; observations are verified. Documents use lowercase .txt paths, at most 2000 characters; workspace to 100 files. Writing an existing path replaces its content. Sketch canvas 240×180; 1–8 strokes per action, 2–24 integer points per stroke, hex color, width 1–8. Artwork inspection costs 10 coins and succeeds once per finished drawing. Projects preserve up to three unfinished intentions. REQUEST records a request; it does not immediately grant tools. Requests are optional; describe the obstacle and previous attempts. Creator suggestions are not orders. expand_world proposes changes, not executes them.
-Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Use search_memory to retrieve historical experiences, memories (including retired records), documents, artwork, Oracle research and object notes. Treat retrieved research as reference, not lived experience. Retrieval results appear in the next context.`;
+Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, WRITE_JOURNAL, REPLY without a tool. REPLY only when a visitor awaits; being unable to move DURING a REPLY does not mean travel_to is unavailable afterward; replyIntent records a voluntary commitment. intentDisposition completes a commitment only with the successful fulfilling action, or abandons it voluntarily. Do not invent outcomes. Keep identityUpdate null. For ACT use a short action label as monologue and activity; for deliberate thoughts, requests and replies use actual text. Goal is optional and revisable. Use read_document to open an existing document before revising it. Write deliberately with write_journal. Use search_memory for historical experiences, memories, documents, artwork and Oracle research. Treat retrieved research as reference, not lived experience. Retrieval results appear in the next context.`;
   const capabilityCatalogue = buildCapabilityCatalogue(menu,garden,food,vending,knownObjectIds);
   const offeredActions=menu.tools.map(name =>
     name==="inspect"?{name,directions:menu.inspectDirections}:
@@ -296,7 +288,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     name==="draw_strokes"||name==="finish_sketch"?{name,sketchIds:menu.sketchIds}:
     name==="plant_seed"||name==="water_plot"||name==="harvest_crop"?{name,plotIds:menu.gardenPlotIds}:
     name==="sell_item"?{name,items:menu.saleItems}:{name});
-  const experience = buildExperienceContext(history);
+  const experience = buildExperienceContext(history.filter(e=>e.action!=="RETRIEVAL_OK"));
   const visitorInstructions = pendingMessage
     ? `A visitor is speaking to you now. Use top-level action REPLY with toolCall:null and make monologue the actual answer to the question below, not a promise to answer later. Your normal movement tools are temporarily unavailable during a REPLY, but they return on your next autonomous turn. If you choose to accept an actionable request, store what you intend to do in replyIntent; do not claim you already did it. Question: ${JSON.stringify(pendingMessage.content)}`
     : "";
@@ -305,38 +297,38 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   // Expose a single unambiguous fullness meter to the model; stored D1 hunger remains inverse.
   const {hunger: storedHunger, ...otherEmotions} = state.emotions;
   const modelEmotions = {...otherEmotions, fullness: fullnessFromHunger(storedHunger)};
-  const modelFood = {...food, knowledge: []}; // Lessons now live in long-term memories, not a second model-visible food memory.
   const recalledMemories=selectRelevantMemories(longTermMemories,{
     goal:state.currentGoal,activity:state.currentActivity,
     visibleObjectIds:perception.visibleObjects.map(o=>o.id),
     availableActions:menu.tools,
     carriedFruits:food.inventory.map(item=>item.fruit),
+    needs:modelEmotions.fullness < 0.65 ? ["fullness", "hunger"] : [],
+    recent:experience.recentEvents.filter(e=>e.action!=="RETRIEVAL_OK").slice(0,2).map(e=>e.content),
   });
   // Retrieval is an explicit decision; the verified result is visible on the next turn.
-  const retrieval = await env.DB.prepare("SELECT content FROM events WHERE action='RETRIEVAL_OK' ORDER BY id DESC LIMIT 1").first<{content:string}>();
-  const retrieved = history.slice(0,4).some(e=>e.action==="RETRIEVAL_OK") ? retrieval?.content : undefined;
+  const lastCognitiveEvent=history.find(e=>e.kind==="tool" || e.kind==="thought");
+  const retrieved=lastCognitiveEvent?.action==="RETRIEVAL_OK" ? lastCognitiveEvent.content : undefined;
   // E012 working context: recent experience and memory, not the entire world database.
-  const latestThought=history.find(e=>e.kind==="thought"&&e.action==="THINK");
-  const knownObjects=objects.filter(o=>memory.seen.some(t=>t.x===o.x&&t.y===o.y))
-    .map(o=>({id:o.id,x:o.x+1,y:o.y+1}));
+  const latestThought=history.find(e=>e.kind==="thought"&&["THINK","WRITE_JOURNAL"].includes(e.action??""));
+  const navigation=navigationContext(perception, memory.seen, objects, history);
   const workingContext={
     retrieved,
     identity:"Nimo",
     currentIntention:state.currentGoal,
     pendingIntent:state.pendingIntent??null,
     latestThinking:latestThought?{id:latestThought.id,text:latestThought.content.slice(0,500)}:null,
-    recentExperiences:experience.recentEvents.slice(0,8),
-    recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
+    recentExperiences:experience.recentEvents,
+    recentMemories:await Promise.all(recalledMemories.slice(0,3).map(async m=>({id:m.id,category:m.category,kind:m.memory_kind,subject:m.subject,statement:m.statement.slice(0,450),confidence:m.confidence,status:m.status,evidenceIds:(await memoryEvidence(env.DB,m.id)).slice(0,4).map(e=>e.id)}))),
     needsPercent:{fullness:Math.round(modelEmotions.fullness*100),curiosity:Math.round((modelEmotions.curiosity??0.35)*100)},
-    perception:{position:perception.position,visibleObjects:perception.visibleObjects,visibleTiles:perception.visibleTiles,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
-    knownObjects,
+    perception:{position:perception.position,visibleObjects:perception.visibleObjects,directions:perception.directions.map(d=>({...d,canInspect:menu.inspectDirections.includes(d.direction)}))},
+    navigation,
     exploration:{seenCount:memory.seen.length,visitedCount:memory.visited.length},
     projects,
     creatorRequests:creatorRequests.slice(0,3).map(r=>({id:r.id,status:r.status,content:r.content.slice(0,160)})),
-    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({question:q.question,status:q.status})),
+    oracleEncounter,oracleHistory:oracleHistory.slice(0,2).map(q=>({id:q.id,question:q.question,status:q.status})),
     sketchbook:{owned:sketchbook.owned,active:sketchbook.active?{...sketchbook.active,strokes:sketchbook.active.strokes?.slice(-2)}:null,recent:sketchbook.drawings.slice(0,5).map(d=>({id:d.id,title:d.title,status:d.status}))},
-    workspace:workspace.map(d=>({path:d.path,revision:d.revision})),
-    food:{inventory:modelFood.inventory,capacity:modelFood.capacity,trees:modelFood.trees.map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
+    workspace:workspace.slice(0,12).map(d=>({path:d.path,revision:d.revision})),
+    food:{inventory:food.inventory,capacity:food.capacity,trees:food.trees.filter(t=>t.last_inspected_at).map(t=>({id:t.id,seen_fruit:t.seen_fruit,last_seen_stock:t.last_seen_stock}))},
     garden:{inventory:garden.inventory,inventoryUsed:garden.inventoryUsed,capacity:garden.capacity,plots:garden.plots.filter(p=>perception.visibleTiles.some(t=>t.x===p.x+1&&t.y===p.y+1)).map(p=>({...p,x:p.x+1,y:p.y+1})),coins:vending.inspected?vending.coins:null},
     ...(vending.inspected || perception.visibleObjects.some(o=>o.id===vending.machineId) ? {vending:{machineId:vending.machineId,...(vending.inspected?{coins:vending.coins,inspected:true,items:vending.items}:{inspected:false})}} : {}),
     fullnessDecayPointsPerSecond:rate,
@@ -358,11 +350,11 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   const mental = (name:string,properties:Record<string,unknown>)=>({type:"function",name,description:name==="reply"?"Reply to the waiting visitor":name,strict:true,parameters:{type:"object",properties,required:Object.keys(properties),additionalProperties:false}});
   const disposition={type:"string",enum:["keep","abandon"]};
   const textField={type:"string"};
-  const tools = pendingMessage ? [mental("reply",{text:textField,replyIntent:{type:["string","null"]},intentDisposition:disposition})] : [...nativeTools,...["think","observe","remember","request"].map(name=>mental(name,{text:textField,intentDisposition:disposition}))];
+  const tools = pendingMessage ? [mental("reply",{text:textField,replyIntent:{type:["string","null"]},intentDisposition:disposition})] : [...nativeTools,...["think","observe","remember","request","write_journal"].map(name=>mental(name,{text:textField,intentDisposition:disposition}))];
   const payload = reasoningModel
     ? {
         model,
-        input: messages.map(m=>m.content).join("\\n\\n"),
+        input: messages.map(m=>m.content).join("\n\n"),
         reasoning: { effort: "low" },
         max_output_tokens: 2200,
         tools, tool_choice:"required", parallel_tool_calls:false,
@@ -371,6 +363,7 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
   // Capture the exact payload sent, including historical memory text, action
   // schemas and preceding experience. Never capture the authorization header.
   onRequest(payload);
+  console.log("NIMO_RECALL",JSON.stringify({tick:state.tickCount+1,ids:recalledMemories.map(m=>m.id)}));
   const contextFields=JSON.parse(messages[1].content) as Record<string,unknown>;
   console.log("NIMO_CONTEXT_PROFILE",JSON.stringify({fields:Object.fromEntries(Object.entries(contextFields).map(([k,v])=>[k,JSON.stringify(v).length])),instructions:system.length,schema:JSON.stringify(reasoningModel?tools:format).length}));
   const res = await fetch("https://api.openai.com/v1/" + (reasoningModel ? "responses" : "chat/completions"), {
@@ -391,18 +384,21 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
       input_tokens?:number;output_tokens?:number;prompt_tokens?:number;completion_tokens?:number;
       input_tokens_details?:{cached_tokens?:number};
       prompt_tokens_details?:{cached_tokens?:number};
+      output_tokens_details?:{reasoning_tokens?:number};
+      completion_tokens_details?:{reasoning_tokens?:number};
     };
   };
   if(data.usage)onUsage({
     input_tokens:data.usage.input_tokens??data.usage.prompt_tokens??0,
     cached_input_tokens:data.usage.input_tokens_details?.cached_tokens??data.usage.prompt_tokens_details?.cached_tokens??0,
     output_tokens:data.usage.output_tokens??data.usage.completion_tokens??0,
+    reasoning_tokens:data.usage.output_tokens_details?.reasoning_tokens??data.usage.completion_tokens_details?.reasoning_tokens??0,
   });
   const calls=data.output?.filter(o=>o.type==="function_call")??[];
   if(reasoningModel&&calls.length!==1)throw Error("Expected exactly one function call");
   const raw = reasoningModel
     ? (()=>{const call=calls[0];const args=JSON.parse(call.arguments??"{}");const {intentDisposition,text,replyIntent,goal,...parameters}=args;
-      const mentalAction=["think","observe","remember","request","reply"].includes(call.name??"");
+      const mentalAction=["think","observe","remember","request","reply","write_journal"].includes(call.name??"");
       return JSON.stringify({action:mentalAction?call.name!.toUpperCase():"ACT",monologue:mentalAction?text:call.name,activity:call.name,goal:goal??state.currentGoal??null,identityUpdate:null,toolCall:mentalAction?null:{name:call.name,...parameters},replyIntent:replyIntent??null,intentDisposition});})()
     : data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Empty AI decision" + (data.incomplete_details?.reason ? ": " + data.incomplete_details.reason : ""));
@@ -432,10 +428,11 @@ Choose ACT with a valid toolCall, or THINK, OBSERVE, REMEMBER, REQUEST, REPLY wi
     return invalid(error instanceof Error ? error.message : String(error));
   }
 }
-async function tick(env: Env) {
+export async function tick(env: Env, experiment = false) {
+  const isAwake = experiment ? manualAutonomousEnabled : autonomousEnabled;
   const now = new Date();
   // Sleep stops decisions *before* any model call or usage quota reservation.
-  if (!(await autonomousEnabled(env.DB))) return { status: "sleeping" };
+  if (!(await isAwake(env.DB))) return { status: "sleeping" };
   // Recover buffered messages before Nimo makes a new decision.
   await drainAgentInbox(env);
   // Complete or advance an existing journey before considering another LLM call.
@@ -447,9 +444,9 @@ async function tick(env: Env) {
   // A completed journey does not alter next_tick. The existing persisted
   // deadline was established AFTER the previous decision finished; lastTick
   // records its start and must never be used to shorten that cooldown.
-  if (Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
+  if (!experiment && Date.parse(world.next_tick) > now.getTime()) return { status: "not_due" };
   const lastDecision = world.state.lastTick ? Date.parse(world.state.lastTick) : NaN;
-  if (Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
+  if (!experiment && Number.isFinite(lastDecision) && now.getTime() < lastDecision + DECISION_INTERVAL_MS)
     return { status: "not_due" };
 
   // Atomically reserve a lease longer than a typical model call, so simultaneous
@@ -465,7 +462,7 @@ async function tick(env: Env) {
     await env.DB.prepare("UPDATE world SET next_tick=? WHERE id=1 AND next_tick=?")
       .bind(eligibleAt,leaseUntil).run();
   };
-  if (!(await autonomousEnabled(env.DB))) {
+  if (!(await isAwake(env.DB))) {
     await releaseDecisionSlot();
     return { status: "sleeping" };
   }
@@ -475,8 +472,9 @@ async function tick(env: Env) {
   // Recall and perception are read-side preparation, not meaningful autonomous
   // actions. Keep them out of D1 action_trace: each start/finish touches indexed
   // rows and runs for every decision, consuming the daily rows-written quota.
-  const [history,landmarks,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory] = await Promise.all([
-    events(env.DB,120),longTermLandmarks(env.DB),documents(env.DB),
+  const [history,workspace,memory,objects,pendingMessage,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory] = await Promise.all([
+    events(env.DB,120),env.DB.prepare("SELECT path,revision FROM documents ORDER BY updated_at DESC LIMIT 12")
+      .all<Pick<DocumentRow,"path"|"revision">>().then(r=>r.results),
     environmentMemory(env.DB),objectMemory(env.DB),pendingVisitorMessage(env.DB),consolidatedMemories(env.DB),projectList(env.DB),requestContext(env.DB),sketchbookSnapshot(env.DB,true),recentOracle(env.DB,12),
   ]);
   const position = await getPosition(env.DB);
@@ -505,8 +503,6 @@ async function tick(env: Env) {
   const researchCompleted=earlierRewards.some(r=>r.action==="oracle_answered");
   const asyncNovelty=(foundNewPlace?0.16:0)+(researchCompleted?0.16:0);
   emotions={...emotions,curiosity:Math.max(0,Math.min(1,(emotions.curiosity??0.35)-asyncNovelty))};
-  // The old happiness/boredom reward policy is still paused.
-  const rewardHistory:Awaited<ReturnType<typeof recentRewards>>=[];
   // Messages do not modify paused needs.
   const state: WorldState = { ...world.state, emotions, rewardCursor: lastRewardId,
     curiosityActionHistory: actionHistory, tools: [...AVAILABLE_TOOLS] };
@@ -558,10 +554,6 @@ async function tick(env: Env) {
         ? plantableDirections(position,wildflowers.patches):[],
       carriedKinds:[...new Set(wildflowers.inventory.map(item=>item.kind))]},
      nearObject(position,"garden_nook_001"));
-  // Only offer novelty among actions the deterministic controller currently permits.
-  const curiosityPrompt=curiosityGuidance(fullnessFromHunger(emotions.hunger),emotions.curiosity??0.35,actionHistory,menu.tools);
-  const goalReview=goalReviewContext(state.currentGoal,fullnessFromHunger(emotions.hunger),food.inventory.map(item=>item.fruit),history,pendingMessage!==null);
-  // Perception remains factual; execution opportunities are a separate constrained menu.
   // Reserve quota *before* the model call, including failures.
   await env.DB.prepare("INSERT INTO decisions(day,created_at) VALUES(?,?)")
     .bind(day(now), now.toISOString()).run();
@@ -590,7 +582,7 @@ async function tick(env: Env) {
     }
   };
   try {
-    d=await decide(env,state,history,landmarks,workspace,flowerPerception,memory,objects,pendingMessage,rewardHistory,priority,menu,food,rate,vending,garden,curiosityPrompt,goalReview,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();});
+    d=await decide(env,state,history,workspace,flowerPerception,memory,objects,pendingMessage,priority,menu,food,rate,vending,garden,seenObjectIds,longTermMemories,projects,creatorRequests,sketchbook,oracleHistory,oracleEncounter,value=>{usage=value;},value=>{sentRequest=value;requestCapturedAt=new Date().toISOString();});
   }catch(error) {
     // Only an actual model/validation failure belongs in this handler.
     // A later trace-persistence error must never overwrite a selected R2
@@ -629,7 +621,7 @@ async function tick(env: Env) {
   }
   // A pause made while the model was thinking discards the result. An in-flight
   // request might still be billed; subsequent requests will not start.
-  if (!(await autonomousEnabled(env.DB))) {
+  if (!(await isAwake(env.DB))) {
     await releaseDecisionSlot();
     return { status: "paused_during_decision" };
   }
@@ -639,7 +631,14 @@ async function tick(env: Env) {
   let noveltyEvidence:NoveltyEvidence=null;
   // Unsuccessful attempts remain in the journal, but do not satisfy curiosity.
   let toolFailed=false;
+  let outcomeEventId:number|null=null;
+  const recordToolEvent = async (db:D1Database, kind:string, content:string, action:string) => {
+    const id=await log(db,kind,content,action);
+    if(eligibleEvent({id,kind,content,action,created_at:now.toISOString()}))outcomeEventId=id;
+    return id;
+  };
   const decisionKey = `decision:${state.tickCount+1}`;
+  const decisionFullness=Math.round(fullnessFromHunger(state.emotions.hunger)*100);
   if (d.toolCall) {
     const call = d.toolCall;
     try {
@@ -647,38 +646,21 @@ async function tick(env: Env) {
         if(!menu.tools.includes("ask_oracle"))throw Error("Oracle is unavailable at this position");
         const id=await askOracle(env.DB,position,call.question);
         toolOutcome="ORACLE QUESTION #"+id+" QUEUED (10 coins paid): "+call.question;
-        await log(env.DB,"tool",toolOutcome,"ORACLE_ASK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"ORACLE_ASK");
       } else if (call.name === "read_document") {
         const doc=await env.DB.prepare("SELECT path,content,revision FROM documents WHERE path=?").bind(call.path).first<DocumentRow>();
         if(!doc)throw Error("Document not found");
         toolOutcome=JSON.stringify(doc);
-        await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
       } else if (call.name === "search_memory") {
-        const terms=call.query.toLowerCase().match(/[a-z0-9_-]+/g)?.slice(0,6)??[];
-        if(!terms.length)throw Error("Search needs words");
-        // Bound database results per source; rank across sources using literal terms.
-        const sources=[
-          {source:"memory",sql:"SELECT id,subject,statement,category,status FROM consolidated_memories_v2",fields:["subject","statement"],order:"id"},
-          {source:"experience",sql:"SELECT id,kind,action,content FROM events",fields:["content","action"],order:"id"},
-          {source:"document",sql:"SELECT path,revision,content FROM documents",fields:["path","content"],order:"revision"},
-          {source:"artwork",sql:"SELECT s.id,s.title,s.intention,s.status,i.description AS inspection FROM nimo_sketches s LEFT JOIN nimo_artwork_inspections i ON i.sketch_id=s.id AND i.status='completed'",fields:["s.title","s.intention","i.description"],order:"s.id"},
-        ];
-        const candidates:{source:string;text:string}[]=[];
-        for(const source of sources){
-          const clauses=terms.flatMap(()=>source.fields.map(f=>"instr(lower(coalesce("+f+",'')),?)>0"));
-          const args=terms.flatMap(t=>source.fields.map(()=>t));
-          const result=await env.DB.prepare(source.sql+" WHERE "+clauses.join(" OR ")+" ORDER BY "+source.order+" DESC LIMIT 12").bind(...args).all();
-          candidates.push(...result.results.map(row=>({source:source.source,text:JSON.stringify(row)})));
-        }
-        candidates.push(...(await recentOracle(env.DB,100)).map(q=>({source:"oracle research",text:JSON.stringify({question:q.question,answer:q.answer})})),...objects.map(o=>({source:"object",text:JSON.stringify(o)})));
-        const hits=candidates.map(c=>({...c,score:terms.filter(t=>c.text.toLowerCase().includes(t)).length})).filter(c=>c.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(c=>({source:c.source,text:c.text.slice(0,850)}));
+        const hits=await searchHistoricalMemory(env.DB,call.query);
         toolOutcome=JSON.stringify({query:call.query,hits});
-        await log(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"RETRIEVAL_OK");
       } else if (call.name === "write_document") {
         const saved = await traced(env.DB,"write",`Write document ${call.path}`,()=>writeDocument(env.DB,call),
           result=>`Saved revision ${result.revision}`);
         toolOutcome = `WRITE OK: ${saved.path} revision ${saved.revision} (${call.content.length} chars)`;
-        await log(env.DB, "tool", toolOutcome, "WRITE_OK");
+        await recordToolEvent(env.DB, "tool", toolOutcome, "WRITE_OK");
         verifiedExperience={type:"writing",subject:saved.path,revision:saved.revision};
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:saved.path,revision:saved.revision});
         await recordReward(env.DB,decisionKey,"write_document",
@@ -688,10 +670,10 @@ async function tick(env: Env) {
         const from = await getPosition(env.DB);
         const trace = await startTrace(env.DB,"travel",`Travel from (${displayPoint(from).x},${displayPoint(from).y}) to (${call.x},${call.y})`);
         let route: Point[];
-        try {route = await beginJourney(env.DB, from, {x:call.x-1,y:call.y-1});}
+        try {route = await beginJourney(env.DB, from, travelDestination(call.x,call.y));}
         catch (error) {await finishTrace(env.DB,trace,"failed",String(error));throw error;}
         toolOutcome = `TRAVEL START: (${displayPoint(from).x}, ${displayPoint(from).y}) to (${call.x}, ${call.y}); ${route.length-1} steps`;
-        await log(env.DB, "tool", toolOutcome, "TRAVEL_START");
+        await recordToolEvent(env.DB, "tool", toolOutcome, "TRAVEL_START");
         // Each verified waypoint will receive its own reward in advanceJourney.
         // Starting a journey does not earn points.
       } else if (call.name === "inspect") {
@@ -704,7 +686,7 @@ async function tick(env: Env) {
         const oracleStatus=found.objectId==="oracle_001"
           ? oracle
             ? oracle.status==="answered"||oracle.status==="unsourced"
-              ? " Oracle status: answer received for question #"+oracle.id+". The answer is available in oracleHistory; you can read it anywhere."
+              ? " Oracle status: answer received for question #"+oracle.id+". The answer is available through search_memory; you can read it anywhere."
               : oracle.status==="failed"
                 ? " Oracle status: research failed for question #"+oracle.id+". "+(oracle.error||"No reason recorded")+"."
                 : " Oracle status: "+oracle.status+" for question #"+oracle.id+". Research continues independently; you may leave and return later."
@@ -713,7 +695,7 @@ async function tick(env: Env) {
         toolOutcome = `INSPECT OK: ${found.objectId}. ${found.description} Comparison: ${found.comparison}. Recorded observations: ${found.recordedObservations}.` +
           (fruit ? ` Fruit: ${fruit.fruit}; available: ${fruit.stock}.` : "") +
           (machine ? ` Display: ${machine.items.map(item=>`${item.label} (${item.price} coins; ${item.available?"available":"not for sale"}) — ${item.description}`).join("; ")}. Coins: ${machine.coins}.` : "") + oracleStatus;
-        await log(env.DB, "tool", toolOutcome, "INSPECT_OK");
+        await recordToolEvent(env.DB, "tool", toolOutcome, "INSPECT_OK");
         verifiedExperience={type:"inspection",subject:found.objectId,comparison:found.comparison,fruitRevealed:fruit!==null};
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:found.objectId,comparison:found.comparison,inspectionVersion:found.recordedObservations});
         await recordReward(env.DB,decisionKey,"inspect",inspectScore(found.comparison),
@@ -723,12 +705,12 @@ async function tick(env: Env) {
         if(!menu.restAtNook||!nearObject(position,"garden_nook_001"))
           throw Error("Rest is available only beside the quiet garden nook");
         toolOutcome="RESTED: Sat quietly on the garden nook bench.";
-        await log(env.DB,"tool",toolOutcome,"RESTED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"RESTED");
       } else if (call.name === "pick_flowers") {
         if(!menu.flowerPatchIds.includes(call.patchId))throw Error("No pickable flowers adjacent");
         const picked=await pickFlowers(env.DB,position,call.patchId,decisionKey);
         toolOutcome=picked.message;
-        await log(env.DB,"tool",toolOutcome,"FLOWERS_PICKED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"FLOWERS_PICKED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{
           subject:picked.patchId,
           seedFound:picked.seed && !(state.curiosityNoveltyKeys??[]).includes("wildflowers:first_seed"),
@@ -738,18 +720,18 @@ async function tick(env: Env) {
         if(!menu.flowerPlantDirections.includes(call.direction))throw Error("Cannot plant there");
         const planted=await plantFlowerSeed(env.DB,position,call.direction,decisionKey);
         toolOutcome=planted.message;
-        await log(env.DB,"tool",toolOutcome,"FLOWER_SEED_PLANTED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"FLOWER_SEED_PLANTED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:planted.id,completed:true});
       } else if (call.name === "discard_wildflower") {
         if(!menu.heldFlowerKinds.includes(call.kind))throw Error("Flower item not carried");
         toolOutcome=await discardWildflower(env.DB,call.kind,decisionKey);
-        await log(env.DB,"tool",toolOutcome,"FLOWER_DISCARDED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"FLOWER_DISCARDED");
       } else if (call.name === "pick_fruit") {
         if(!menu.pickTreeIds.includes(call.treeId))throw Error("Fruit picking was not available");
         const picked=await traced(env.DB,"inspect",`Pick fruit from ${call.treeId}`,
           ()=>pickFruit(env.DB,call.treeId,position),v=>`Picked ${v.fruit} from ${v.treeId}`);
         toolOutcome=`PICK OK: ${picked.fruit} from ${picked.treeId} (inventory capacity 9).`;
-        await log(env.DB,"tool",toolOutcome,"PICK_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"PICK_OK");
         verifiedExperience={type:"picking",subject:picked.treeId,fruit:picked.fruit,inventoryBefore:food.inventory.length,inventoryAfter:food.inventory.length+1};
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:picked.treeId});
       } else if (call.name === "eat_fruit") {
@@ -760,15 +742,14 @@ async function tick(env: Env) {
         state.emotions.hunger=eaten.hunger;
         toolOutcome=`EAT OK: ${eaten.fruit}; observed fullness ${Math.round((100-eaten.before)*100)/100}% to ${Math.round((100-eaten.after)*100)/100}%.`+
           (eaten.censored?" Observation censored at boundary.":"");
-        // Food outcomes enter the same hourly consolidation as every other experience.
-        await log(env.DB,"tool",toolOutcome,"EAT_OK");
-        verifiedExperience={type:"eating",subject:eaten.fruit,priorInformativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,before:eaten.before,after:eaten.after,censored:eaten.censored};
-        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:eaten.fruit,informativeTrials:food.knowledge.find(k=>k.fruit===eaten.fruit)?.count??0,censored:eaten.censored,difference:eaten.after-eaten.before});
+        await recordToolEvent(env.DB,"tool",toolOutcome,"EAT_OK");
+        verifiedExperience={type:"eating",subject:eaten.fruit,before:eaten.before,after:eaten.after,censored:eaten.censored};
+        noveltyEvidence=verifiedActivityEvidence(call.name,{subject:eaten.fruit,censored:eaten.censored,difference:eaten.after-eaten.before});
       } else if (call.name === "discard_fruit") {
         if(!menu.heldFruit.includes(call.fruit))throw Error("Fruit not carried");
         await discardFruit(env.DB,call.fruit);
         toolOutcome=`DISCARD OK: ${call.fruit} fruit.`;
-        await log(env.DB,"tool",toolOutcome,"DISCARD_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"DISCARD_OK");
       } else if (call.name === "take_can" || call.name === "fill_can" || call.name === "plant_seed" || call.name === "water_plot" || call.name === "harvest_crop" || call.name === "sell_item") {
         if(!menu.gardenTools.includes(call.name))throw Error("Garden or store action unavailable");
         if("plotId" in call && !menu.gardenPlotIds.includes(call.plotId))throw Error("Plot not adjacent");
@@ -783,42 +764,42 @@ async function tick(env: Env) {
           throw Error("Unknown garden tool");
         },v=>v);
         toolOutcome=`${call.name.toUpperCase()} OK: ${result}`;
-        await log(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,call.name.toUpperCase()+"_OK");
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:"plotId" in call?call.plotId:"item" in call?call.item:undefined,completed:true});
       } else if (call.name === "start_sketch") {
         if(!menu.tools.includes("start_sketch"))throw Error("Sketchbook unavailable or page already open");
         toolOutcome=await beginSketch(env.DB,call.title,call.intention);
-        await log(env.DB,"tool",toolOutcome,"SKETCH_STARTED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"SKETCH_STARTED");
       } else if (call.name === "draw_strokes") {
         if(!menu.sketchIds.includes(call.sketchId))throw Error("Sketch unavailable");
         toolOutcome=await drawStrokes(env.DB,call.sketchId,call.strokes);
-        await log(env.DB,"tool",toolOutcome,"SKETCH_DRAWN");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"SKETCH_DRAWN");
       } else if (call.name === "finish_sketch") {
         if(!menu.sketchIds.includes(call.sketchId))throw Error("Sketch unavailable");
         toolOutcome=await closeSketch(env.DB,call.sketchId,call.status);
-        await log(env.DB,"tool",toolOutcome,"SKETCH_FINISHED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"SKETCH_FINISHED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{completed:call.status==="finished"});
       } else if (call.name === "expand_world") {
         if(!menu.tools.includes("expand_world"))throw Error("World expansion proposals unavailable");
         const description = `WORLD EXPANSION (${call.changeType}): ${call.title}\nTarget: ${call.target}\nProposal: ${call.description}\nReason: ${call.reason}`;
-        const eventId=await log(env.DB,"request",description,"WORLD_EXPANSION_REQUEST");
+        const eventId=await recordToolEvent(env.DB,"request",description,"WORLD_EXPANSION_REQUEST");
         await recordCreatorRequest(env.DB,eventId,description,JSON.stringify([call.changeType,call.title.trim(),call.target.trim(),call.description.trim(),call.reason.trim()]));
         toolOutcome=`WORLD EXPANSION REQUESTED: ${call.title}; pending creator review. No world changes were made.`;
-        await log(env.DB,"tool",toolOutcome,"WORLD_EXPANSION_QUEUED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"WORLD_EXPANSION_QUEUED");
       } else if (call.name === "inspect_artwork") {
         if(!menu.inspectArtworkIds.includes(call.sketchId))throw Error("Artwork unavailable for paid inspection");
         toolOutcome=await inspectArtwork(env,call.sketchId);
-        await log(env.DB,"tool",toolOutcome,"ARTWORK_INSPECTED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"ARTWORK_INSPECTED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:String(call.sketchId),completed:true});
       } else if (call.name === "create_project") {
         if(!menu.tools.includes("create_project"))throw Error("Project limit reached");
         toolOutcome=await createProject(env.DB,call.title,call.objective,call.nextStep);
-        await log(env.DB,"tool",toolOutcome,"PROJECT_CREATED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"PROJECT_CREATED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{completed:true});
       } else if (call.name === "update_project") {
         if(!menu.projectIds.includes(call.projectId))throw Error("Project not editable");
         toolOutcome=await updateProject(env.DB,call.projectId,call.nextStep,call.progressNote,call.status);
-        await log(env.DB,"tool",toolOutcome,"PROJECT_UPDATED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"PROJECT_UPDATED");
         noveltyEvidence=verifiedActivityEvidence(call.name,{completed:true});
       } else if (call.name === "buy_item") {
         if(!menu.vendingItemIds.includes(call.itemId))throw Error("Purchase not available at this position");
@@ -827,7 +808,7 @@ async function tick(env: Env) {
           result=>result.message);
         toolOutcome=purchase.message;
         if(!purchase.success)toolFailed=true;
-        await log(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
+        await recordToolEvent(env.DB,"tool",toolOutcome,purchase.success?"PURCHASE_OK":"PURCHASE_FAILED");
         if(purchase.success)noveltyEvidence=verifiedActivityEvidence(call.name,{subject:call.itemId,completed:true});
         if(!purchase.success)verifiedExperience={type:"purchase_blocked",subject:purchase.item.id,
           price:purchase.item.price,coins:purchase.coins,firstAttempt:purchase.firstAttempt};
@@ -838,7 +819,7 @@ async function tick(env: Env) {
           ()=>saveObjectNote(env.DB,call.objectId,call.label,call.note),
           result=>`Saved personal label and note for ${result.objectId}`);
         toolOutcome = `OBJECT NOTE OK: ${saved.objectId}. Label: ${saved.label}. Note: ${saved.note}`;
-        await log(env.DB,"tool",toolOutcome,"OBJECT_NOTE_OK");
+        await recordToolEvent(env.DB,"tool",toolOutcome,"OBJECT_NOTE_OK");
         verifiedExperience={type:"object_note",subject:saved.objectId,first:!beforeNote};
         noveltyEvidence=verifiedActivityEvidence(call.name,{subject:saved.objectId,first:!beforeNote});
         await recordReward(env.DB,decisionKey,"remember_object",
@@ -848,16 +829,33 @@ async function tick(env: Env) {
     } catch (err) {
       toolFailed=true;
       toolOutcome = `${call.name === "travel_to" ? "TRAVEL" : call.name === "inspect" ? "INSPECT" : call.name === "remember_object" ? "OBJECT NOTE" : call.name === "buy_item" ? "PURCHASE" : "WRITE"} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      if(call.name==="travel_to") {
+        const reason=err instanceof JourneyError ? err.code : "execution_error";
+        toolOutcome=JSON.stringify({attempted:{x:call.x,y:call.y},actual:displayPoint(await getPosition(env.DB)),reason});
+      }
       await recordReward(env.DB,decisionKey,call.name,REWARD_POINTS.failedAction,toolOutcome);
-      await log(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : call.name === "buy_item" ? "PURCHASE_ERROR" : "WRITE_ERROR");
+      await recordToolEvent(env.DB, "tool", toolOutcome, call.name === "travel_to" ? "TRAVEL_ERROR" : call.name === "inspect" ? "INSPECT_ERROR" : call.name === "remember_object" ? "OBJECT_NOTE_ERROR" : call.name === "buy_item" ? "PURCHASE_ERROR" : "WRITE_ERROR");
       verifiedExperience={type:"failure",subject:call.name,reason:err instanceof Error?err.message:String(err)};
     }
   }
-  console.log("NIMO_DECISION_OUTCOME",JSON.stringify({decisionKey,action:d.action,tool:d.toolCall?.name??null,arguments:d.toolCall??null,goal:d.goal??null,failed:toolFailed,outcome:toolOutcome?.slice(0,1000)??null,experience:verifiedExperience??null}));
+  if(outcomeEventId!==null){
+    const call=d.toolCall!;
+    const subject=verifiedExperience && verifiedExperience.type!=="failure" ? verifiedExperience.subject
+      : "plotId" in call ? call.plotId : "item" in call ? call.item
+      : "itemId" in call ? call.itemId : "sketchId" in call ? String(call.sketchId) : call.name;
+    const outcome=verifiedExperience?.type==="eating"
+      ? {fruit:verifiedExperience.subject,beforeFullness:100-verifiedExperience.before,
+        afterFullness:100-verifiedExperience.after,censored:verifiedExperience.censored}
+      : {observation:toolOutcome,failed:toolFailed};
+    await env.DB.prepare(`INSERT OR IGNORE INTO episodic_memory
+      (event_id,decision_key,subject,context_json,outcome_json) VALUES(?,?,?,?,?)`)
+      .bind(outcomeEventId,decisionKey,subject,JSON.stringify({position:displayPoint(position),intention:state.currentGoal,action:call.name}),JSON.stringify(outcome)).run();
+  }
+  console.log("NIMO_DECISION_OUTCOME",JSON.stringify({decisionKey,action:d.action,tool:d.toolCall?.name??null,eventId:outcomeEventId,arguments:d.toolCall??null,goal:d.goal??null,failed:toolFailed,outcome:toolOutcome?.slice(0,1000)??null,at:now.toISOString(), intention:state.currentGoal, fullness:decisionFullness, curiosity:state.emotions.curiosity, usage, experience:verifiedExperience??null}));
   // Never allow experimental telemetry to interrupt Nimo's normal actions.
   // Records are persisted only AFTER verified outcomes, with idempotent keys.
   if(verifiedExperience) {
-    try { await recordExperience(env.DB,decisionKey,verifiedExperience); }
+    try { await recordExperience(env.DB,decisionKey,verifiedExperience,outcomeEventId); }
     catch(e) { console.warn("Experience telemetry unavailable",e); }
   }
   if (!d.toolCall) {
@@ -917,6 +915,9 @@ async function tick(env: Env) {
     }
   }
   if (identity !== state.identity) await log(env.DB, "identity", `Self-description revised: ${identity}. Evidence: ${i?.evidence}`, "REMEMBER");
+  if(env.MEMORY_CONSOLIDATION_ENABLED==="true"){
+    await consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error));
+  }
   await releaseDecisionSlot();
   return { status: "ok", tickCount: next.tickCount, action: d.action, toolOutcome };
 }
@@ -1088,11 +1089,7 @@ export default {
         .then(snapshot=>saveWorldSnapshot(env.ARCHIVES,snapshot,true))
         .catch(error=>console.error("World snapshot cache refresh failed",error)));
     }
-    // Catch up one completed UTC hour per five-minute slot. The durable cursor
-    // prevents skipping missed hours, including hours with zero experiences.
-    // At most one review runs per slot; a failure leaves the cursor for retry.
-    // Once caught up, the routine check below is a no-op until another hour
-    // has completed. Oracle research remains outside personal memory.
+    // Retry pending evidence when no decision occurs, including while asleep.
     if(env.MEMORY_CONSOLIDATION_ENABLED==="true" && new Date().getUTCMinutes()%5===0) {
       ctx.waitUntil(consolidatePersonalExperiences(env).catch(error=>console.error("Personal memory consolidation unavailable",error)));
     }

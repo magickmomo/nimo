@@ -17,7 +17,7 @@ test("Oracle research stays in Oracle history instead of personal memory",()=>{
   const worker=read("../src/index.ts");
   assert.doesNotMatch(worker,/recordVerifiedMemory/);
   assert.doesNotMatch(memory,/recordVerifiedMemory/);
-  assert.match(worker,/await log\(env\.DB,"tool",toolOutcome,"EAT_OK"\)/);
+  assert.match(worker,/await recordToolEvent\(env\.DB,"tool",toolOutcome,"EAT_OK"\)/);
 });
 
 test("Migration preserves Oracle research and restores lived lessons without deleting anything",()=>{

@@ -32,10 +32,10 @@ test("journey arrival must not shorten an already persisted completion-based dea
   assert.ok(arrived < persistedNextTick, "completion-based cooldown has not expired");
 
   const arrivalSection = worker.split("const journey = await advanceJourney(env.DB, now);")[1]
-    .split("if (Date.parse(world.next_tick) > now.getTime())")[0];
+    .split("if (!experiment && Date.parse(world.next_tick) > now.getTime())")[0];
   assert.doesNotMatch(arrivalSection, /UPDATE world SET next_tick/);
   assert.doesNotMatch(arrivalSection, /lastDecision \+ DECISION_INTERVAL_MS/);
-  assert.match(worker, /if \(Date.parse\(world.next_tick\) > now.getTime\(\)\) return \{ status: "not_due" \}/);
+  assert.match(worker, /if \(!experiment && Date.parse\(world.next_tick\) > now.getTime\(\)\) return \{ status: "not_due" \}/);
 });
 
 test("tracked production Wrangler config preserves the every-minute schedule",()=>{

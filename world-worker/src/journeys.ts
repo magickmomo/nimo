@@ -1,4 +1,5 @@
-import { shortestPath, visibleTiles, displayPoint, WORLD_SIZE, type Point } from "../../web/lib/world-map";
+import { JourneyError } from "./navigation";
+import { shortestPath, visibleTiles, displayPoint, WORLD_SIZE, inBounds, isWalkable, type Point } from "../../web/lib/world-map";
 import { completedStepIndex, resumeStartTime } from "./journey-clock";
 import { sightInsertSql } from "./sight-sql";
 
@@ -56,16 +57,18 @@ export async function recordSight(db: D1Database, position: Point): Promise<void
 }
 
 export async function beginJourney(db: D1Database, from: Point, to: Point, now = new Date()): Promise<Point[]> {
+  if (!inBounds(to)) throw new JourneyError("invalid_coordinates");
+  if (!isWalkable(to)) throw new JourneyError("blocked_destination");
+  if (from.x===to.x && from.y===to.y) throw new JourneyError("already_at_destination");
   const route = shortestPath(from,to);
-  if (!route) throw new Error("Destination is outside the world, blocked or unreachable");
-  if (route.length < 2) throw new Error("Already at that destination");
+  if (!route) throw new JourneyError("unreachable_destination");
   const claimed = await db.prepare(`UPDATE world_journey
     SET status='travelling',path=?,step_index=0,step_ms=?,started_at=?,paused_at=NULL
     WHERE id=1 AND status='idle'
       AND EXISTS(SELECT 1 FROM world_position WHERE id=1 AND x=? AND y=?)
       AND EXISTS(SELECT 1 FROM world_control WHERE id=1 AND autonomous_enabled=1)`)
     .bind(JSON.stringify(route), WALK_STEP_MS, now.toISOString(), from.x, from.y).run();
-  if (claimed.meta.changes !== 1) throw new Error("Nimo is already travelling or has moved");
+  if (claimed.meta.changes !== 1) throw new JourneyError("conflicting_journey_state");
   return route;
 }
 

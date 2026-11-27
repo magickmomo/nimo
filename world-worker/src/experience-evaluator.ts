@@ -8,7 +8,7 @@
 export type Signal = "none" | "low" | "high" | "unknown";
 export type VerifiedOutcome =
   | {type:"inspection";subject:string;comparison:"first"|"changed"|"unchanged";fruitRevealed?:boolean}
-  | {type:"eating";subject:string;priorInformativeTrials:number;before:number;after:number;censored:boolean}
+  | {type:"eating";subject:string;priorInformativeTrials?:number;before:number;after:number;censored:boolean}
   | {type:"picking";subject:string;fruit:string;inventoryBefore:number;inventoryAfter:number}
   | {type:"writing";subject:string;revision:number}
   | {type:"object_note";subject:string;first:boolean}
@@ -34,10 +34,10 @@ export function evaluateExperience(o:VerifiedOutcome):Assessment {
         evidence:`Verified ${o.comparison} inspection of ${o.subject}${o.fruitRevealed?"; fruit observed":""}.`};
     case "eating":{
       const difference=Math.round((o.after-o.before)*100)/100;
-      return {...base,repetition:o.priorInformativeTrials>0?"high":"none",
-        learning:o.censored?"unknown":o.priorInformativeTrials===0?"high":"low",
+      return {...base,repetition:(o.priorInformativeTrials??0)>0?"high":"none",
+        learning:o.censored?"unknown":o.priorInformativeTrials===undefined?"unknown":o.priorInformativeTrials===0?"high":"low",
         progress:difference<0?"high":"none",
-        evidence:`Verified ${o.subject} eating: hunger ${o.before}% -> ${o.after}% (change ${difference} points); ${o.priorInformativeTrials} prior informative trials; ${o.censored?"censored boundary":"uncensored"}.`};
+        evidence:`Verified ${o.subject} eating: hunger ${o.before}% -> ${o.after}% (change ${difference} points); ${o.censored?"censored boundary":"uncensored"}.`};
     }
     case "picking":
       return {...base,learning:"none",progress:o.inventoryAfter>o.inventoryBefore?"high":"none",

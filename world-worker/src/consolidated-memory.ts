@@ -2,7 +2,7 @@
  * retained in oracle_queries instead of competing with world experiences. */
 export type MemoryRow = {
   id:number; subject:string; statement:string; category:string; confidence:number;
-  status:string; created_at:string; updated_at:string; reviewed_at:string|null;
+  memory_kind?:string|null; status:string; created_at:string; updated_at:string; reviewed_at:string|null;
   evidence_count:number;
   reinforcement_hours:number;
 };
@@ -11,7 +11,7 @@ export const MAX_ACTIVE_MEMORIES=24;
 /** Only lived memories count towards the 24 active slots. Archived research
  * remains accessible through Oracle history, and retired records remain in D1. */
 export async function consolidatedMemories(db:D1Database):Promise<MemoryRow[]> {
-  const result=await db.prepare(`SELECT m.id,m.subject,m.statement,m.category,m.confidence,m.status,
+  const result=await db.prepare(`SELECT m.id,m.subject,m.statement,m.category,m.confidence,m.status,m.memory_kind,
       m.created_at,m.updated_at,m.reviewed_at,
       (SELECT COUNT(*) FROM memory_evidence_v2 e WHERE e.memory_id=m.id) AS evidence_count,
       (SELECT COUNT(DISTINCT substr(ev.created_at,1,13))
@@ -24,7 +24,7 @@ export async function consolidatedMemories(db:D1Database):Promise<MemoryRow[]> {
   return result.results;
 }
 export async function memoryEvidence(db:D1Database,id:number) {
-  const r=await db.prepare(`SELECT e.id,e.created_at,e.kind,e.action,e.content
+  const r=await db.prepare(`SELECT e.id,e.created_at,e.kind,e.action,e.content,me.relationship
     FROM memory_evidence_v2 me JOIN events e ON e.id=me.event_id
     WHERE me.memory_id=? ORDER BY e.id DESC LIMIT 30`).bind(id).all();
   return r.results;

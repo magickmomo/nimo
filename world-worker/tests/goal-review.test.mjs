@@ -42,10 +42,10 @@ test("a waiting visitor suppresses passive-loop nudge",()=>{
  const events=Array.from({length:9},()=>({kind:"thought",action:"THINK"}));
  assert.doesNotMatch(goalReviewContext("Maintain a reserve",0.7,["amber"],events,true).guidance,/repeatedly paused/);
 });
-test("goal-review remains computed but is omitted from compact model context",()=>{
- assert.match(world,/goalReview=goalReviewContext\(/);
+test("unused goal review is omitted from the decision path",()=>{
+ assert.doesNotMatch(world,/goalReview=goalReviewContext\(/);
  assert.doesNotMatch(world,/curiosityGuidance:curiosityPrompt,goalReview/);
- assert.match(world,/curiosityPrompt,goalReview,seenObjectIds/);
+ assert.doesNotMatch(world,/curiosityPrompt,goalReview,seenObjectIds/);
  assert.doesNotMatch(src,/D1Database|\.prepare\(|\.batch\(/);
 });
 

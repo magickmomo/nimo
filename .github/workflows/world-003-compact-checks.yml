@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install worker dependencies
         run: npm install --prefix world-worker --no-audit --no-fund
       - name: Test complete fresh-start reset against a populated database
