@@ -39,3 +39,5 @@ jobs:
           if-no-files-found: ignore
 
 # Run bounded-error observation after offline verification.
+
+# Retry after updating offline regression assertions.
