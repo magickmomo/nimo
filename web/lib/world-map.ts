@@ -54,18 +54,18 @@ export function destination(from: Point, direction: Direction): Point {
   };
   return { x: from.x + delta[direction].x, y: from.y + delta[direction].y };
 }
-export function visibleTiles(position: Point): Point[] {
+export function visibleTiles(position: Point, radius = PERCEPTION_RADIUS): Point[] {
   const tiles: Point[] = [];
-  for (let y = Math.max(0,position.y-PERCEPTION_RADIUS); y <= Math.min(WORLD_SIZE-1,position.y+PERCEPTION_RADIUS); y++)
-    for (let x = Math.max(0,position.x-PERCEPTION_RADIUS); x <= Math.min(WORLD_SIZE-1,position.x+PERCEPTION_RADIUS); x++)
+  for (let y = Math.max(0,position.y-radius); y <= Math.min(WORLD_SIZE-1,position.y+radius); y++)
+    for (let x = Math.max(0,position.x-radius); x <= Math.min(WORLD_SIZE-1,position.x+radius); x++)
       tiles.push({x,y});
   return tiles;
 }
-export function perceive(position: Point) {
-  const visible = visibleTiles(position);
+export function perceive(position: Point, radius = PERCEPTION_RADIUS) {
+  const visible = visibleTiles(position,radius);
   const visibleObjects = WORLD_OBJECTS.filter(o =>
-    Math.abs(o.x-position.x) <= PERCEPTION_RADIUS &&
-    Math.abs(o.y-position.y) <= PERCEPTION_RADIUS
+    Math.abs(o.x-position.x) <= radius &&
+    Math.abs(o.y-position.y) <= radius
   ).map(o => ({ id:o.id, type:o.kind, x:o.x, y:o.y,
     distance: Math.abs(o.x-position.x)+Math.abs(o.y-position.y) }));
   const directions = (["north","south","east","west"] as const).map(direction => {
@@ -73,8 +73,8 @@ export function perceive(position: Point) {
     const obstacle = objectAt(to);
     return { direction, canMove:isWalkable(to), blockedBy:!inBounds(to)?"world edge":obstacle?.kind ?? null };
   });
-  return { position, worldSize: WORLD_SIZE, perceptionRadius:PERCEPTION_RADIUS,
-    visionShape:"9x9 square clipped to world",terrain:"grass",
+  return { position, worldSize: WORLD_SIZE, perceptionRadius:radius,
+    visionShape:radius>=WORLD_SIZE?"entire 16x16 world":"9x9 square clipped to world",terrain:"grass",
     visibleTiles: visible, visibleObjects, directions,
     coordinates:"zero-based: x increases east, y increases south" };
 }
@@ -134,12 +134,12 @@ export function directionOf(from: Point, to: Point): string {
   const horizontal = dx < 0 ? "west" : dx > 0 ? "east" : "";
   return vertical && horizontal ? `${vertical}-${horizontal}` : vertical || horizontal || "here";
 }
-export function modelPerception(position: Point) {
-  const raw = perceive(position);
+export function modelPerception(position: Point, radius = PERCEPTION_RADIUS) {
+  const raw = perceive(position,radius);
   return {
     position: displayPoint(position),
     worldSize: WORLD_SIZE,
-    perceptionRadius: PERCEPTION_RADIUS,
+    perceptionRadius: radius,
     visionShape: raw.visionShape,
     visibleTiles: raw.visibleTiles.map(p => ({
       ...displayPoint(p), terrain:"grass", object: objectAt(p)?.kind ?? null,
