@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import ts from "typescript";
+import {build} from "esbuild";
 const root=fileURLToPath(new URL("../",import.meta.url));
 const read=p=>readFileSync(new URL(p,import.meta.url),"utf8");
 
@@ -115,13 +116,13 @@ test("completed research is fetched and saved even if the eight-minute deadline 
 });
 
 test("Oracle has a two-tile speaking area around its 2x2 collision footprint",async()=>{
- const mapJs=ts.transpileModule(read("../../web/lib/world-map.ts"),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
- const mapUrl="data:text/javascript;base64,"+Buffer.from(mapJs).toString("base64");
- const code=read("../src/oracle.ts")
-   .replace('import {withinOracleInteractionArea, type Point} from "../../web/lib/world-map";',
-    'import {withinOracleInteractionArea} from "'+mapUrl+'";');
- const js=ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
- const oracle=await import("data:text/javascript;base64,"+Buffer.from(js).toString("base64"));
+ const bundle=await build({entryPoints:[fileURLToPath(new URL("../src/oracle.ts",import.meta.url))],bundle:true,platform:"node",format:"esm",write:false});
+ const oracle=await import("data:text/javascript;base64,"+Buffer.from(bundle.outputFiles[0].text).toString("base64"));
+ const prompt=oracle.groundedOraclePrompt();
+ assert.match(prompt,/"growthSecondsAfterWatering":300/);
+ assert.match(prompt,/"inventoryCapacity":9/);
+ assert.match(prompt,/do not search the web for Nimo's private world/);
+ assert.match(prompt,/external questions use web research/);
  // East side of the monument, including the user's pictured approach.
  assert.equal(oracle.adjacentToOracle({x:3,y:13}),true);
  assert.equal(oracle.adjacentToOracle({x:4,y:13}),true);
