@@ -51,23 +51,30 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
   await resumeJourney(DB,new Date(clock.startedAt));
   const calls=[], decisions=[], recall=[], reviews=[], attempts=[], privateTrace=[];
   let firstContext=null;
-  const thoughts=[],thoughtExposure=[];
+  const thoughts=[],thoughtExposure=[],intentions=[];
   const getMemory=sqlite.prepare("SELECT id,subject,statement,memory_kind,confidence,status,updated_at FROM consolidated_memories_v2 WHERE subject=?");
   const getDecisionTrace=sqlite.prepare("SELECT id,status FROM action_trace WHERE id>? AND kind='decide' ORDER BY id DESC LIMIT 1");
   const target=offline?1:50;
   let primary=0;
   let finished=false;
   const env={DB,OPENAI_API_KEY:offline?"offline-placeholder":key,OPENAI_MODEL:"gpt-6-luna",
-    MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:process.env.STRUCTURED_THINKING};
+    MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:process.env.STRUCTURED_THINKING,INTENTION_PROGRESS:process.env.INTENTION_PROGRESS};
   const mute=()=>{};
   console.error=mute;
   console.warn=mute;
   console.log=(tag,raw)=>{
     // Do not publish historical records, text arguments, thoughts, intentions,
     // requests, literal queries, or excerpts in a GitHub workflow artifact.
-    if(!["NIMO_DECISION_OUTCOME","NIMO_RECALL","NIMO_CONSOLIDATION","NIMO_STRUCTURED_THOUGHT"].includes(tag))return;
+    if(!["NIMO_DECISION_OUTCOME","NIMO_RECALL","NIMO_CONSOLIDATION","NIMO_STRUCTURED_THOUGHT","NIMO_INTENTION_PROGRESS"].includes(tag))return;
     const data=JSON.parse(raw);
     if(privateOutput)privateTrace.push({tag,data});
+    if(tag==="NIMO_INTENTION_PROGRESS"){
+      const {decisionKey,before,after,update,newestAttempt}=data;
+      intentions.push({decisionKey,changed:before!==after,hasIntention:Boolean(after),
+        operation:update?.operation??null,evidenceEventIds:update?.evidenceEventIds??[],
+        attemptStatus:newestAttempt?.status??null});
+      return;
+    }
     if(tag==="NIMO_STRUCTURED_THOUGHT"){
       const {decisionKey,eventId,purpose,nextStep,evidenceEventIds}=data;
       thoughts.push({decisionKey,eventId,purpose,hasNextStep:nextStep!==null,evidenceEventIds});
@@ -159,7 +166,7 @@ async function run({snapshot,output,offline,capturedAt,privateOutput}){
         const m=content.match(/arrived at \((\d+), (\d+)\) after (\d+) steps/);
         return {eventId:id,arrival:m?{x:Number(m[1]),y:Number(m[2]),steps:Number(m[3])}:null};
       });
-    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,thoughts,thoughtExposure,
+    writeFileSync(output,JSON.stringify({initial,clock,firstContext,finished,attempts,decisions,recall,reviews,calls,travels,travelOutcomes,thoughts,thoughtExposure,intentions,
       finalPosition:getPosition(),finalNeeds:{fullness:100*(1-final.emotions.hunger),curiosity:final.emotions.curiosity},
       finishedAt:new Date().toISOString()},null,2));
     if(privateOutput)writeFileSync(privateOutput,JSON.stringify(privateTrace),{mode:0o600});
