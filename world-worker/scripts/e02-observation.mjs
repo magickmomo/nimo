@@ -60,7 +60,7 @@ try {
   if(paid){
     // Finish the last physical journey without making a 201st decision.
     const {advanceJourney}=await loadWorldWorker();
-    while((await advanceJourney(DB)).status==="travelling")await setTimeout(750);
+    while((await advanceJourney(DB,new Date(),true)).status==="travelling")await setTimeout(750);
     // Consolidation is observed, not required for success.
   }
 } finally {
