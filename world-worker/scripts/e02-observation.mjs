@@ -13,7 +13,7 @@ const {DB,sqlite}=isolatedWorld();
 const {tick,researchOracleQuestion}=await loadWorldWorker();
 sqlite.exec(`DROP TRIGGER nimo_oracle_charge_on_insert; DROP TRIGGER nimo_oracle_daily_limit; CREATE TRIGGER experiment_oracle_limit BEFORE INSERT ON oracle_queries WHEN (SELECT COUNT(*) FROM oracle_queries)>=3 BEGIN SELECT RAISE(ABORT,'Three questions per run'); END;`);
 const env={DB,OPENAI_API_KEY:paid?process.env.OPENAI_API_KEY:"offline-no-key",
-  KNOWLEDGEABLE_ORACLE:"true",COMPACT_CONTEXT:"true",EXPERIMENT_ACCESS:"true",OPENAI_MODEL:"gpt-6-luna",MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:"true",INTENTION_PROGRESS:"true"};
+  KNOWLEDGEABLE_ORACLE:"true",COMPACT_CONTEXT:"true",EXPERIMENT_ACCESS:"true",OPENAI_MODEL:"gpt-4.1-mini",MEMORY_CONSOLIDATION_ENABLED:"true",STRUCTURED_THINKING:"true",INTENTION_PROGRESS:"true"};
 const calls=[];
 const telemetry=[];
 const originalFetch=globalThis.fetch;
@@ -25,9 +25,10 @@ globalThis.fetch=async (url,init)=>{
       arguments:JSON.stringify({purpose:"reflection",assessment:"I can see grass around me.",nextStep:null,evidenceEventIds:[],intentDisposition:"keep"})}]});
   }
   assert.ok(String(url).startsWith("https://api.openai.com/v1/"),"Unexpected outbound request");
+  const started=performance.now();
   const response=await originalFetch(url,init);
   const body=await response.clone().json().catch(()=>null);
-  calls.push({endpoint:new URL(url).pathname,model:request.model,status:response.status,usage:body?.usage,responseStatus:body?.status,outputTypes:body?.output?.map(item=>item.type),functionNames:body?.output?.filter(item=>item.type==="function_call").map(item=>item.name),errorCode:body?.error?.code});
+  calls.push({endpoint:new URL(url).pathname,model:request.model,latencyMs:Math.round(performance.now()-started),status:response.status,usage:body?.usage,responseStatus:body?.status,outputTypes:body?.output?.map(item=>item.type),functionNames:body?.output?.filter(item=>item.type==="function_call").map(item=>item.name),errorCode:body?.error?.code});
   return response;
 };
 const originalLog=console.log;
