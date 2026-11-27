@@ -41,3 +41,5 @@ jobs:
 # Run bounded-error observation after offline verification.
 
 # Retry after updating offline regression assertions.
+
+# Retry after preserving quiet-nook regression assertion.
