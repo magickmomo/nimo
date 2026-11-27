@@ -1,6 +1,6 @@
 # W003-E01 — Voluntary structured thinking
 
-**State:** proposed for owner approval. E00 was accepted on 27 November 2026 as the comparison baseline. This proposal authorizes neither implementation nor a paid run.
+**State:** implemented and screened after owner approval on 27 November 2026. [Verification](verification.md) · [results](results.md). E00 remains the accepted comparison baseline. E01 awaits acceptance.
 
 Sources: [E00 interpretation](../W003-E00/analysis.md), [corrected results](../W003-E00/corrected-results.md), [snapshot restore procedure](../W003-E00/restore.md), [E012 reference](https://github.com/magickmomo/nimo/blob/feac030561151122a55c01d4eaa28293825984d7/nimo-core/nimo_core.py).
 
