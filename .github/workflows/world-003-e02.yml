@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   run:
-    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run the approved W003-E02 experiment once'
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run the approved W003-E02 diagnostic repeat once'
     runs-on: ubuntu-latest
     environment: world-004
     timeout-minutes: 30
