@@ -1,0 +1,4 @@
+# Experiment template
+ID / hypothesis / approval / parent commit / changed variable / unchanged controls / snapshot ID and hash / clock policy / model and settings / decision limit / budget / offline tests / payload profile / run ID / artifact ID / limitations.
+Export manifest.json and results.json: attempted and valid decisions, primary and auxiliary calls, input/cached/output/total tokens by model, actions and verified outcomes, navigation failures by reason, initial/final needs, intention changes, memory proposals and committed changes, evidence IDs, recall IDs and rationale, knowledge application traces. Include schema version and redaction policy. Keep private raw artifacts in secure storage, not Git.
+Analysis: observations vs hypotheses, comparison to accepted baseline, confounders, acceptance criteria, conclusion (accepted/refine/rejected/inconclusive), owner approval and next step.
