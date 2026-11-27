@@ -1,0 +1,94 @@
+name: W003-E00 corrected baseline
+on:
+  push:
+    branches: [experiment/world-003-compact-cognition]
+    paths: ['.github/workflows/world-003-e00-baseline.yml']
+permissions:
+  contents: read
+concurrency:
+  group: world-003-e00-corrected
+  cancel-in-progress: false
+jobs:
+  snapshot-and-run:
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run the approved W003-E00 baseline once'
+    runs-on: ubuntu-latest
+    environment: world-004
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify worker and snapshot tooling without model calls
+        run: |
+          npm install --prefix world-worker --no-audit --no-fund
+          npm run typecheck --prefix world-worker
+          npm test --prefix world-worker
+      - name: Capture live D1 in read-only mode
+        working-directory: world-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          umask 077
+          capture_started=$(date -u +%FT%T.%3NZ)
+          npx wrangler d1 export nimo-world --remote --output="$RUNNER_TEMP/e00.sql" > "$RUNNER_TEMP/e00-export.log" 2>&1 ||
+            { echo "::error::Read-only D1 export failed"; exit 1; }
+          export_completed=$(date -u +%FT%T.%3NZ)
+          test -s "$RUNNER_TEMP/e00.sql"
+          printf '%s\n' "$capture_started" > "$RUNNER_TEMP/e00-captured-at"
+          jq -n --arg start "$capture_started" --arg end "$export_completed" --arg commit "$GITHUB_SHA"             --arg digest "$(sha256sum "$RUNNER_TEMP/e00.sql" | cut -d ' ' -f 1)"             '{captureStartedAt:$start,exportCompletedAt:$end,commit:$commit,sqlSha256:$digest,runnerSchema:34,clockPolicy:"stored-needs-and-active-timers-v1"}' > "$RUNNER_TEMP/e00-manifest.json"
+      - name: Verify two independent restores of the same snapshot
+        run: |
+          stamp=$(cat "$RUNNER_TEMP/e00-captured-at")
+          for copy in 1 2; do
+            node world-worker/scripts/snapshot-experiment.mjs "$RUNNER_TEMP/e00.sql" "$RUNNER_TEMP/e00-offline-$copy.json" "$stamp" --offline
+          done
+          node --input-type=module - "$RUNNER_TEMP" <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const dir=process.argv[2];
+          const read=id=>JSON.parse(readFileSync(`${dir}/e00-offline-${id}.json`));
+          const a=read(1), b=read(2);
+          assert.ok(a.finished && b.finished);
+          assert.equal(a.initial.snapshotSha256,b.initial.snapshotSha256);
+          assert.deepEqual(a.firstContext,b.firstContext);
+          console.log("Two isolated restores matched on initial decision context and snapshot digest.");
+          JS
+      - name: Encrypt immutable snapshot
+        run: node world-worker/scripts/snapshot-envelope.mjs seal research/experiments/W003-E00/snapshot-public-key.pem "$RUNNER_TEMP/e00.sql" "$RUNNER_TEMP/e00-snapshot.enc"
+      - name: Retain encrypted baseline before any paid call
+        uses: actions/upload-artifact@v4
+        with:
+          name: w003-e00-encrypted-baseline
+          path: |
+            ${{ runner.temp }}/e00-snapshot.enc
+            ${{ runner.temp }}/e00-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Run the approved 50 decisions
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          umask 077
+          stamp=$(cat "$RUNNER_TEMP/e00-captured-at")
+          node world-worker/scripts/snapshot-experiment.mjs "$RUNNER_TEMP/e00.sql" "$RUNNER_TEMP/e00-results.json" "$stamp" "$RUNNER_TEMP/e00-private.json"
+      - name: Encrypt detailed evidence and remove raw data
+        if: always()
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/e00.sql" "$RUNNER_TEMP/e00-private.json" "$RUNNER_TEMP/e00-export.log" "$RUNNER_TEMP"/e00-offline-*.json' EXIT
+          if test -s "$RUNNER_TEMP/e00-private.json"; then
+            node world-worker/scripts/snapshot-envelope.mjs seal research/experiments/W003-E00/snapshot-public-key.pem "$RUNNER_TEMP/e00-private.json" "$RUNNER_TEMP/e00-evidence.enc"
+          fi
+      - name: Retain encrypted evidence and redacted metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: w003-e00-results
+          path: |
+            ${{ runner.temp }}/e00-results.json
+            ${{ runner.temp }}/e00-evidence.enc
+          if-no-files-found: ignore
+          retention-days: 90
