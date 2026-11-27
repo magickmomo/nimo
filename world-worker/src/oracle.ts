@@ -19,7 +19,7 @@ export function oracleInvitation(firstArrival:boolean,status:string|null):string
    return "The Oracle murmurs: 'One answer has returned. Beyond it lie other things you have not yet wondered about.'";
  return "The Oracle stirs: 'Beyond this small world are countless things to learn. What have you wondered about? You may ask me, or simply pass by.'";
 }
-export async function askOracle(db:D1Database,position:Point,question:string) {
+export async function askOracle(db:D1Database,position:Point,question:string,free=false) {
   if(!adjacentToOracle(position))throw Error("Stand within two steps of the Oracle monument");
   if(!question.trim()||question.length>MAX_QUESTION)throw Error("Ask a question of 1–500 characters");
   // Only one unanswered research request may be in flight. This is a
@@ -27,7 +27,7 @@ export async function askOracle(db:D1Database,position:Point,question:string) {
   const busy=await db.prepare("SELECT id FROM oracle_queries WHERE status IN ('pending','researching') LIMIT 1").first();
   if(busy)throw Error("The Oracle is already researching a question");
   const balance=await db.prepare("SELECT coins FROM vending_state WHERE id=1").first<{coins:number}>();
-  if(!balance||balance.coins<ORACLE_COST)throw Error(`The Oracle costs ${ORACLE_COST} coins; available: ${balance?.coins??0}`);
+  if(!free&&(!balance||balance.coins<ORACLE_COST))throw Error(`The Oracle costs ${ORACLE_COST} coins; available: ${balance?.coins??0}`);
   // Migration 022 atomically deducts the price on insert and refunds failed research.
   const row=await db.prepare("INSERT INTO oracle_queries(question) VALUES(?) RETURNING id")
     .bind(question.trim()).first<{id:number}>();
