@@ -474,7 +474,7 @@ export async function tick(env: Env, experiment = false) {
   await drainAgentInbox(env);
   // Complete or advance an existing journey before considering another LLM call.
   // No AI decisions occur while the physical action remains in progress.
-  const journey = await advanceJourney(env.DB, now);
+  const journey = await advanceJourney(env.DB, now, experiment);
   if (journey.status === "travelling" || journey.status === "paused")
     return {status:"action_in_progress"};
   const world = await getWorld(env.DB);
@@ -518,10 +518,10 @@ export async function tick(env: Env, experiment = false) {
   await recordSight(env.DB,position);
   await refreshWildflowers(env.DB,now.getTime());
   const wildflowers=await wildflowerSnapshot(env.DB);
-  const perception = modelPerception(position);
+  const perception = experiment ? modelPerception(position,WORLD_SIZE) : modelPerception(position);
   const flowerPerception = {...perception,
     wildflowers:wildflowers.patches
-      .filter(p=>Math.abs(p.x-position.x)<=4&&Math.abs(p.y-position.y)<=4)
+      .filter(p=>experiment || (Math.abs(p.x-position.x)<=4&&Math.abs(p.y-position.y)<=4))
       .map(p=>({id:p.id,x:p.x+1,y:p.y+1,blooms:p.blooms,
         directlyAdjacent:adjacent(position,p),description:"Low wildflowers in a sparse patch of grass"}))};
   const rate=await hungerRate(env.DB);
