@@ -20,6 +20,7 @@ export type ActionMenu = {
   flowerPlantDirections: Direction[];
   heldFlowerKinds: ("wildflower"|"flower_seed")[];
   restAtNook:boolean;
+  travelObjectIds?:string[];
 };
 const dir = (d:string):d is Direction => ["north","south","east","west"].includes(d);
 
@@ -37,11 +38,12 @@ export function buildActionMenu(
   garden:{plotIds:string[];tools:string[];saleItems:string[]}={plotIds:[],tools:[],saleItems:[]},
   projects:{canCreate:boolean;editableIds:number[]}={canCreate:false,editableIds:[]},
   sketchbook:{owned:boolean;activeId:number|null}={owned:false,activeId:null},
-  oracle:{adjacent:boolean;busy:boolean;coins:number}={adjacent:false,busy:false,coins:0},
+  oracle:{adjacent:boolean;busy:boolean;coins:number;free?:boolean}={adjacent:false,busy:false,coins:0},
   inspectableArtworkIds: readonly number[] = [],
   flowers:{pickableIds:string[];plantDirections:Direction[];carriedKinds:("wildflower"|"flower_seed")[]}
    ={pickableIds:[],plantDirections:[],carriedKinds:[]},
   restAtNook=false,
+  travelObjectIds:string[]=[],
 ):ActionMenu {
   if(hasPendingVisitor) return {tools:[],inspectDirections:[],noteObjectIds:[],pickTreeIds:[],heldFruit:[],vendingItemIds:[],gardenPlotIds:[],gardenTools:[],saleItems:[],projectIds:[],sketchIds:[],inspectArtworkIds:[],flowerPatchIds:[],flowerPlantDirections:[],heldFlowerKinds:[],restAtNook:false};
   const inspectDirections = directions
@@ -52,6 +54,7 @@ export function buildActionMenu(
     .filter(id=>knownIds.has(id) && !priority.blockedNoteIds.includes(id))
     .sort();
   const tools = ["write_document","travel_to","expand_world","read_document","search_memory"];
+  if(travelObjectIds.length)tools.push("travel_to_object");
   if(inspectDirections.length) tools.push("inspect");
   if(noteObjectIds.length) tools.push("remember_object");
   const pickTreeIds=food.inventory.length<food.capacity ? adjacentTreeIds.filter(id=>food.trees.some(t=>t.id===id && (t.last_seen_stock??0)>0)) : [];
@@ -61,7 +64,7 @@ export function buildActionMenu(
   const vendingItemIds=vending.adjacent&&vending.inspected?vending.itemIds:[];
   if(vendingItemIds.length)tools.push("buy_item");
   tools.push(...garden.tools);
-  if(oracle.adjacent&&!oracle.busy&&oracle.coins>=10)tools.push("ask_oracle");
+  if(oracle.adjacent&&!oracle.busy&&(oracle.free||oracle.coins>=10))tools.push("ask_oracle");
   if(projects.canCreate)tools.push("create_project");
   if(projects.editableIds.length)tools.push("update_project");
   if(sketchbook.owned){if(sketchbook.activeId===null)tools.push("start_sketch");else tools.push("draw_strokes","finish_sketch");}
@@ -70,7 +73,7 @@ export function buildActionMenu(
   if(flowers.plantDirections.length&&flowers.carriedKinds.includes("flower_seed"))tools.push("plant_wildflower_seed");
   if(flowers.carriedKinds.length)tools.push("discard_wildflower");
   if(restAtNook)tools.push("rest");
-  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId],inspectArtworkIds:[...inspectableArtworkIds],flowerPatchIds:flowers.pickableIds,flowerPlantDirections:flowers.plantDirections,heldFlowerKinds:flowers.carriedKinds,restAtNook};
+  return {tools,inspectDirections,noteObjectIds,pickTreeIds,heldFruit,vendingItemIds,gardenPlotIds:garden.plotIds,gardenTools:garden.tools,saleItems:garden.saleItems,projectIds:projects.editableIds,sketchIds:sketchbook.activeId===null?[]:[sketchbook.activeId],inspectArtworkIds:[...inspectableArtworkIds],flowerPatchIds:flowers.pickableIds,flowerPlantDirections:flowers.plantDirections,heldFlowerKinds:flowers.carriedKinds,restAtNook,travelObjectIds};
 }
 
 const string = (_maxLength:number) => ({type:"string"});
@@ -93,6 +96,7 @@ export function decisionResponseFormat(menu:ActionMenu, hasPendingVisitor=false)
       name:{type:"string",enum:["write_document"]},
       path:string(44),content:string(2000),
     }));
+    if(menu.tools.includes("travel_to_object")&&menu.travelObjectIds?.length)variants.push(obj({name:{type:"string",enum:["travel_to_object"]},objectId:{type:"string",enum:menu.travelObjectIds}}));
     if(menu.tools.includes("travel_to"))variants.push(obj({
       name:{type:"string",enum:["travel_to"]},
       x:{type:"integer"},y:{type:"integer"},
